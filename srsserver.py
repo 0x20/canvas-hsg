@@ -25,6 +25,8 @@ from pydantic import BaseModel
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import mmap
+import qrcode
+import io
 
 # Configuration
 HOST="localhost"
@@ -191,6 +193,10 @@ class ImageDisplayRequest(BaseModel):
 class YoutubePlayRequest(BaseModel):
     youtube_url: str
     duration: Optional[int] = None  # None = play full video
+
+class QRCodeRequest(BaseModel):
+    content: str  # URL or text to encode in QR code
+    duration: Optional[int] = None  # seconds to display, None = forever
 
 class DisplayCapabilityDetector:
     """Comprehensive display capability detection for optimal resolution utilization"""
@@ -1440,6 +1446,112 @@ class StreamManager:
         except:
             return None
     
+    async def generate_and_display_qr_code(self, content: str, duration: Optional[int] = None) -> bool:
+        """Generate QR code with text overlay and display it"""
+        try:
+            temp_dir = Path("/tmp/stream_images")
+            temp_dir.mkdir(exist_ok=True)
+            
+            # Get optimal display resolution
+            width, height, refresh = self.display_detector.get_resolution_for_content_type("image")
+            
+            # Create QR code
+            qr = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=4,
+            )
+            qr.add_data(content)
+            qr.make(fit=True)
+            
+            # Generate QR code image
+            qr_image = qr.make_image(fill_color="black", back_color="white")
+            
+            # Calculate QR code size (make it as large as possible while leaving room for text)
+            text_height = height // 8  # Reserve top portion for text
+            available_height = height - text_height
+            available_width = width
+            
+            # QR code should be square, so use the smaller dimension
+            qr_size = min(available_width, available_height) - 40  # Leave some margin
+            
+            # Resize QR code
+            qr_image = qr_image.resize((qr_size, qr_size), Image.Resampling.NEAREST)
+            
+            # Create final image with display resolution
+            final_image = Image.new('RGB', (width, height), 'white')
+            
+            # Paste QR code centered in bottom portion
+            qr_x = (width - qr_size) // 2
+            qr_y = text_height + (available_height - qr_size) // 2
+            final_image.paste(qr_image, (qr_x, qr_y))
+            
+            # Add text at the top
+            draw = ImageDraw.Draw(final_image)
+            
+            # Try to load a font, fallback to default
+            try:
+                font_size = text_height // 3
+                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+            except:
+                try:
+                    font = ImageFont.load_default()
+                except:
+                    font = None
+            
+            # Split content into lines if it's too long
+            max_chars_per_line = width // (font_size // 2) if font else 50
+            lines = []
+            words = content.split()
+            current_line = ""
+            
+            for word in words:
+                if len(current_line + " " + word) <= max_chars_per_line:
+                    current_line += " " + word if current_line else word
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            
+            # Limit to 3 lines
+            lines = lines[:3]
+            
+            # Draw text centered
+            line_height = font_size + 10 if font else 20
+            total_text_height = len(lines) * line_height
+            start_y = (text_height - total_text_height) // 2
+            
+            for i, line in enumerate(lines):
+                if font:
+                    bbox = draw.textbbox((0, 0), line, font=font)
+                    text_width = bbox[2] - bbox[0]
+                else:
+                    text_width = len(line) * 10  # rough estimate
+                
+                text_x = (width - text_width) // 2
+                text_y = start_y + i * line_height
+                
+                if font:
+                    draw.text((text_x, text_y), line, fill="black", font=font)
+                else:
+                    draw.text((text_x, text_y), line, fill="black")
+            
+            # Save the image
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            image_path = temp_dir / f"qrcode_{timestamp}.jpg"
+            final_image.save(str(image_path), "JPEG", quality=95)
+            
+            # Display the image (duration=0 means forever)
+            display_duration = duration if duration is not None else 0
+            return await self.display_image(str(image_path), display_duration)
+            
+        except Exception as e:
+            logging.error(f"Failed to generate and display QR code: {e}")
+            return False
+    
     def cleanup(self):
         """Clean up all resources"""
         try:
@@ -1560,6 +1672,16 @@ async def play_youtube_video(request: YoutubePlayRequest):
         return {"message": f"Playing YouTube video with DRM acceleration{duration_text}"}
     else:
         raise HTTPException(status_code=500, detail="Failed to play YouTube video")
+
+@app.post("/display/qrcode")
+async def display_qr_code(request: QRCodeRequest):
+    """Generate and display a QR code with text overlay"""
+    success = await stream_manager.generate_and_display_qr_code(request.content, request.duration)
+    if success:
+        duration_text = f" for {request.duration}s" if request.duration else " (forever)"
+        return {"message": f"Displaying QR code for '{request.content}'{duration_text}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to generate and display QR code")
 
 @app.post("/background/show")
 async def show_background():
