@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HSG Canvas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            color: #2a5298;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-links {
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .nav-link {
+            display: inline-block;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 20px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        .nav-link:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .nav-link.diagnostic {
+            background: linear-gradient(135deg, #fd746c 0%, #ff9068 100%);
+            box-shadow: 0 4px 15px rgba(253, 116, 108, 0.3);
+        }
+
+        .nav-link.diagnostic:hover {
+            box-shadow: 0 6px 20px rgba(253, 116, 108, 0.4);
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            padding: 25px;
+            margin: 20px 0;
+            border-radius: 12px;
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+
+        h2 {
+            color: #2a5298;
+            margin-bottom: 15px;
+            font-size: 1.4rem;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        p {
+            color: #666;
+            margin-bottom: 15px;
+            line-height: 1.5;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            margin: 5px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button.danger {
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            box-shadow: 0 4px 15px rgba(220, 53, 69, 0.3);
+        }
+
+        button.danger:hover {
+            box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
+        }
+
+        input, select {
+            padding: 12px;
+            margin: 5px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            width: 220px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin: 15px 0;
+            font-weight: 500;
+        }
+
+        .status.success {
+            background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+
+        .stat-item {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .stat-item strong {
+            color: #2a5298;
+            display: block;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+        }
+
+        .streams-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .stream-item {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #28a745;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+            
+            .container {
+                padding: 10px;
+            }
+            
+            input, select {
+                width: 100%;
+                margin: 5px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 HSG Canvas</h1>
+            <p><span class="status-indicator"></span>Ready for streaming and media playback on Raspberry Pi</p>
+        </div>
+
+        <nav class="nav-links">
+            <a href="/docs" class="nav-link">📚 API Documentation</a>
+            <a href="/docs/quick-start" class="nav-link">⚡ Quick Start Guide</a>
+            <a href="/diagnostics" class="nav-link diagnostic">🔍 System Diagnostics</a>
+            <a href="/test/drm" class="nav-link diagnostic">🖥️ DRM Test</a>
+            <a href="/status" class="nav-link">📊 Server Status</a>
+            <a href="/health" class="nav-link">💚 Health Check</a>
+        </nav>
+        
+        <div class="grid">
+            <!-- Stream Management -->
+            <div class="card">
+                <h2>📡 Start Stream</h2>
+                <p>Republish a file, camera, or other stream to your SRS server</p>
+                <input type="text" id="streamKey" placeholder="Stream Key (e.g., mystream)" value="mystream">
+                <input type="text" id="sourceUrl" placeholder="Source: /path/file.mp4 or rtsp://camera/stream">
+                <select id="streamProtocol">
+                    <option value="rtmp">RTMP</option>
+                </select>
+                <br>
+                <button onclick="startStream()">Start Stream</button>
+            </div>
+
+            <!-- Playback Control -->
+            <div class="card">
+                <h2>▶️ Playback Control</h2>
+                <p>Watch streams on your Pi display</p>
+                <input type="text" id="playbackKey" placeholder="Stream Key to play" value="oke">
+                <select id="player">
+                    <option value="mpv">MPV (Recommended)</option>
+                    <option value="ffplay">FFplay</option>
+                    <option value="omxplayer">OMXPlayer</option>
+                    <option value="vlc">VLC</option>
+                </select>
+                <select id="playMode">
+                    <option value="optimized">Optimized</option>
+                    <option value="fullscreen">Fullscreen</option>
+                    <option value="basic">Basic</option>
+                </select>
+                <select id="playProtocol">
+                    <option value="rtmp">RTMP</option>
+                    <option value="http_flv">HTTP-FLV (Lower latency)</option>
+                    <option value="hls">HLS</option>
+                </select>
+                <br>
+                <button onclick="startPlayback()">Start Playback</button>
+                <button onclick="stopPlayback()" class="danger">Stop Playback</button>
+            </div>
+        </div>
+
+        <!-- YouTube Playback -->
+        <div class="card">
+            <h2>📺 YouTube Playback</h2>
+            <p>Play YouTube videos directly on your Pi display</p>
+            <input type="url" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 300px;">
+            <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
+            <br>
+            <button onclick="playYoutube()">Play YouTube Video</button>
+            <button onclick="stopPlayback()" class="danger">Stop Video</button>
+        </div>
+
+        <div class="grid">
+            <!-- Background Control -->
+            <div class="card">
+                <h2>🖼️ Background Control</h2>
+                <p>Manage the default background image</p>
+                <input type="file" id="backgroundFile" accept="image/*">
+                <br>
+                <button onclick="setBackground()">Set New Background</button>
+                <button onclick="showBackground()">Show Background Now</button>
+            </div>
+
+            <!-- Image Display -->
+            <div class="card">
+                <h2>🖼️ Display Image</h2>
+                <p>Show an image fullscreen on your Pi display</p>
+                <input type="file" id="imageFile" accept="image/*">
+                <input type="number" id="imageDuration" placeholder="Duration (seconds)" value="10" min="1" max="300">
+                <br>
+                <button onclick="displayImage()">Display Image</button>
+                <button onclick="stopPlayback()" class="danger">Stop Display</button>
+            </div>
+        </div>
+
+        <!-- Quick Actions -->
+        <div class="card">
+            <h2>⚡ Quick Actions</h2>
+            <input type="text" id="switchKey" placeholder="New stream key">
+            <button onclick="switchStream()">Switch Stream</button>
+            <button onclick="switchPlayer('mpv')">Switch to MPV</button>
+            <button onclick="switchPlayer('ffplay')">Switch to FFplay</button>
+            <button onclick="refreshStatus()">Refresh Status</button>
+        </div>
+
+        <div class="grid">
+            <!-- Status Display -->
+            <div class="card">
+                <h2>📊 System Status</h2>
+                <div id="status" class="status">Click "Refresh Status" to load...</div>
+                <div id="systemStats" class="stats"></div>
+            </div>
+
+            <!-- Active Streams -->
+            <div class="card">
+                <h2>🔴 Active Streams</h2>
+                <div id="activeStreams" class="streams-list">No active streams</div>
+            </div>
+        </div>
+
+        <!-- Current Playback -->
+        <div class="card">
+            <h2>🎬 Current Playback</h2>
+            <div id="currentPlayback">No active playback</div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        async function apiCall(method, endpoint, data = null) {
+            try {
+                const options = {
+                    method: method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (data) options.body = JSON.stringify(data);
+                
+                const response = await fetch(API_BASE + endpoint, options);
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'API call failed');
+                }
+                
+                showStatus(result.message || 'Success', 'success');
+                return result;
+            } catch (error) {
+                showStatus(error.message, 'error');
+                throw error;
+            }
+        }
+
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.textContent = message;
+            statusDiv.className = `status ${type}`;
+        }
+
+        async function startStream() {
+            const streamKey = document.getElementById('streamKey').value;
+            const sourceUrl = document.getElementById('sourceUrl').value;
+            const protocol = document.getElementById('streamProtocol').value;
+            
+            if (!streamKey || !sourceUrl) {
+                showStatus('Please fill in stream key and source URL', 'error');
+                return;
+            }
+            
+            const params = new URLSearchParams({ source_url: sourceUrl, protocol: protocol });
+            await apiCall('POST', `/streams/${streamKey}/start?${params}`);
+            refreshStatus();
+        }
+
+        async function startPlayback() {
+            const streamKey = document.getElementById('playbackKey').value;
+            const player = document.getElementById('player').value;
+            const mode = document.getElementById('playMode').value;
+            const protocol = document.getElementById('playProtocol').value;
+            
+            if (!streamKey) {
+                showStatus('Please enter a stream key', 'error');
+                return;
+            }
+            
+            const params = new URLSearchParams({ player, mode, protocol });
+            await apiCall('POST', `/playback/${streamKey}/start?${params}`);
+            refreshStatus();
+        }
+
+        async function stopPlayback() {
+            await apiCall('DELETE', '/playback/stop');
+            refreshStatus();
+        }
+
+        async function switchStream() {
+            const newKey = document.getElementById('switchKey').value;
+            if (!newKey) {
+                showStatus('Please enter a stream key', 'error');
+                return;
+            }
+            await apiCall('POST', `/playback/switch/${newKey}`);
+            refreshStatus();
+        }
+
+        async function switchPlayer(player) {
+            await apiCall('POST', `/playback/player/${player}`);
+            refreshStatus();
+        }
+
+        async function stopStream(streamKey) {
+            await apiCall('DELETE', `/streams/${streamKey}`);
+            refreshStatus();
+        }
+
+        async function displayImage() {
+            const fileInput = document.getElementById('imageFile');
+            const duration = document.getElementById('imageDuration').value || 10;
+            
+            if (!fileInput.files[0]) {
+                showStatus('Please select an image file', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            try {
+                const response = await fetch(`/display/image?duration=${duration}`, {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to display image');
+                }
+                
+                showStatus(result.message, 'success');
+                refreshStatus();
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function playYoutube() {
+            const youtubeUrl = document.getElementById('youtubeUrl').value;
+            const duration = document.getElementById('youtubeDuration').value;
+            
+            if (!youtubeUrl) {
+                showStatus('Please enter a YouTube URL', 'error');
+                return;
+            }
+            
+            const data = { youtube_url: youtubeUrl };
+            if (duration) data.duration = parseInt(duration);
+            
+            await apiCall('POST', '/playback/youtube', data);
+            refreshStatus();
+        }
+
+        async function setBackground() {
+            const fileInput = document.getElementById('backgroundFile');
+            
+            if (!fileInput.files[0]) {
+                showStatus('Please select a background image', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', fileInput.files[0]);
+            
+            try {
+                const response = await fetch('/background/set', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to set background');
+                }
+                
+                showStatus(result.message, 'success');
+                refreshStatus();
+            } catch (error) {
+                showStatus(error.message, 'error');
+            }
+        }
+
+        async function showBackground() {
+            await apiCall('POST', '/background/show');
+            refreshStatus();
+        }
+
+        async function refreshStatus() {
+            try {
+                const [status, streams] = await Promise.all([
+                    fetch('/status').then(r => r.json()),
+                    fetch('/streams').then(r => r.json())
+                ]);
+
+                // Update system stats
+                const systemStats = document.getElementById('systemStats');
+                const stats = status.system_stats;
+                systemStats.innerHTML = `
+                    <div class="stat-item">
+                        <strong>CPU</strong><br>${stats.cpu_percent?.toFixed(1) || 'N/A'}%
+                    </div>
+                    <div class="stat-item">
+                        <strong>Memory</strong><br>${stats.memory_percent?.toFixed(1) || 'N/A'}%
+                    </div>
+                    <div class="stat-item">
+                        <strong>Temperature</strong><br>${stats.temperature?.toFixed(1) || 'N/A'}°C
+                    </div>
+                    <div class="stat-item">
+                        <strong>Active Streams</strong><br>${status.active_streams}
+                    </div>
+                `;
+
+                // Update active streams
+                const activeStreams = document.getElementById('activeStreams');
+                if (Object.keys(streams.active_streams).length === 0) {
+                    activeStreams.innerHTML = 'No active streams';
+                } else {
+                    activeStreams.innerHTML = Object.entries(streams.active_streams)
+                        .map(([key, info]) => `
+                            <div class="stream-item">
+                                <div>
+                                    <strong>${key}</strong><br>
+                                    <small>${info.source_url}</small><br>
+                                    <small>Started: ${new Date(info.started_at).toLocaleTimeString()}</small>
+                                </div>
+                                <button onclick="stopStream('${key}')" class="danger">Stop</button>
+                            </div>
+                        `).join('');
+                }
+
+                // Update current playback
+                const currentPlayback = document.getElementById('currentPlayback');
+                const playback = streams.current_playback;
+                if (playback.stream) {
+                    currentPlayback.innerHTML = `
+                        <strong>Stream:</strong> ${playback.stream}<br>
+                        <strong>Player:</strong> ${playback.player}<br>
+                        <strong>Protocol:</strong> ${playback.protocol}
+                    `;
+                } else {
+                    currentPlayback.innerHTML = 'No active playback';
+                }
+
+                showStatus('Status refreshed', 'success');
+            } catch (error) {
+                showStatus('Failed to refresh status', 'error');
+            }
+        }
+
+        // Auto-refresh every 10 seconds
+        setInterval(refreshStatus, 10000);
+        
+        // Initial load
+        refreshStatus();
+    </script>
+</body>
+</html>
