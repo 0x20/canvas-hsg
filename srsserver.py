@@ -34,53 +34,143 @@ SRS_HLS_URL = f"http://{HOST}:8080/live"
 SRS_API_URL = f"http://{HOST}:1985/api/v1"
 DEFAULT_BACKGROUND_PATH = "/tmp/stream_images/default_background.jpg"
 
-# Headless Pi4 Player commands - using available display modes
+# Explicit player command matrix for all resolutions - 10x engineer style
+OPTIMAL_PLAYER_COMMANDS = {
+    # 4K UHD Commands
+    "mpv_3840x2160_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=3840x2160@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=150MiB"
+    ],
+    "mpv_3840x2160_30hz": [
+        "mpv", "--vo=drm", "--drm-mode=3840x2160@30", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # 1440p Commands
+    "mpv_2560x1440_144hz": [
+        "mpv", "--vo=drm", "--drm-mode=2560x1440@144", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--interpolation", "--video-sync=display-resample"
+    ],
+    "mpv_2560x1440_120hz": [
+        "mpv", "--vo=drm", "--drm-mode=2560x1440@120", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    "mpv_2560x1440_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=2560x1440@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # 1080p Commands
+    "mpv_1920x1080_144hz": [
+        "mpv", "--vo=drm", "--drm-mode=1920x1080@144", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--interpolation", "--video-sync=display-resample"
+    ],
+    "mpv_1920x1080_120hz": [
+        "mpv", "--vo=drm", "--drm-mode=1920x1080@120", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    "mpv_1920x1080_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=1920x1080@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # 720p Commands
+    "mpv_1280x720_120hz": [
+        "mpv", "--vo=drm", "--drm-mode=1280x720@120", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    "mpv_1280x720_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=1280x720@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # XGA Commands
+    "mpv_1024x768_75hz": [
+        "mpv", "--vo=drm", "--drm-mode=1024x768@75", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    "mpv_1024x768_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=1024x768@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # SVGA Commands
+    "mpv_800x600_75hz": [
+        "mpv", "--vo=drm", "--drm-mode=800x600@75", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    "mpv_800x600_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=800x600@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+    ],
+    
+    # VGA Fallback Commands
+    "mpv_640x480_60hz": [
+        "mpv", "--vo=drm", "--drm-mode=640x480@60", "--fs", "--quiet",
+        "--no-input-default-bindings", "--no-osc"
+    ],
+    
+    # FFplay Variants
+    "ffplay_3840x2160_60hz": [
+        "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
+        "-video_size", "3840x2160", "-framerate", "60"
+    ],
+    "ffplay_1920x1080_60hz": [
+        "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
+        "-video_size", "1920x1080", "-framerate", "60"
+    ],
+    "ffplay_1024x768_60hz": [
+        "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
+        "-video_size", "1024x768", "-framerate", "60"
+    ],
+    
+    # VLC Variants
+    "vlc_3840x2160_60hz": [
+        "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m",
+        "--width", "3840", "--height", "2160"
+    ],
+    "vlc_1920x1080_60hz": [
+        "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m",
+        "--width", "1920", "--height", "1080"
+    ],
+    "vlc_1024x768_60hz": [
+        "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m",
+        "--width", "1024", "--height", "768"
+    ],
+    
+    # Legacy compatibility commands
+    "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet"],
+    "mpv_optimized": [
+        "mpv", "--vo=drm", "--fs", "--quiet", 
+        "--no-input-default-bindings", "--no-osc", "--untimed"
+    ],
+    "ffplay_basic": ["ffplay", "-fs", "-autoexit"],
+    "vlc_basic": ["vlc", "--intf", "dummy", "--fullscreen"]
+}
+
+# Legacy player commands for backward compatibility
 PLAYER_COMMANDS = {
     "mpv": {
-        "basic": ["mpv", "--vo=drm", "--fs", "--quiet"],
-        "optimized": [
-            "mpv", "--vo=drm", "--fs", "--quiet", 
-            "--no-input-default-bindings", "--no-osc", "--untimed"
-        ],
-        "fullscreen": [
-            "mpv", "--vo=drm", "--fs", "--quiet",
-            "--no-input-default-bindings", "--no-osc"
-        ],
-        "drm": [
-            "mpv", "--vo=drm", "--fs", "--quiet",
-            "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
-        ],
-        "auto_mode": [
-            "mpv", "--vo=drm", "--fs", "--quiet", 
-            "--no-input-default-bindings", "--no-osc"
-        ],
-        "1024x768": [
-            "mpv", "--vo=drm", "--drm-mode=1024x768", "--fs", "--quiet", 
-            "--no-input-default-bindings", "--no-osc"
-        ],
-        "800x600": [
-            "mpv", "--vo=drm", "--drm-mode=800x600", "--fs", "--quiet", 
-            "--no-input-default-bindings", "--no-osc"
-        ]
+        "basic": OPTIMAL_PLAYER_COMMANDS["mpv_basic"],
+        "optimized": OPTIMAL_PLAYER_COMMANDS["mpv_optimized"],
+        "fullscreen": OPTIMAL_PLAYER_COMMANDS["mpv_optimized"],
+        "drm": OPTIMAL_PLAYER_COMMANDS["mpv_optimized"],
+        "auto_mode": OPTIMAL_PLAYER_COMMANDS["mpv_optimized"],
+        "1024x768": OPTIMAL_PLAYER_COMMANDS["mpv_1024x768_60hz"],
+        "800x600": OPTIMAL_PLAYER_COMMANDS["mpv_800x600_60hz"]
     },
     "ffplay": {
-        "basic": ["ffplay", "-fs", "-autoexit"],
-        "optimized": [
-            "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
-            "-fflags", "nobuffer", "-flags", "low_delay"
-        ],
-        "fullscreen": [
-            "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m"
-        ]
+        "basic": OPTIMAL_PLAYER_COMMANDS["ffplay_basic"],
+        "optimized": OPTIMAL_PLAYER_COMMANDS["ffplay_1024x768_60hz"],
+        "fullscreen": OPTIMAL_PLAYER_COMMANDS["ffplay_1024x768_60hz"]
     },
     "vlc": {
-        "basic": ["vlc", "--intf", "dummy", "--fullscreen"],
-        "optimized": [
-            "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m"
-        ],
-        "fullscreen": [
-            "vlc", "--intf", "dummy", "--fullscreen"
-        ]
+        "basic": OPTIMAL_PLAYER_COMMANDS["vlc_basic"],
+        "optimized": OPTIMAL_PLAYER_COMMANDS["vlc_1024x768_60hz"],
+        "fullscreen": OPTIMAL_PLAYER_COMMANDS["vlc_1024x768_60hz"]
     }
 }
 
@@ -102,28 +192,183 @@ class YoutubePlayRequest(BaseModel):
     youtube_url: str
     duration: Optional[int] = None  # None = play full video
 
-class FramebufferManager:
-    """Direct framebuffer management for seamless background display"""
+class DisplayCapabilityDetector:
+    """Comprehensive display capability detection for optimal resolution utilization"""
     
     def __init__(self):
+        self.capabilities = {}
+        self.optimal_resolution = (640, 480)  # fallback
+        self.optimal_refresh_rate = 60
+        self.optimal_connector = "HDMI-A-1"
+        self.available_resolutions = []
+        self.detect_all_capabilities()
+    
+    def detect_all_capabilities(self):
+        """Detect every possible display capability explicitly"""
+        try:
+            drm_path = "/sys/class/drm"
+            best_resolution = (640, 480)
+            best_refresh = 60
+            best_connector = "HDMI-A-1"
+            
+            # Explicit resolution priority matrix - 10x engineer style
+            resolution_priority = [
+                (3840, 2160),  # 4K UHD
+                (2560, 1440),  # 1440p
+                (1920, 1080),  # 1080p
+                (1680, 1050),  # WSXGA+
+                (1600, 1200),  # UXGA
+                (1440, 900),   # WXGA+
+                (1366, 768),   # WXGA
+                (1280, 1024),  # SXGA
+                (1280, 720),   # 720p
+                (1024, 768),   # XGA
+                (800, 600),    # SVGA
+                (640, 480)     # VGA fallback
+            ]
+            
+            connectors_data = {}
+            
+            for item in os.listdir(drm_path):
+                if item.startswith("card0-") or item.startswith("card1-"):
+                    connector_path = os.path.join(drm_path, item, "status")
+                    modes_path = os.path.join(drm_path, item, "modes")
+                    
+                    if os.path.exists(connector_path) and os.path.exists(modes_path):
+                        with open(connector_path, 'r') as f:
+                            status = f.read().strip()
+                        
+                        if status == "connected":
+                            connector_name = item.replace("card0-", "").replace("card1-", "")
+                            
+                            with open(modes_path, 'r') as f:
+                                modes = f.readlines()
+                            
+                            # Parse all available modes explicitly
+                            available_modes = []
+                            for mode_line in modes:
+                                mode_line = mode_line.strip()
+                                if 'x' in mode_line:
+                                    try:
+                                        # Parse resolution and refresh rate
+                                        if '@' in mode_line:
+                                            res_part, refresh_part = mode_line.split('@')
+                                            refresh = float(refresh_part.replace('Hz', ''))
+                                        else:
+                                            res_part = mode_line
+                                            refresh = 60  # default
+                                        
+                                        width, height = map(int, res_part.split('x'))
+                                        available_modes.append((width, height, refresh))
+                                    except:
+                                        continue
+                            
+                            connectors_data[connector_name] = {
+                                'modes': available_modes,
+                                'status': status,
+                                'item': item
+                            }
+                            
+                            # Find highest priority resolution available
+                            for priority_res in resolution_priority:
+                                for width, height, refresh in available_modes:
+                                    if (width, height) == priority_res:
+                                        if (width * height) > (best_resolution[0] * best_resolution[1]):
+                                            best_resolution = (width, height)
+                                            best_refresh = refresh
+                                            best_connector = connector_name
+                                        break
+            
+            self.capabilities = connectors_data
+            self.optimal_resolution = best_resolution
+            self.optimal_refresh_rate = best_refresh
+            self.optimal_connector = best_connector
+            
+            # Create explicit list of all available resolutions
+            all_resolutions = set()
+            for connector_data in connectors_data.values():
+                for width, height, refresh in connector_data['modes']:
+                    all_resolutions.add((width, height, refresh))
+            
+            self.available_resolutions = sorted(list(all_resolutions), 
+                                              key=lambda x: (x[0] * x[1], x[2]), reverse=True)
+            
+            logging.info(f"Display capabilities detected:")
+            logging.info(f"  Optimal resolution: {best_resolution[0]}x{best_resolution[1]}@{best_refresh}Hz")
+            logging.info(f"  Optimal connector: {best_connector}")
+            logging.info(f"  Total available modes: {len(self.available_resolutions)}")
+            
+        except Exception as e:
+            logging.error(f"Display capability detection failed: {e}")
+            # Explicit fallback values
+            self.optimal_resolution = (640, 480)
+            self.optimal_refresh_rate = 60
+            self.optimal_connector = "HDMI-A-1"
+            self.available_resolutions = [(640, 480, 60)]
+    
+    def get_optimal_framebuffer_config(self):
+        """Get optimal framebuffer configuration for detected capabilities"""
+        return {
+            'width': self.optimal_resolution[0],
+            'height': self.optimal_resolution[1],
+            'refresh_rate': self.optimal_refresh_rate,
+            'connector': self.optimal_connector
+        }
+    
+    def get_resolution_for_content_type(self, content_type: str):
+        """Get optimal resolution for specific content type"""
+        if content_type == "youtube":
+            # Prefer common YouTube resolutions
+            youtube_resolutions = [(3840, 2160), (1920, 1080), (1280, 720), (854, 480)]
+            for yt_res in youtube_resolutions:
+                for width, height, refresh in self.available_resolutions:
+                    if (width, height) == yt_res:
+                        return width, height, refresh
+        
+        # Default to optimal resolution
+        return self.optimal_resolution[0], self.optimal_resolution[1], self.optimal_refresh_rate
+
+class FramebufferManager:
+    """Direct framebuffer management for seamless background display with optimal resolution"""
+    
+    def __init__(self, display_detector: DisplayCapabilityDetector):
+        self.display_detector = display_detector
         self.fb_device = "/dev/fb0"
-        self.fb_width = 640
-        self.fb_height = 480
+        
+        # Get optimal configuration from display detector
+        optimal_config = display_detector.get_optimal_framebuffer_config()
+        self.target_width = optimal_config['width']
+        self.target_height = optimal_config['height']
+        
+        # Actual framebuffer parameters (may differ from target)
+        self.fb_width = 640  # will be updated by _get_fb_info
+        self.fb_height = 480  # will be updated by _get_fb_info
         self.fb_bpp = 16  # bits per pixel
         self.fb_bytes_per_pixel = self.fb_bpp // 8
         self.fb_size = self.fb_width * self.fb_height * self.fb_bytes_per_pixel
         self.fb_format = 'RGB565'  # 5 bits red, 6 bits green, 5 bits blue
+        
+        # Memory management
         self.fb_file = None
         self.fb_mmap = None
         self.fb_array = None
         self.is_available = False
+        
+        # Performance optimization - pre-calculate scaling parameters
+        self.scale_x = 1.0
+        self.scale_y = 1.0
+        
         self._initialize_framebuffer()
     
     def _initialize_framebuffer(self):
-        """Initialize framebuffer access and memory mapping"""
+        """Initialize framebuffer access and memory mapping with optimal resolution awareness"""
         try:
             # Get actual framebuffer info
             self._get_fb_info()
+            
+            # Calculate scaling parameters for optimal resolution rendering
+            self.scale_x = self.fb_width / self.target_width
+            self.scale_y = self.fb_height / self.target_height
             
             # Open framebuffer device
             self.fb_file = open(self.fb_device, 'r+b')
@@ -139,6 +384,8 @@ class FramebufferManager:
             
             self.is_available = True
             logging.info(f"Framebuffer initialized: {self.fb_width}x{self.fb_height}, {self.fb_bpp}bpp")
+            logging.info(f"Target resolution: {self.target_width}x{self.target_height}")
+            logging.info(f"Scaling factors: {self.scale_x:.3f}x, {self.scale_y:.3f}y")
             
         except Exception as e:
             logging.warning(f"Framebuffer not available: {e}")
@@ -254,13 +501,18 @@ class StreamManager:
         self.current_protocol: Optional[str] = None
         self.current_player: Optional[str] = None
         self.background_process: Optional[subprocess.Popen] = None
-        self.drm_connector = self._detect_drm_connector()
+        
+        # Initialize display capability detection first
+        self.display_detector = DisplayCapabilityDetector()
+        
+        # Legacy DRM detection for backward compatibility
+        self.drm_connector = self.display_detector.optimal_connector
         self.gpu_memory = self._get_gpu_memory()
         
-        # Initialize framebuffer manager for seamless background display
-        self.framebuffer = FramebufferManager()
+        # Initialize framebuffer manager with optimal resolution support
+        self.framebuffer = FramebufferManager(self.display_detector)
         if self.framebuffer.is_available:
-            logging.info("Framebuffer background manager initialized")
+            logging.info("Optimal resolution framebuffer background manager initialized")
         else:
             logging.warning("Framebuffer not available, will use fallback methods")
         
@@ -342,50 +594,144 @@ class StreamManager:
         except Exception as e:
             logging.error(f"Failed to get GPU memory: {e}")
         return 128  # Default assumption
+    
+    def get_optimal_player_command(self, player: str, content_type: str = "stream") -> List[str]:
+        """Get optimal player command based on display capabilities"""
+        try:
+            # Get resolution for content type
+            width, height, refresh = self.display_detector.get_resolution_for_content_type(content_type)
+            
+            # Create command key based on resolution and refresh rate
+            command_key = f"{player}_{width}x{height}_{int(refresh)}hz"
+            
+            # Try exact match first
+            if command_key in OPTIMAL_PLAYER_COMMANDS:
+                return OPTIMAL_PLAYER_COMMANDS[command_key].copy()
+            
+            # Try without refresh rate
+            command_key_no_refresh = f"{player}_{width}x{height}_60hz"
+            if command_key_no_refresh in OPTIMAL_PLAYER_COMMANDS:
+                return OPTIMAL_PLAYER_COMMANDS[command_key_no_refresh].copy()
+            
+            # Fall back to common resolutions for this player
+            fallback_resolutions = [
+                (3840, 2160), (2560, 1440), (1920, 1080), 
+                (1280, 720), (1024, 768), (800, 600), (640, 480)
+            ]
+            
+            for fallback_width, fallback_height in fallback_resolutions:
+                if (fallback_width, fallback_height, 60) in self.display_detector.available_resolutions:
+                    fallback_key = f"{player}_{fallback_width}x{fallback_height}_60hz"
+                    if fallback_key in OPTIMAL_PLAYER_COMMANDS:
+                        logging.info(f"Using fallback player command: {fallback_key}")
+                        return OPTIMAL_PLAYER_COMMANDS[fallback_key].copy()
+            
+            # Ultimate fallback to basic command
+            basic_key = f"{player}_basic"
+            if basic_key in OPTIMAL_PLAYER_COMMANDS:
+                logging.warning(f"Using basic player command for {player}")
+                return OPTIMAL_PLAYER_COMMANDS[basic_key].copy()
+            
+            # Legacy fallback
+            if player in PLAYER_COMMANDS and "optimized" in PLAYER_COMMANDS[player]:
+                logging.warning(f"Using legacy player command for {player}")
+                return PLAYER_COMMANDS[player]["optimized"].copy()
+            
+            # Final fallback
+            return ["mpv", "--vo=drm", "--fs", "--quiet"]
+            
+        except Exception as e:
+            logging.error(f"Failed to get optimal player command: {e}")
+            return ["mpv", "--vo=drm", "--fs", "--quiet"]
+    
+    def get_optimal_connector_and_device(self) -> tuple[str, str]:
+        """Get optimal DRM connector and device for current display"""
+        try:
+            connector = self.display_detector.optimal_connector
+            
+            # Determine DRM device based on connector
+            if connector in self.display_detector.capabilities:
+                connector_data = self.display_detector.capabilities[connector]
+                if connector_data['item'].startswith('card1-'):
+                    return connector, '/dev/dri/card1'
+                else:
+                    return connector, '/dev/dri/card0'
+            
+            return "HDMI-A-1", "/dev/dri/card0"
+            
+        except Exception as e:
+            logging.error(f"Failed to get optimal connector: {e}")
+            return "HDMI-A-1", "/dev/dri/card0"
         
     async def create_default_background(self):
-        """Create a default background image if none exists"""
+        """Create a default background image at optimal resolution"""
         try:
             temp_dir = Path("/tmp/stream_images")
             temp_dir.mkdir(exist_ok=True)
             
             if not os.path.exists(DEFAULT_BACKGROUND_PATH):
-                img = Image.new('RGB', (1920, 1080), (20, 20, 30))
+                # Use optimal resolution from display detector
+                optimal_config = self.display_detector.get_optimal_framebuffer_config()
+                width = optimal_config['width']
+                height = optimal_config['height']
+                
+                img = Image.new('RGB', (width, height), (20, 20, 30))
                 draw = ImageDraw.Draw(img)
                 
+                # Scale fonts based on resolution
+                font_scale = min(width / 1920, height / 1080)
+                font_large_size = int(80 * font_scale)
+                font_small_size = int(40 * font_scale)
+                
                 try:
-                    font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 80)
-                    font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 40)
+                    font_large = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_large_size)
+                    font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", font_small_size)
                 except:
                     font_large = ImageFont.load_default()
                     font_small = ImageFont.load_default()
                 
                 text1 = "HSG Canvas"
                 text2 = f"Pi4 GPU: {self.gpu_memory}MB | DRM: {self.drm_connector}"
-                text3 = f"Server: {os.uname().nodename}"
+                text3 = f"Server: {os.uname().nodename} | {width}x{height}"
                 
-                # Center text
+                # Center text based on actual resolution
                 bbox1 = draw.textbbox((0, 0), text1, font=font_large)
                 bbox2 = draw.textbbox((0, 0), text2, font=font_small)
                 bbox3 = draw.textbbox((0, 0), text3, font=font_small)
                 
-                x1 = (1920 - (bbox1[2] - bbox1[0])) // 2
-                x2 = (1920 - (bbox2[2] - bbox2[0])) // 2
-                x3 = (1920 - (bbox3[2] - bbox3[0])) // 2
+                x1 = (width - (bbox1[2] - bbox1[0])) // 2
+                x2 = (width - (bbox2[2] - bbox2[0])) // 2
+                x3 = (width - (bbox3[2] - bbox3[0])) // 2
+                
+                # Scale Y positions based on resolution
+                y1 = int(350 * height / 1080)
+                y2 = int(450 * height / 1080)
+                y3 = int(520 * height / 1080)
                 
                 # Draw text with glow effect
-                for offset in [(2, 2), (-2, 2), (2, -2), (-2, -2)]:
-                    draw.text((x1 + offset[0], 350 + offset[1]), text1, fill=(50, 50, 50), font=font_large)
-                    draw.text((x2 + offset[0], 450 + offset[1]), text2, fill=(50, 50, 50), font=font_small)
-                    draw.text((x3 + offset[0], 520 + offset[1]), text3, fill=(50, 50, 50), font=font_small)
+                glow_offset = max(1, int(2 * font_scale))
+                for offset in [(glow_offset, glow_offset), (-glow_offset, glow_offset), 
+                              (glow_offset, -glow_offset), (-glow_offset, -glow_offset)]:
+                    draw.text((x1 + offset[0], y1 + offset[1]), text1, fill=(50, 50, 50), font=font_large)
+                    draw.text((x2 + offset[0], y2 + offset[1]), text2, fill=(50, 50, 50), font=font_small)
+                    draw.text((x3 + offset[0], y3 + offset[1]), text3, fill=(50, 50, 50), font=font_small)
                 
-                draw.text((x1, 350), text1, fill=(100, 150, 255), font=font_large)
-                draw.text((x2, 450), text2, fill=(180, 180, 180), font=font_small)
-                draw.text((x3, 520), text3, fill=(120, 120, 120), font=font_small)
+                draw.text((x1, y1), text1, fill=(100, 150, 255), font=font_large)
+                draw.text((x2, y2), text2, fill=(180, 180, 180), font=font_small)
+                draw.text((x3, y3), text3, fill=(120, 120, 120), font=font_small)
                 
-                # Add decorative elements
-                draw.rectangle([960-300, 300, 960+300, 310], fill=(100, 150, 255))
-                draw.rectangle([960-200, 600, 960+200, 610], fill=(100, 150, 255))
+                # Add decorative elements scaled to resolution
+                center_x = width // 2
+                rect1_y = int(300 * height / 1080)
+                rect2_y = int(600 * height / 1080)
+                rect1_width = int(300 * width / 1920)
+                rect2_width = int(200 * width / 1920)
+                rect_height = max(5, int(10 * font_scale))
+                
+                draw.rectangle([center_x - rect1_width, rect1_y, center_x + rect1_width, rect1_y + rect_height], 
+                              fill=(100, 150, 255))
+                draw.rectangle([center_x - rect2_width, rect2_y, center_x + rect2_width, rect2_y + rect_height], 
+                              fill=(100, 150, 255))
                 
                 img.save(DEFAULT_BACKGROUND_PATH, 'JPEG', quality=95, optimize=True)
                 logging.info("Created default background image")
@@ -472,7 +818,7 @@ class StreamManager:
             return False
     
     async def start_playback(self, stream_key: str, player: str = "mpv", mode: str = "optimized", protocol: str = "rtmp") -> bool:
-        """Start DRM-accelerated playback for headless Pi4"""
+        """Start optimal resolution playback using display capabilities"""
         try:
             if self.player_process:
                 await self.stop_playback()
@@ -486,19 +832,20 @@ class StreamManager:
             else:
                 raise ValueError(f"Unsupported protocol: {protocol}")
             
-            if player not in PLAYER_COMMANDS:
-                raise ValueError(f"Unsupported player: {player}")
+            # Get optimal connector and device
+            optimal_connector, optimal_device = self.get_optimal_connector_and_device()
             
-            # Try multiple methods for headless operation with available display modes
+            # Try capability-matched optimal commands first, then legacy fallbacks
             methods_to_try = [
-                # Method 1: Requested mode (auto-detect resolution)
-                (PLAYER_COMMANDS[player][mode].copy(), f"{player} {mode} auto"),
-                # Method 2: 1024x768 mode (highest available)
-                (PLAYER_COMMANDS[player].get("1024x768", PLAYER_COMMANDS[player]["basic"]).copy(), f"{player} 1024x768"),
-                # Method 3: 800x600 mode (fallback)
-                (PLAYER_COMMANDS[player].get("800x600", PLAYER_COMMANDS[player]["basic"]).copy(), f"{player} 800x600"),
-                # Method 4: Basic with auto mode
-                (PLAYER_COMMANDS[player]["basic"].copy(), f"{player} basic"),
+                # Method 1: Optimal resolution-matched command
+                (self.get_optimal_player_command(player, "stream"), f"{player} optimal resolution"),
+                # Method 2: Legacy fallback if optimal fails
+                (PLAYER_COMMANDS.get(player, {}).get(mode, 
+                    PLAYER_COMMANDS.get(player, {}).get("optimized", 
+                        ["mpv", "--vo=drm", "--fs", "--quiet"])).copy(), f"{player} {mode} legacy"),
+                # Method 3: Basic fallback
+                (PLAYER_COMMANDS.get(player, {}).get("basic", 
+                    ["mpv", "--vo=drm", "--fs", "--quiet"]).copy(), f"{player} basic legacy")
             ]
             
             last_error = None
@@ -507,10 +854,11 @@ class StreamManager:
                     cmd = cmd_template.copy()
                     cmd.append(stream_url)
                     
-                    # Set environment for DRM
+                    # Set environment for optimal DRM device
                     env = os.environ.copy()
                     env.update({
-                        'DRM_DEVICE': '/dev/dri/card0'
+                        'DRM_DEVICE': optimal_device,
+                        'DRM_CONNECTOR': optimal_connector
                     })
                     
                     logging.info(f"Trying playback method: {method_name}")
@@ -809,35 +1157,50 @@ class StreamManager:
             logging.error(f"Failed to show background: {e}")
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None) -> bool:
-        """Play YouTube video - OPTIMIZED FOR SMOOTH PERFORMANCE"""
+        """Play YouTube video with optimal resolution and performance"""
         try:
             if self.player_process:
                 await self.stop_playback()
             
-            # PERFORMANCE-OPTIMIZED configs for smooth playback
+            # Get optimal display configuration
+            optimal_connector, optimal_device = self.get_optimal_connector_and_device()
+            width, height, refresh = self.display_detector.get_resolution_for_content_type("youtube")
+            
+            # Choose YouTube quality based on display resolution
+            if height >= 2160:
+                youtube_quality = "best[height<=2160]"  # 4K
+            elif height >= 1440:
+                youtube_quality = "best[height<=1440]"  # 1440p  
+            elif height >= 1080:
+                youtube_quality = "best[height<=1080]"  # 1080p
+            elif height >= 720:
+                youtube_quality = "best[height<=720]"   # 720p
+            else:
+                youtube_quality = "best[height<=480]"   # 480p fallback
+            
+            # Performance-optimized configs for optimal resolution
             configs = [
-                # Method 1: 480p + hardware decode (best performance)
+                # Method 1: Optimal quality + hardware decode
                 [
-                    "mpv", "--vo=drm", "--drm-device=/dev/dri/card1", "--drm-connector=HDMI-A-1",
+                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=best[height<=480]", "--vd-lavc-dr=yes", "--opengl-pbo"
+                    f"--ytdl-format={youtube_quality}", "--vd-lavc-dr=yes", "--cache=yes"
                 ],
-                # Method 2: 360p for even smoother playback
+                # Method 2: Reduced quality for stability
                 [
-                    "mpv", "--vo=drm", "--drm-device=/dev/dri/card1", "--drm-connector=HDMI-A-1",
+                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=best[height<=360]", "--profile=fast"
+                    "--ytdl-format=best[height<=720]", "--profile=fast"
                 ],
-                # Method 3: Low latency mode
+                # Method 3: Low quality but stable
                 [
-                    "mpv", "--vo=drm", "--drm-device=/dev/dri/card1", "--drm-connector=HDMI-A-1",
+                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=worst[height>=240]", "--profile=low-latency",
-                    "--video-sync=display-resample", "--interpolation=no"
+                    "--ytdl-format=best[height<=480]", "--profile=low-latency"
                 ],
-                # Method 4: Basic working mode (your current)
+                # Method 4: Basic fallback
                 [
-                    "mpv", "--vo=drm", "--drm-device=/dev/dri/card1", "--drm-connector=HDMI-A-1",
+                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--fs", "--quiet", "--no-input-default-bindings"
                 ]
             ]
