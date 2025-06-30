@@ -136,6 +136,48 @@
             box-shadow: 0 6px 20px rgba(220, 53, 69, 0.4);
         }
 
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        button.loading {
+            position: relative;
+            color: transparent;
+        }
+
+        button.loading::after {
+            content: "";
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            top: 50%;
+            left: 50%;
+            margin-left: -8px;
+            margin-top: -8px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .validation-error {
+            background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 14px;
+        }
+
         input, select {
             padding: 12px;
             margin: 5px;
@@ -243,38 +285,45 @@
                 margin: 5px 0;
             }
         }
+        
+        /* Background Mode Buttons */
+        .mode-button {
+            padding: 10px 15px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-size: 0.9em;
+            min-width: 120px;
+        }
+        
+        .mode-button:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+        
+        .mode-button.active {
+            border-color: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .mode-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
             <h1>🎥 HSG Canvas</h1>
-            <p><span class="status-indicator"></span>Ready for streaming and media playback on Raspberry Pi</p>
+            <p><span class="status-indicator"></span>Ready for streaming and media playback at <span id="resolution-display">detecting resolution...</span></p>
         </div>
 
-        <nav class="nav-links">
-            <a href="/docs" class="nav-link">📚 API Documentation</a>
-            <a href="/docs/quick-start" class="nav-link">⚡ Quick Start Guide</a>
-            <a href="/diagnostics" class="nav-link diagnostic">🔍 System Diagnostics</a>
-            <a href="/test/drm" class="nav-link diagnostic">🖥️ DRM Test</a>
-            <a href="/status" class="nav-link">📊 Server Status</a>
-            <a href="/health" class="nav-link">💚 Health Check</a>
-        </nav>
-        
+        <!-- Priority 1: Most Important (Above the fold) -->
         <div class="grid">
-            <!-- Stream Management -->
-            <div class="card">
-                <h2>📡 Start Stream</h2>
-                <p>Republish a file, camera, or other stream to your SRS server</p>
-                <input type="text" id="streamKey" placeholder="Stream Key (e.g., mystream)" value="mystream">
-                <input type="text" id="sourceUrl" placeholder="Source: /path/file.mp4 or rtsp://camera/stream">
-                <select id="streamProtocol">
-                    <option value="rtmp">RTMP</option>
-                </select>
-                <br>
-                <button onclick="startStream()">Start Stream</button>
-            </div>
-
             <!-- Playback Control -->
             <div class="card">
                 <h2>▶️ Playback Control</h2>
@@ -300,41 +349,21 @@
                 <button onclick="startPlayback()">Start Playback</button>
                 <button onclick="stopPlayback()" class="danger">Stop Playback</button>
             </div>
-        </div>
 
-        <!-- YouTube Playback -->
-        <div class="card">
-            <h2>📺 YouTube Playback</h2>
-            <p>Play YouTube videos directly on your Pi display</p>
-            <input type="url" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 300px;">
-            <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
-            <br>
-            <button onclick="playYoutube()">Play YouTube Video</button>
-            <button onclick="stopPlayback()" class="danger">Stop Video</button>
-        </div>
-
-        <!-- QR Code Generator -->
-        <div class="card">
-            <h2>📱 QR Code Generator</h2>
-            <p>Generate and display QR codes with text overlay</p>
-            <input type="text" id="qrContent" placeholder="Enter URL or text for QR code..." style="width: 300px;">
-            <input type="number" id="qrDuration" placeholder="Display duration (seconds, optional)" min="1" max="300">
-            <br>
-            <button onclick="displayQRCode()">Generate & Display QR Code</button>
-            <button onclick="stopPlayback()" class="danger">Stop Display</button>
-        </div>
-
-        <div class="grid">
-            <!-- Background Control -->
+            <!-- YouTube Playback -->
             <div class="card">
-                <h2>🖼️ Background Control</h2>
-                <p>Manage the default background image</p>
-                <input type="file" id="backgroundFile" accept="image/*">
+                <h2>📺 YouTube Playback</h2>
+                <p>Play YouTube videos directly on your Pi display</p>
+                <input type="url" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 300px;">
+                <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
                 <br>
-                <button onclick="setBackground()">Set New Background</button>
-                <button onclick="showBackground()">Show Background Now</button>
+                <button onclick="playYoutube()">Play YouTube Video</button>
+                <button onclick="stopPlayback()" class="danger">Stop Video</button>
             </div>
+        </div>
 
+        <!-- Priority 2: Second tier -->
+        <div class="grid">
             <!-- Image Display -->
             <div class="card">
                 <h2>🖼️ Display Image</h2>
@@ -345,18 +374,122 @@
                 <button onclick="displayImage()">Display Image</button>
                 <button onclick="stopPlayback()" class="danger">Stop Display</button>
             </div>
+
+            <!-- QR Code Generator -->
+            <div class="card">
+                <h2>📱 QR Code Generator</h2>
+                <p>Generate and display QR codes with text overlay</p>
+                <input type="text" id="qrContent" placeholder="Enter URL or text for QR code..." style="width: 300px;">
+                <input type="number" id="qrDuration" placeholder="Display duration (seconds, optional)" min="1" max="300">
+                <br>
+                <button onclick="displayQRCode()">Generate & Display QR Code</button>
+                <button onclick="stopPlayback()" class="danger">Stop Display</button>
+            </div>
         </div>
 
-        <!-- Quick Actions -->
+        <!-- Priority 3: Third tier -->
+        <!-- Background Control -->
         <div class="card">
-            <h2>⚡ Quick Actions</h2>
-            <input type="text" id="switchKey" placeholder="New stream key">
-            <button onclick="switchStream()">Switch Stream</button>
-            <button onclick="switchPlayer('mpv')">Switch to MPV</button>
-            <button onclick="switchPlayer('ffplay')">Switch to FFplay</button>
-            <button onclick="refreshStatus()">Refresh Status</button>
+            <h2>🖼️ Background Control</h2>
+            <p>Choose background display mode and manage settings</p>
+            
+            <!-- Background Mode Selection -->
+            <div style="margin-bottom: 20px;">
+                <h3>Background Mode</h3>
+                <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
+                    <button id="staticModeBtn" onclick="setBackgroundMode('static')" class="mode-button">
+                        🖼️ Static Image
+                    </button>
+                    <button id="clockModeBtn" onclick="setBackgroundMode('splitflap_clock')" class="mode-button">
+                        🕐 Splitflap Clock
+                    </button>
+                </div>
+                <div id="backgroundStatus" style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
+                    Current mode: Loading...
+                </div>
+            </div>
+            
+            <!-- Static Background Controls -->
+            <div id="staticControls" style="margin-bottom: 15px;">
+                <h4>Static Background Settings</h4>
+                <input type="file" id="backgroundFile" accept="image/*">
+                <br>
+                <button onclick="setBackground()">Set New Background</button>
+            </div>
+            
+            <!-- Clock Controls -->
+            <div id="clockControls" style="margin-bottom: 15px; display: none;">
+                <h4>Splitflap Clock Settings</h4>
+                <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
+                    Animated splitflap-style clock with transitions every minute
+                </p>
+                <button onclick="regenerateClock()">🔄 Regenerate Clock</button>
+            </div>
+            
+            <!-- Common Controls -->
+            <div style="border-top: 1px solid #eee; padding-top: 15px;">
+                <button onclick="showBackground()">Show Background Now</button>
+                <button onclick="refreshBackgroundStatus()">🔄 Refresh Status</button>
+            </div>
         </div>
 
+        <!-- TV Control (HDMI-CEC) -->
+        <div class="card">
+            <h2>📺 TV Control (HDMI-CEC)</h2>
+            <p style="color: #666; margin-bottom: 15px;">Control your TV or monitor power via HDMI-CEC</p>
+            
+            <div class="button-group" style="margin-bottom: 15px;">
+                <button id="tvPowerOnBtn" onclick="powerOnTV()" class="btn success" style="background-color: #28a745; color: white; margin-right: 10px;">
+                    ⚡ Power On
+                </button>
+                <button id="tvPowerOffBtn" onclick="powerOffTV()" class="btn danger" style="background-color: #dc3545; color: white; margin-right: 10px;">
+                    💤 Power Off
+                </button>
+                <button onclick="refreshCECStatus()" class="btn secondary" style="background-color: #6c757d; color: white;">
+                    🔄 Refresh
+                </button>
+            </div>
+            
+            <div id="cecStatus" style="font-size: 0.9em; margin-bottom: 10px;">
+                <div><strong>CEC Status:</strong> <span id="cecAvailability">Checking...</span></div>
+                <div><strong>TV Power:</strong> <span id="tvPowerStatus">Unknown</span></div>
+                <div><strong>TV Address:</strong> <span id="tvAddress">-</span></div>
+            </div>
+            
+            <div id="cecInfo" style="font-size: 0.8em; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
+                <p><strong>Setup Notes:</strong></p>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    <li>Enable CEC/Anynet+ in your TV settings</li>
+                    <li>Samsung: Enable "Anynet+"</li>
+                    <li>LG: Enable "SimpLink"</li>
+                    <li>Commands may take 2-5 seconds to complete</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Screen Streaming (META feature) -->
+        <div class="card">
+            <h2>📡 Stream Display Output</h2>
+            <p>Stream what's currently on the display (META streaming)</p>
+            <input type="text" id="screenStreamKey" placeholder="Stream key (e.g., desktop, screen)" value="desktop">
+            <select id="screenStreamProtocol">
+                <option value="rtmp">RTMP</option>
+                <option value="http_flv">HTTP-FLV</option>
+                <option value="hls">HLS</option>
+            </select>
+            <br>
+            <button id="screenStreamButton" onclick="toggleScreenStream()">Start Screen Stream</button>
+            <div id="screenStreamStatus" style="margin-top: 10px; font-size: 14px;"></div>
+        </div>
+
+        <!-- Priority 4: Medium priority -->
+        <!-- Current Playback -->
+        <div class="card">
+            <h2>🎬 Current Playback</h2>
+            <div id="currentPlayback">No active playback</div>
+        </div>
+
+        <!-- Priority 5: Lower medium -->
         <div class="grid">
             <!-- Status Display -->
             <div class="card">
@@ -372,11 +505,39 @@
             </div>
         </div>
 
-        <!-- Current Playback -->
+        <!-- Priority 6: Lower priority -->
+        <!-- Quick Actions -->
         <div class="card">
-            <h2>🎬 Current Playback</h2>
-            <div id="currentPlayback">No active playback</div>
+            <h2>⚡ Quick Actions</h2>
+            <input type="text" id="switchKey" placeholder="New stream key">
+            <button onclick="switchStream()">Switch Stream</button>
+            <button onclick="switchPlayer('mpv')">Switch to MPV</button>
+            <button onclick="switchPlayer('ffplay')">Switch to FFplay</button>
+            <button onclick="refreshStatus()">Refresh Status</button>
         </div>
+
+        <!-- Start Stream (moved to bottom) -->
+        <div class="card">
+            <h2>📡 Start Stream</h2>
+            <p>Republish a file, camera, or other stream to your SRS server</p>
+            <input type="text" id="streamKey" placeholder="Stream Key (e.g., mystream)" value="mystream">
+            <input type="text" id="sourceUrl" placeholder="Source: /path/file.mp4 or rtsp://camera/stream">
+            <select id="streamProtocol">
+                <option value="rtmp">RTMP</option>
+            </select>
+            <br>
+            <button onclick="startStream()">Start Stream</button>
+        </div>
+
+        <!-- Priority 7: Navigation links (moved to bottom) -->
+        <nav class="nav-links">
+            <a href="/docs" class="nav-link">📚 API Documentation</a>
+            <a href="/docs/quick-start" class="nav-link">⚡ Quick Start Guide</a>
+            <a href="/diagnostics" class="nav-link diagnostic">🔍 System Diagnostics</a>
+            <a href="/test/drm" class="nav-link diagnostic">🖥️ DRM Test</a>
+            <a href="/status" class="nav-link">📊 Server Status</a>
+            <a href="/health" class="nav-link">💚 Health Check</a>
+        </nav>
     </div>
 
     <script>
@@ -391,16 +552,23 @@
                 if (data) options.body = JSON.stringify(data);
                 
                 const response = await fetch(API_BASE + endpoint, options);
-                const result = await response.json();
                 
                 if (!response.ok) {
-                    throw new Error(result.detail || 'API call failed');
+                    // Try to get error details from response
+                    let errorMessage = `Server error (${response.status})`;
+                    try {
+                        const result = await response.json();
+                        errorMessage = result.detail || errorMessage;
+                    } catch {
+                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+                    }
+                    throw new Error(errorMessage);
                 }
                 
-                showStatus(result.message || 'Success', 'success');
+                const result = await response.json();
                 return result;
             } catch (error) {
-                showStatus(error.message, 'error');
+                // Re-throw for individual function handling
                 throw error;
             }
         }
@@ -409,6 +577,33 @@
             const statusDiv = document.getElementById('status');
             statusDiv.textContent = message;
             statusDiv.className = `status ${type}`;
+        }
+
+        function setButtonLoading(buttonElement, isLoading) {
+            if (isLoading) {
+                buttonElement.disabled = true;
+                buttonElement.classList.add('loading');
+                buttonElement.dataset.originalText = buttonElement.textContent;
+            } else {
+                buttonElement.disabled = false;
+                buttonElement.classList.remove('loading');
+                if (buttonElement.dataset.originalText) {
+                    buttonElement.textContent = buttonElement.dataset.originalText;
+                }
+            }
+        }
+
+        function clearValidationErrors(container) {
+            const errors = container.querySelectorAll('.validation-error');
+            errors.forEach(error => error.remove());
+        }
+
+        function showValidationError(container, message) {
+            clearValidationErrors(container);
+            const errorDiv = document.createElement('div');
+            errorDiv.className = 'validation-error';
+            errorDiv.textContent = message;
+            container.appendChild(errorDiv);
         }
 
         async function startStream() {
@@ -427,24 +622,57 @@
         }
 
         async function startPlayback() {
-            const streamKey = document.getElementById('playbackKey').value;
+            const startButton = event ? event.target : document.querySelector('button[onclick="startPlayback()"]');
+            const playbackCard = startButton.closest('.card');
+            
+            // Clear previous validation errors
+            clearValidationErrors(playbackCard);
+            
+            // Get form values
+            const streamKey = document.getElementById('playbackKey').value.trim();
             const player = document.getElementById('player').value;
             const mode = document.getElementById('playMode').value;
             const protocol = document.getElementById('playProtocol').value;
             
+            // Validation
             if (!streamKey) {
-                showStatus('Please enter a stream key', 'error');
+                showValidationError(playbackCard, 'Please enter a stream key to play');
                 return;
             }
             
-            const params = new URLSearchParams({ player, mode, protocol });
-            await apiCall('POST', `/playback/${streamKey}/start?${params}`);
-            refreshStatus();
+            // Visual feedback
+            setButtonLoading(startButton, true);
+            showStatus('Starting playback...', 'success');
+            
+            try {
+                const params = new URLSearchParams({ player, mode, protocol });
+                await apiCall('POST', `/playback/${streamKey}/start?${params}`);
+                showStatus(`Successfully started playback of "${streamKey}" with ${player}`, 'success');
+                refreshStatus();
+            } catch (error) {
+                showValidationError(playbackCard, `Failed to start playback: ${error.message}`);
+                showStatus(`Playback failed: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(startButton, false);
+            }
         }
 
         async function stopPlayback() {
-            await apiCall('DELETE', '/playback/stop');
-            refreshStatus();
+            const stopButton = event ? event.target : document.querySelector('button[onclick="stopPlayback()"]');
+            
+            // Visual feedback
+            setButtonLoading(stopButton, true);
+            showStatus('Stopping playback...', 'success');
+            
+            try {
+                await apiCall('DELETE', '/playback/stop');
+                showStatus('Playback stopped successfully', 'success');
+                refreshStatus();
+            } catch (error) {
+                showStatus(`Failed to stop playback: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(stopButton, false);
+            }
         }
 
         async function switchStream() {
@@ -499,35 +727,81 @@
         }
 
         async function playYoutube() {
-            const youtubeUrl = document.getElementById('youtubeUrl').value;
+            const playButton = event ? event.target : document.querySelector('button[onclick="playYoutube()"]');
+            const youtubeCard = playButton.closest('.card');
+            
+            // Clear previous validation errors
+            clearValidationErrors(youtubeCard);
+            
+            // Get form values
+            const youtubeUrl = document.getElementById('youtubeUrl').value.trim();
             const duration = document.getElementById('youtubeDuration').value;
             
+            // Validation
             if (!youtubeUrl) {
-                showStatus('Please enter a YouTube URL', 'error');
+                showValidationError(youtubeCard, 'Please enter a YouTube URL');
                 return;
             }
             
-            const data = { youtube_url: youtubeUrl };
-            if (duration) data.duration = parseInt(duration);
+            // Basic URL validation
+            if (!youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
+                showValidationError(youtubeCard, 'Please enter a valid YouTube URL');
+                return;
+            }
             
-            await apiCall('POST', '/playback/youtube', data);
-            refreshStatus();
+            // Visual feedback
+            setButtonLoading(playButton, true);
+            showStatus('Starting YouTube video...', 'success');
+            
+            try {
+                const data = { youtube_url: youtubeUrl };
+                if (duration) data.duration = parseInt(duration);
+                
+                await apiCall('POST', '/playback/youtube', data);
+                showStatus(`YouTube video started successfully`, 'success');
+                refreshStatus();
+            } catch (error) {
+                showValidationError(youtubeCard, `Failed to play YouTube video: ${error.message}`);
+                showStatus(`YouTube playback failed: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(playButton, false);
+            }
         }
 
         async function displayQRCode() {
-            const content = document.getElementById('qrContent').value;
+            const generateButton = event ? event.target : document.querySelector('button[onclick="displayQRCode()"]');
+            const qrCard = generateButton.closest('.card');
+            
+            // Clear previous validation errors
+            clearValidationErrors(qrCard);
+            
+            // Get form values
+            const content = document.getElementById('qrContent').value.trim();
             const duration = document.getElementById('qrDuration').value;
             
+            // Validation
             if (!content) {
-                showStatus('Please enter text or URL for the QR code', 'error');
+                showValidationError(qrCard, 'Please enter text or URL for the QR code');
                 return;
             }
             
-            const data = { content: content };
-            if (duration) data.duration = parseInt(duration);
+            // Visual feedback
+            setButtonLoading(generateButton, true);
+            showStatus('Generating QR code...', 'success');
             
-            await apiCall('POST', '/display/qrcode', data);
-            refreshStatus();
+            try {
+                const data = { content: content };
+                if (duration) data.duration = parseInt(duration);
+                
+                await apiCall('POST', '/display/qrcode', data);
+                showStatus(`QR code displayed successfully`, 'success');
+                refreshStatus();
+            } catch (error) {
+                showValidationError(qrCard, `Failed to generate QR code: ${error.message}`);
+                showStatus(`QR code generation failed: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(generateButton, false);
+            }
         }
 
         async function setBackground() {
@@ -563,6 +837,175 @@
         async function showBackground() {
             await apiCall('POST', '/background/show');
             refreshStatus();
+        }
+
+        // Background Mode Management
+        async function setBackgroundMode(mode) {
+            const staticBtn = document.getElementById('staticModeBtn');
+            const clockBtn = document.getElementById('clockModeBtn');
+            
+            // Disable buttons during operation
+            staticBtn.disabled = true;
+            clockBtn.disabled = true;
+            
+            try {
+                showStatus(`Setting background mode to ${mode}...`, 'info');
+                
+                const response = await fetch('/background/mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: mode })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to set background mode');
+                }
+                
+                showStatus(`Background mode set to ${mode}`, 'success');
+                await refreshBackgroundStatus();
+                
+            } catch (error) {
+                showStatus(`Failed to set background mode: ${error.message}`, 'error');
+            } finally {
+                staticBtn.disabled = false;
+                clockBtn.disabled = false;
+            }
+        }
+
+        async function refreshBackgroundStatus() {
+            try {
+                const response = await fetch('/background/mode');
+                const status = await response.json();
+                
+                const statusDiv = document.getElementById('backgroundStatus');
+                const staticBtn = document.getElementById('staticModeBtn');
+                const clockBtn = document.getElementById('clockModeBtn');
+                const staticControls = document.getElementById('staticControls');
+                const clockControls = document.getElementById('clockControls');
+                
+                // Update status display
+                let statusText = `Current mode: ${status.mode}`;
+                if (status.mode === 'splitflap_clock' && status.current_time) {
+                    statusText += ` (${status.current_time})`;
+                    if (status.is_animating) {
+                        statusText += ' ⚡ animating';
+                    }
+                }
+                if (!status.is_running) {
+                    statusText += ' ❌ not running';
+                }
+                statusDiv.textContent = statusText;
+                
+                // Update button states
+                staticBtn.classList.toggle('active', status.mode === 'static');
+                clockBtn.classList.toggle('active', status.mode === 'splitflap_clock');
+                
+                // Show/hide appropriate controls
+                staticControls.style.display = status.mode === 'static' ? 'block' : 'none';
+                clockControls.style.display = status.mode === 'splitflap_clock' ? 'block' : 'none';
+                
+            } catch (error) {
+                console.error('Failed to refresh background status:', error);
+                document.getElementById('backgroundStatus').textContent = 'Error loading status';
+            }
+        }
+
+        async function regenerateClock() {
+            try {
+                showStatus('Regenerating splitflap clock...', 'info');
+                
+                const response = await fetch('/background/clock/regenerate', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to regenerate clock');
+                }
+                
+                showStatus(result.message || 'Clock regenerated successfully', 'success');
+                await refreshBackgroundStatus();
+                
+            } catch (error) {
+                showStatus(`Failed to regenerate clock: ${error.message}`, 'error');
+            }
+        }
+
+        async function toggleScreenStream() {
+            const button = document.getElementById('screenStreamButton');
+            const statusDiv = document.getElementById('screenStreamStatus');
+            const streamCard = button.closest('.card');
+            
+            // Clear previous validation errors
+            clearValidationErrors(streamCard);
+            
+            try {
+                // Check current status first
+                const status = await fetch('/screen-stream/status').then(r => r.json());
+                
+                if (status.active) {
+                    // Stop streaming
+                    setButtonLoading(button, true);
+                    statusDiv.textContent = 'Stopping screen stream...';
+                    
+                    await apiCall('DELETE', '/screen-stream/stop');
+                    button.textContent = 'Start Screen Stream';
+                    button.className = '';
+                    statusDiv.textContent = '';
+                    showStatus('Screen streaming stopped', 'success');
+                } else {
+                    // Start streaming
+                    const streamKey = document.getElementById('screenStreamKey').value.trim();
+                    const protocol = document.getElementById('screenStreamProtocol').value;
+                    
+                    // Validation
+                    if (!streamKey) {
+                        showValidationError(streamCard, 'Please enter a stream key');
+                        return;
+                    }
+                    
+                    setButtonLoading(button, true);
+                    statusDiv.textContent = 'Starting screen stream...';
+                    
+                    await apiCall('POST', `/screen-stream/${streamKey}/start?protocol=${protocol}`);
+                    button.textContent = 'Stop Screen Stream';
+                    button.className = 'danger';
+                    statusDiv.innerHTML = `<span style="color: #28a745;">🔴 Streaming "${streamKey}" via ${protocol.toUpperCase()}</span>`;
+                    showStatus(`Screen streaming started: ${streamKey}`, 'success');
+                }
+                
+                refreshStatus();
+            } catch (error) {
+                showValidationError(streamCard, `Screen streaming error: ${error.message}`);
+                showStatus(`Screen streaming failed: ${error.message}`, 'error');
+                statusDiv.textContent = '';
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        async function updateScreenStreamUI() {
+            try {
+                const status = await fetch('/screen-stream/status').then(r => r.json());
+                const button = document.getElementById('screenStreamButton');
+                const statusDiv = document.getElementById('screenStreamStatus');
+                
+                if (status.active) {
+                    button.textContent = 'Stop Screen Stream';
+                    button.className = 'danger';
+                    statusDiv.innerHTML = `<span style="color: #28a745;">🔴 Streaming "${status.stream_key}" via ${status.protocol?.toUpperCase()}</span>`;
+                } else {
+                    button.textContent = 'Start Screen Stream';
+                    button.className = '';
+                    statusDiv.textContent = '';
+                }
+            } catch (error) {
+                // Silently handle errors for UI updates
+                console.error('Failed to update screen stream UI:', error);
+            }
         }
 
         async function refreshStatus() {
@@ -627,11 +1070,159 @@
             }
         }
 
+        async function loadResolution() {
+            try {
+                const response = await fetch('/resolution');
+                const resolution = await response.json();
+                
+                const resolutionDisplay = document.getElementById('resolution-display');
+                if (resolution.error) {
+                    resolutionDisplay.textContent = `${resolution.resolution_string} (detected)`;
+                } else {
+                    resolutionDisplay.textContent = resolution.resolution_string;
+                }
+            } catch (error) {
+                const resolutionDisplay = document.getElementById('resolution-display');
+                resolutionDisplay.textContent = 'resolution detection failed';
+            }
+        }
+
+        // HDMI-CEC Functions
+        async function powerOnTV() {
+            const button = document.getElementById('tvPowerOnBtn');
+            
+            try {
+                setButtonLoading(button, true);
+                showStatus('Sending power on command to TV...', 'info');
+                
+                const response = await fetch('/cec/tv/power-on', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to power on TV');
+                }
+                
+                showStatus(result.message, 'success');
+                
+                // Refresh status after a short delay (CEC commands can be slow)
+                setTimeout(() => {
+                    refreshCECStatus();
+                }, 2000);
+                
+            } catch (error) {
+                showStatus(`Failed to power on TV: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        async function powerOffTV() {
+            const button = document.getElementById('tvPowerOffBtn');
+            
+            try {
+                setButtonLoading(button, true);
+                showStatus('Sending power off command to TV...', 'info');
+                
+                const response = await fetch('/cec/tv/power-off', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to power off TV');
+                }
+                
+                showStatus(result.message, 'success');
+                
+                // Refresh status after a short delay (CEC commands can be slow)
+                setTimeout(() => {
+                    refreshCECStatus();
+                }, 2000);
+                
+            } catch (error) {
+                showStatus(`Failed to power off TV: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        async function refreshCECStatus() {
+            try {
+                const response = await fetch('/cec/status');
+                const status = await response.json();
+                
+                // Update UI elements
+                const cecAvailability = document.getElementById('cecAvailability');
+                const tvPowerStatus = document.getElementById('tvPowerStatus');
+                const tvAddress = document.getElementById('tvAddress');
+                
+                if (status.available) {
+                    cecAvailability.textContent = '✅ Available';
+                    cecAvailability.style.color = '#28a745';
+                    
+                    tvAddress.textContent = status.tv_address || '-';
+                    
+                    // Update power status
+                    if (status.tv_power && status.tv_power.success) {
+                        const powerState = status.tv_power.power_status;
+                        if (powerState === 'on') {
+                            tvPowerStatus.textContent = '🟢 On';
+                            tvPowerStatus.style.color = '#28a745';
+                        } else if (powerState === 'standby') {
+                            tvPowerStatus.textContent = '🔴 Standby';
+                            tvPowerStatus.style.color = '#dc3545';
+                        } else {
+                            tvPowerStatus.textContent = '❓ Unknown';
+                            tvPowerStatus.style.color = '#6c757d';
+                        }
+                    } else {
+                        tvPowerStatus.textContent = '❓ Check Failed';
+                        tvPowerStatus.style.color = '#6c757d';
+                    }
+                    
+                    // Enable buttons
+                    document.getElementById('tvPowerOnBtn').disabled = false;
+                    document.getElementById('tvPowerOffBtn').disabled = false;
+                    
+                } else {
+                    cecAvailability.textContent = '❌ Not Available';
+                    cecAvailability.style.color = '#dc3545';
+                    tvPowerStatus.textContent = '❌ Unavailable';
+                    tvPowerStatus.style.color = '#6c757d';
+                    tvAddress.textContent = '-';
+                    
+                    // Disable buttons
+                    document.getElementById('tvPowerOnBtn').disabled = true;
+                    document.getElementById('tvPowerOffBtn').disabled = true;
+                }
+                
+            } catch (error) {
+                console.error('Failed to refresh CEC status:', error);
+                
+                // Show error state
+                document.getElementById('cecAvailability').textContent = '❌ Error';
+                document.getElementById('cecAvailability').style.color = '#dc3545';
+                document.getElementById('tvPowerStatus').textContent = '❌ Error';
+                document.getElementById('tvPowerStatus').style.color = '#dc3545';
+            }
+        }
+
         // Auto-refresh every 10 seconds
         setInterval(refreshStatus, 10000);
+        setInterval(updateScreenStreamUI, 5000); // Update screen stream UI more frequently
+        setInterval(refreshBackgroundStatus, 15000); // Refresh background status
+        setInterval(refreshCECStatus, 20000); // Refresh CEC status every 20 seconds
         
         // Initial load
+        loadResolution();
         refreshStatus();
+        updateScreenStreamUI();
+        refreshBackgroundStatus();
+        refreshCECStatus();
     </script>
 </body>
 </html>
