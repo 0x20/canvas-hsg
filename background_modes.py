@@ -124,7 +124,7 @@ class BackgroundManager:
             
             # Generate splitflap background using the new engine
             frame = self.background_generator.create_splitflap_background(
-                width, height, self.splitflap_renderer
+                width, height, self.splitflap_renderer.clock
             )
             
             # Save to file

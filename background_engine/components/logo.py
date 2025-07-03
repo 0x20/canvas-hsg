@@ -68,14 +68,13 @@ class LogoComponent(LayoutComponent):
     
     def calculate_size(self, canvas_width: int, canvas_height: int, 
                       config: BackgroundConfig) -> Tuple[int, int]:
-        """Calculate logo size based on configuration"""
+        """Calculate logo size based on configuration - 30% of canvas height"""
         size_percent = self._get_size_percent(config)
         min_size = self._get_min_size(config)
         max_size = self._get_max_size(config)
         
-        # Calculate size as percentage of smaller canvas dimension
-        smaller_dimension = min(canvas_width, canvas_height)
-        logo_size = int(smaller_dimension * size_percent)
+        # Calculate size as percentage of canvas height (30%)
+        logo_size = int(canvas_height * size_percent)
         
         # Apply min/max constraints
         logo_size = max(min_size, min(logo_size, max_size))

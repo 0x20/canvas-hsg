@@ -39,81 +39,104 @@ DEFAULT_BACKGROUND_PATH = "/tmp/stream_images/default_background.jpg"
 
 # Explicit player command matrix for all resolutions
 OPTIMAL_PLAYER_COMMANDS = {
-    # 4K UHD Commands
+    # 4K UHD Commands - Optimized for smooth playback
     "mpv_3840x2160_60hz": [
         "mpv", "--vo=drm", "--drm-mode=3840x2160@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=150MiB"
+        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=200MiB",
+        "--demuxer-max-back-bytes=100MiB", "--cache-secs=10", "--cache-file-size=300MiB",
+        "--video-sync=display-resample", "--interpolation", "--vd-lavc-dr=yes",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_3840x2160_30hz": [
         "mpv", "--vo=drm", "--drm-mode=3840x2160@30", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=200MiB",
+        "--cache-secs=8", "--vd-lavc-dr=yes",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # 1440p Commands
     "mpv_2560x1440_144hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--interpolation", "--video-sync=display-resample"
+        "--interpolation", "--video-sync=display-resample",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_2560x1440_120hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_2560x1440_60hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # 1080p Commands
     "mpv_1920x1080_144hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--interpolation", "--video-sync=display-resample"
+        "--interpolation", "--video-sync=display-resample",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_1920x1080_120hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_1920x1080_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--ao=pulse", "--audio-channels=stereo",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # 720p Commands
     "mpv_1280x720_120hz": [
         "mpv", "--vo=drm", "--drm-mode=1280x720@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_1280x720_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1280x720@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--ao=pulse", "--audio-channels=stereo",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # XGA Commands
     "mpv_1024x768_75hz": [
         "mpv", "--vo=drm", "--drm-mode=1024x768@75", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_1024x768_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1024x768@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--ao=pulse", "--audio-channels=stereo",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # SVGA Commands
     "mpv_800x600_75hz": [
         "mpv", "--vo=drm", "--drm-mode=800x600@75", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_800x600_60hz": [
         "mpv", "--vo=drm", "--drm-mode=800x600@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m"
+        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
+        "--ao=pulse", "--audio-channels=stereo",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # VGA Fallback Commands
     "mpv_640x480_60hz": [
         "mpv", "--vo=drm", "--drm-mode=640x480@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc"
+        "--no-input-default-bindings", "--no-osc",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
     # FFplay Variants
@@ -145,10 +168,11 @@ OPTIMAL_PLAYER_COMMANDS = {
     ],
     
     # Legacy compatibility commands
-    "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet"],
+    "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet", "--audio-device=alsa/sysdefault:CARD=Headphones"],
     "mpv_optimized": [
         "mpv", "--vo=drm", "--fs", "--quiet", 
-        "--no-input-default-bindings", "--no-osc", "--untimed"
+        "--no-input-default-bindings", "--no-osc", "--untimed",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "ffplay_basic": ["ffplay", "-fs", "-autoexit"],
     "vlc_basic": ["vlc", "--intf", "dummy", "--fullscreen"]
@@ -491,12 +515,50 @@ class FramebufferManager:
     def cleanup(self):
         """Clean up framebuffer resources"""
         try:
-            if self.fb_mmap:
+            # Clear NumPy array references to allow mmap to close
+            if hasattr(self, 'fb_array') and self.fb_array is not None:
+                # Explicitly delete array reference
+                del self.fb_array
+                self.fb_array = None
+            
+            # Also clear any other potential NumPy array references
+            if hasattr(self, 'write_array') and self.write_array is not None:
+                del self.write_array  
+                self.write_array = None
+            
+            # Force garbage collection to ensure NumPy releases references
+            import gc
+            gc.collect()
+            
+            # Sync buffer before closing
+            if hasattr(self, 'fb_mmap') and self.fb_mmap:
+                try:
+                    self.fb_mmap.flush()
+                except Exception as flush_error:
+                    logging.warning(f"Failed to flush framebuffer: {flush_error}")
+                
+                # Close memory map
                 self.fb_mmap.close()
-            if self.fb_file:
+                self.fb_mmap = None
+            
+            # Close file handle
+            if hasattr(self, 'fb_file') and self.fb_file:
                 self.fb_file.close()
+                self.fb_file = None
+                
+            self.is_available = False
+            logging.debug("Framebuffer resources cleaned up successfully")
+            
         except Exception as e:
             logging.error(f"Error cleaning up framebuffer: {e}")
+            # Continue cleanup attempt even if some steps fail
+            self.is_available = False
+    
+    def is_resource_active(self):
+        """Check if framebuffer resources are actively initialized"""
+        return (hasattr(self, 'fb_mmap') and self.fb_mmap is not None and
+                hasattr(self, 'fb_file') and self.fb_file is not None and
+                hasattr(self, 'fb_array') and self.fb_array is not None)
 
 class HDMICECManager:
     """Manages HDMI-CEC functionality for TV/monitor power control"""
@@ -860,7 +922,7 @@ class StreamManager:
             logging.error(f"Failed to get optimal connector: {e}")
             return "HDMI-A-1", "/dev/dri/card0"
         
-    async def create_default_background(self, mode: str = "static"):
+    async def create_default_background(self, mode: str = "static") -> bool:
         """Create and display background using the new background manager"""
         try:
             from background_modes import BackgroundMode
@@ -875,11 +937,14 @@ class StreamManager:
             success = await self.background_manager.set_mode(bg_mode)
             if success:
                 logging.info(f"Background set to {mode} mode")
+                return True
             else:
                 logging.error(f"Failed to set background to {mode} mode")
+                return False
                 
         except Exception as e:
             logging.error(f"Failed to create background: {e}")
+            return False
     
     async def set_background_mode(self, mode: str) -> bool:
         """Set background mode (static or splitflap_clock)"""
@@ -1316,6 +1381,73 @@ class StreamManager:
             logging.error(f"Failed to stop playback: {e}")
             return False
     
+    async def stop_all_visual_content(self) -> bool:
+        """Universal stop method for all visual content - stops everything displaying on screen"""
+        try:
+            success = True
+            
+            # Stop current media playback (videos, streams, images)
+            if self.player_process:
+                try:
+                    self.player_process.terminate()
+                    self.player_process.wait(timeout=5)
+                    self.player_process = None
+                    self.current_stream = None
+                    self.current_protocol = None
+                    self.current_player = None
+                    logging.info("Stopped player process")
+                except Exception as e:
+                    logging.error(f"Failed to stop player process: {e}")
+                    success = False
+            
+            # Stop screen streaming 
+            if self.screen_stream_process:
+                try:
+                    os.killpg(os.getpgid(self.screen_stream_process.pid), signal.SIGTERM)
+                    self.screen_stream_process.wait(timeout=5)
+                    self.screen_stream_process = None
+                    self.screen_stream_key = None
+                    self.screen_stream_protocol = None
+                    logging.info("Stopped screen stream process")
+                except Exception as e:
+                    logging.error(f"Failed to stop screen stream: {e}")
+                    success = False
+            
+            # Stop webcast functionality (browser, tasks)
+            try:
+                webcast_stop_result = await webcast_manager.stop_webcast()
+                if not webcast_stop_result:
+                    success = False
+                    logging.warning("Webcast stop returned failure")
+            except Exception as e:
+                logging.error(f"Failed to stop webcast: {e}")
+                success = False
+            
+            # Stop background processes managed by background_manager
+            if self.background_manager:
+                try:
+                    await self.background_manager.stop()
+                    logging.info("Stopped background manager processes")
+                    # Give extra time for background processes to fully stop and release framebuffer references
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    logging.error(f"Failed to stop background manager: {e}")
+                    success = False
+            
+            # Additional delay to ensure all processes have released framebuffer references
+            await asyncio.sleep(0.2)
+            
+            # Note: We don't cleanup framebuffer here as it should remain available
+            # for new content. Framebuffer cleanup only happens during app shutdown
+            # in the cleanup() method.
+            
+            logging.info(f"Universal visual content stop completed (success: {success})")
+            return success
+            
+        except Exception as e:
+            logging.error(f"Failed to stop all visual content: {e}")
+            return False
+    
     async def switch_stream(self, new_stream_key: str) -> bool:
         """Quickly switch to a different stream using same player/settings"""
         if not self.player_process:
@@ -1552,25 +1684,35 @@ class StreamManager:
             
             # Performance-optimized configs for optimal resolution
             configs = [
-                # Method 1: Optimal quality + hardware decode
+                # Method 1: 4K optimized with advanced caching and threading
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    f"--ytdl-format={youtube_quality}", "--vd-lavc-dr=yes", "--cache=yes"
+                    f"--ytdl-format={youtube_quality}", "--vd-lavc-dr=yes", "--cache=yes",
+                    "--demuxer-max-bytes=200MiB", "--demuxer-max-back-bytes=100MiB",
+                    "--vd-lavc-threads=4", "--cache-secs=10", "--cache-file-size=300MiB",
+                    "--video-sync=display-resample", "--interpolation"
                 ],
-                # Method 2: Reduced quality for stability
+                # Method 2: 4K with reduced settings for stability
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=best[height<=720]", "--profile=fast"
+                    f"--ytdl-format={youtube_quality}", "--cache=yes",
+                    "--demuxer-max-bytes=150MiB", "--vd-lavc-threads=4", "--cache-secs=5"
                 ],
-                # Method 3: Low quality but stable
+                # Method 3: Reduced quality for stability
+                [
+                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
+                    "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
+                    "--ytdl-format=best[height<=720]", "--profile=fast", "--cache=yes"
+                ],
+                # Method 4: Low quality but stable
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--fs", "--quiet", "--no-input-default-bindings",
                     "--ytdl-format=best[height<=480]", "--profile=low-latency"
                 ],
-                # Method 4: Basic fallback
+                # Method 5: Basic fallback
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--fs", "--quiet", "--no-input-default-bindings"
@@ -1930,15 +2072,22 @@ class StreamManager:
                 self.screen_stream_process.terminate()
             
             # Clean up framebuffer resources
-            if hasattr(self, 'framebuffer'):
+            if (hasattr(self, 'framebuffer') and self.framebuffer and 
+                self.framebuffer.is_resource_active()):
                 self.framebuffer.cleanup()
                 
             logging.info("StreamManager cleanup completed")
         except Exception as e:
             logging.error(f"Error during cleanup: {e}")
 
+# Import webcast manager
+from webcast_manager import WebcastManager, WebcastConfig
+
 # Global stream manager instance
 stream_manager = StreamManager()
+
+# Global webcast manager instance
+webcast_manager = WebcastManager()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -1963,6 +2112,7 @@ async def lifespan(app: FastAPI):
     await stream_manager.stop_playback()
     for stream_key in list(stream_manager.active_streams.keys()):
         await stream_manager.stop_stream(stream_key)
+    await webcast_manager.stop_webcast()
 
 # FastAPI app initialization with lifespan
 app = FastAPI(
@@ -2038,6 +2188,7 @@ async def get_screen_capture_capabilities():
 @app.post("/playback/{stream_key}/start")
 async def start_playback(stream_key: str, player: str = "mpv", mode: str = "optimized", protocol: str = "rtmp"):
     """Start DRM-accelerated playback with specified player"""
+    await stream_manager.stop_all_visual_content()
     success = await stream_manager.start_playback(stream_key, player, mode, protocol)
     if success:
         return {"message": f"Started DRM-accelerated {player} playback of {stream_key} via {protocol}"}
@@ -2074,6 +2225,7 @@ async def switch_player(player: str, mode: str = "optimized"):
 @app.post("/playback/youtube")
 async def play_youtube_video(request: YoutubePlayRequest):
     """Play a YouTube video with DRM acceleration"""
+    await stream_manager.stop_all_visual_content()
     success = await stream_manager.play_youtube(request.youtube_url, request.duration)
     if success:
         duration_text = f" for {request.duration}s" if request.duration else ""
@@ -2084,6 +2236,7 @@ async def play_youtube_video(request: YoutubePlayRequest):
 @app.post("/display/qrcode")
 async def display_qr_code(request: QRCodeRequest):
     """Generate and display a QR code with text overlay"""
+    await stream_manager.stop_all_visual_content()
     success = await stream_manager.generate_and_display_qr_code(request.content, request.duration)
     if success:
         duration_text = f" for {request.duration}s" if request.duration else " (forever)"
@@ -2094,12 +2247,14 @@ async def display_qr_code(request: QRCodeRequest):
 @app.post("/background/show")
 async def show_background():
     """Show the DRM-accelerated background"""
+    await stream_manager.stop_all_visual_content()
     await stream_manager.show_background()
     return {"message": "Showing DRM-accelerated background"}
 
 @app.post("/background/set")
 async def set_background(file: UploadFile = File(...)):
     """Set a new default background image"""
+    await stream_manager.stop_all_visual_content()
     try:
         image_data = await file.read()
         temp_dir = Path("/tmp/stream_images")
@@ -2117,6 +2272,7 @@ async def set_background(file: UploadFile = File(...)):
 @app.post("/display/image")
 async def display_image_endpoint(file: UploadFile = File(...), duration: int = 10):
     """Upload and display an image on screen with DRM acceleration"""
+    await stream_manager.stop_all_visual_content()
     try:
         image_data = await file.read()
         temp_dir = Path("/tmp/stream_images")
@@ -2141,6 +2297,7 @@ async def display_image_endpoint(file: UploadFile = File(...), duration: int = 1
 @app.post("/display/image/base64")
 async def display_image_base64(request: ImageDisplayRequest):
     """Display a base64 encoded image with DRM acceleration"""
+    await stream_manager.stop_all_visual_content()
     success = await stream_manager.save_and_display_image(request.image_data, request.duration)
     if success:
         return {"message": f"Displaying image with DRM acceleration for {request.duration} seconds"}
@@ -2456,12 +2613,16 @@ async def test_drm_acceleration():
 @app.post("/background/mode")
 async def set_background_mode(request: dict):
     """Set background display mode (static or splitflap_clock)"""
+    logging.info(f"POST /background/mode called with request: {request}")
+    await stream_manager.stop_all_visual_content()
     try:
         mode = request.get("mode", "static")
+        logging.info(f"Setting background mode to: {mode}")
         if mode not in ["static", "splitflap_clock"]:
             raise HTTPException(status_code=400, detail="Invalid mode. Use 'static' or 'splitflap_clock'")
         
         success = await stream_manager.set_background_mode(mode)
+        logging.info(f"Background mode set result: {success}")
         if success:
             return {"status": "success", "mode": mode}
         else:
@@ -2469,6 +2630,8 @@ async def set_background_mode(request: dict):
             
     except Exception as e:
         logging.error(f"Failed to set background mode: {e}")
+        import traceback
+        logging.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/background/mode")
@@ -2484,6 +2647,7 @@ async def get_background_mode():
 @app.post("/background/clock/regenerate")
 async def regenerate_clock_background():
     """Force regeneration of splitflap clock background"""
+    await stream_manager.stop_all_visual_content()
     try:
         if stream_manager.background_manager:
             # Clear cache and restart splitflap mode if active
@@ -2580,6 +2744,129 @@ async def quick_start_guide():
             "permissions": "Ensure user is in 'video' and 'render' groups for DRM access"
         }
     }
+
+# Webcast API Endpoints
+@app.post("/webcast/start")
+async def start_webcast(request: Request):
+    """Start webcasting a website with auto-scroll"""
+    await stream_manager.stop_all_visual_content()
+    try:
+        data = await request.json()
+        
+        # Create webcast configuration
+        config = WebcastConfig(
+            url=data.get("url"),
+            viewport_width=data.get("viewport_width", 1920),
+            viewport_height=data.get("viewport_height", 1080), 
+            scroll_delay=data.get("scroll_delay", 5.0),
+            scroll_percentage=data.get("scroll_percentage", 30.0),
+            overlap_percentage=data.get("overlap_percentage", 5.0),
+            loop_count=data.get("loop_count", 3),
+            zoom_level=data.get("zoom_level", 1.0),
+            wait_for_load=data.get("wait_for_load", 3.0),
+            screenshot_path=data.get("screenshot_path", "/tmp/webcast_screenshot.png")
+        )
+        
+        result = await webcast_manager.start_webcast(config)
+        
+        # Automatically start displaying the webcast screenshots
+        if result.get("status") == "started":
+            screenshot_path = result.get("screenshot_path")
+            if screenshot_path:
+                # Start periodic display of webcast screenshots
+                asyncio.create_task(_display_webcast_loop())
+        
+        return result
+        
+    except Exception as e:
+        logging.error(f"Failed to start webcast: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/webcast/stop")
+async def stop_webcast():
+    """Stop the current webcast"""
+    try:
+        result = await webcast_manager.stop_webcast()
+        return result
+    except Exception as e:
+        logging.error(f"Failed to stop webcast: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/webcast/status")
+async def get_webcast_status():
+    """Get current webcast status"""
+    try:
+        return await webcast_manager.get_status()
+    except Exception as e:
+        logging.error(f"Failed to get webcast status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/webcast/config")
+async def update_webcast_config(request: Request):
+    """Update webcast configuration"""
+    try:
+        data = await request.json()
+        result = await webcast_manager.update_config(data)
+        return result
+    except Exception as e:
+        logging.error(f"Failed to update webcast config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/webcast/scroll")
+async def manual_webcast_scroll(request: Request):
+    """Manually scroll the webcast"""
+    try:
+        data = await request.json()
+        direction = data.get("direction", "down")
+        amount = data.get("amount")
+        
+        result = await webcast_manager.manual_scroll(direction, amount)
+        return result
+    except Exception as e:
+        logging.error(f"Failed to scroll webcast: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/webcast/jump")
+async def jump_webcast_position(request: Request):
+    """Jump to a specific position in the webcast"""
+    try:
+        data = await request.json()
+        position_percent = data.get("position_percent", 0)
+        
+        result = await webcast_manager.jump_to_position(position_percent)
+        return result
+    except Exception as e:
+        logging.error(f"Failed to jump webcast position: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _display_webcast_loop():
+    """Background task to display webcast screenshots"""
+    logging.info("Starting webcast display loop")
+    try:
+        while True:
+            status = await webcast_manager.get_status()
+            logging.debug(f"Webcast status: {status.get('status')}")
+            if status.get("status") != "running":
+                logging.info("Webcast not running, stopping display loop")
+                break
+                
+            screenshot_path = webcast_manager.get_current_screenshot_path()
+            logging.debug(f"Screenshot path: {screenshot_path}")
+            if screenshot_path and os.path.exists(screenshot_path):
+                logging.info(f"Displaying webcast screenshot: {screenshot_path}")
+                # Display the screenshot using the existing image display system
+                result = await stream_manager.display_image(screenshot_path, duration=0)
+                logging.debug(f"Display result: {result}")
+            else:
+                logging.warning(f"Screenshot not found: {screenshot_path}")
+            
+            # Wait before checking for next screenshot
+            await asyncio.sleep(0.5)
+            
+    except Exception as e:
+        logging.error(f"Error in webcast display loop: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
 
 # Cleanup is now handled in the lifespan context manager above
 

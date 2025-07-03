@@ -27,17 +27,17 @@ class BackgroundConfig:
     default_component_spacing: float = 0.025  # 2.5% default spacing between components
     
     # Component-specific spacing (overrides default if set)
-    title_spacing_after: float = 0.04   # 4% space after title
-    upper_line_spacing_before: float = 0.02  # 2% space before upper line
-    upper_line_spacing_after: float = 0.02   # 2% space after upper line
-    qr_spacing_before: float = 0.03     # 3% space before QR code
+    title_spacing_after: float = 0.015  # 1.5% space after title
+    upper_line_spacing_before: float = 0.0   # No lines
+    upper_line_spacing_after: float = 0.0    # No lines
+    qr_spacing_before: float = 0.015    # 1.5% space before QR code
     qr_spacing_after: float = 0.015     # 1.5% space after QR code
-    text_spacing_after: float = 0.03    # 3% space after subtitle text
-    lower_line_spacing_before: float = 0.025  # 2.5% space before lower line
-    lower_line_spacing_after: float = 0.025   # 2.5% space after lower line
-    logo_spacing_before: float = 0.04   # 4% space before logo
-    clock_spacing_before: float = 0.025 # 2.5% space before clock (splitflap mode)
-    clock_spacing_after: float = 0.025  # 2.5% space after clock (splitflap mode)
+    text_spacing_after: float = 0.015   # 1.5% space after subtitle text
+    lower_line_spacing_before: float = 0.0   # No lines
+    lower_line_spacing_after: float = 0.0    # No lines
+    logo_spacing_before: float = 0.015  # 1.5% space before logo
+    clock_spacing_before: float = 0.01  # 1% space before clock
+    clock_spacing_after: float = 0.015  # 1.5% space after clock
     
     # Title settings
     title_text: str = "Hackerspace.gent Canvas"
@@ -47,13 +47,15 @@ class BackgroundConfig:
     title_glow_color: Tuple[int, int, int] = (50, 50, 50)
     title_glow_offset: float = 0.025  # As percentage of font size
     
-    # Line settings
-    line_width_percent: float = 0.15    # 15% of canvas width
-    line_height_px: int = 4             # Fixed height in pixels
+    # Line settings (disabled - lines removed)
+    line_width_percent: float = 0.0     # 0% - lines disabled
+    upper_line_height_px: int = 0       # Disabled
+    lower_line_height_px: int = 0       # Disabled  
+    line_height_px: int = 0             # Disabled
     line_color: Tuple[int, int, int] = (100, 150, 255)
     
     # QR Code settings  
-    qr_size_percent: float = 0.18       # 18% of smaller canvas dimension
+    qr_size_percent: float = 0.12       # 12% of canvas height
     qr_box_size_scale: float = 1.0      # Multiplier for QR box size
     qr_border: int = 4                  # QR code border size
     qr_foreground_color: str = "white"
@@ -61,23 +63,23 @@ class BackgroundConfig:
     
     # Subtitle text settings
     subtitle_text: str = "Scan to access web interface"
-    subtitle_font_scale: float = 0.5
+    subtitle_font_scale: float = 1.5    # Larger text but reasonable
     subtitle_color: Tuple[int, int, int] = (180, 180, 180)
     subtitle_glow_enabled: bool = True
     subtitle_glow_color: Tuple[int, int, int] = (50, 50, 50)
     subtitle_glow_offset: float = 0.5   # As percentage of font size
     
     # Logo settings
-    logo_path: str = "/home/hsg/srs_server/static/hsg_logo.png"
-    logo_size_percent: float = 0.20     # 20% of smaller canvas dimension  
-    logo_min_size: int = 120            # Minimum logo size in pixels
-    logo_max_size: int = 400            # Maximum logo size in pixels
+    logo_path: str = "/home/hsg/srs_server/static/hsg_logo_invert.png"
+    logo_size_percent: float = 0.12     # 12% of canvas height
+    logo_min_size: int = 100            # Minimum logo size in pixels
+    logo_max_size: int = 300            # Maximum logo size in pixels
     
     # Clock settings (for splitflap mode)
-    clock_digit_width_scale: float = 1.0   # Multiplier for clock digit width
-    clock_digit_height_scale: float = 1.0  # Multiplier for clock digit height
-    clock_font_scale: float = 1.0          # Multiplier for clock font size
-    clock_spacing_scale: float = 1.0       # Multiplier for clock digit spacing
+    clock_digit_width_scale: float = 1.4   # Multiplier for clock digit width (increased from 1.0)
+    clock_digit_height_scale: float = 1.4  # Multiplier for clock digit height (increased from 1.0)
+    clock_font_scale: float = 1.4          # Multiplier for clock font size (increased from 1.0)
+    clock_spacing_scale: float = 1.2       # Multiplier for clock digit spacing (slightly increased)
     
     # Font settings
     title_font_path: str = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
@@ -113,16 +115,16 @@ class BackgroundConfig:
         return min(width_scale, height_scale)
     
     def get_title_font_size(self, canvas_width: int, canvas_height: int) -> int:
-        """Get scaled title font size"""
-        base_size = 80  # Base font size for 1920x1080
-        scale = self.calculate_font_scale(canvas_width, canvas_height)
-        return int(base_size * scale * self.title_font_scale)
+        """Get scaled title font size - 8% of canvas height"""
+        # Title should be 8% of canvas height
+        target_size = int(canvas_height * 0.08)
+        return int(target_size * self.title_font_scale)
     
     def get_subtitle_font_size(self, canvas_width: int, canvas_height: int) -> int:
-        """Get scaled subtitle font size"""
-        base_size = 40  # Base font size for 1920x1080
-        scale = self.calculate_font_scale(canvas_width, canvas_height)
-        return int(base_size * scale * self.subtitle_font_scale)
+        """Get scaled subtitle font size - 4% of canvas height"""
+        # Subtitle should be 4% of canvas height
+        target_size = int(canvas_height * 0.04)
+        return int(target_size * self.subtitle_font_scale)
     
     def to_dict(self) -> dict:
         """Convert config to dictionary for serialization"""

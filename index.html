@@ -326,7 +326,7 @@
         <div class="grid">
             <!-- Playback Control -->
             <div class="card">
-                <h2>▶️ Playback Control</h2>
+                <h2>▶️ Play stream (RTMP//HTTP_FLV//hls)</h2>
                 <p>Watch streams on your Pi display</p>
                 <input type="text" id="playbackKey" placeholder="Stream Key to play" value="oke">
                 <select id="player">
@@ -463,6 +463,108 @@
                     <li>Samsung: Enable "Anynet+"</li>
                     <li>LG: Enable "SimpLink"</li>
                     <li>Commands may take 2-5 seconds to complete</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Website Casting -->
+        <div class="card">
+            <h2>🌐 Website Casting</h2>
+            <p style="color: #666; margin-bottom: 15px;">Cast websites to the canvas with auto-scrolling</p>
+            
+            <!-- URL Input -->
+            <div class="input-group" style="margin-bottom: 15px;">
+                <label for="webcastUrl">Website URL:</label>
+                <input type="url" id="webcastUrl" placeholder="https://example.com" style="width: 100%; padding: 8px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px;">
+            </div>
+            
+            <!-- Configuration -->
+            <div class="webcast-config" style="margin-bottom: 15px;">
+                <h4>Auto-Scroll Settings</h4>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 10px 0;">
+                    <div>
+                        <label for="scrollDelay">Scroll Delay (seconds):</label>
+                        <input type="number" id="scrollDelay" value="5" min="1" max="60" step="0.5" style="width: 100%; padding: 4px;">
+                    </div>
+                    <div>
+                        <label for="scrollPercentage">Scroll % per step:</label>
+                        <input type="number" id="scrollPercentage" value="30" min="10" max="90" step="5" style="width: 100%; padding: 4px;">
+                    </div>
+                    <div>
+                        <label for="overlapPercentage">Overlap %:</label>
+                        <input type="number" id="overlapPercentage" value="5" min="0" max="20" step="1" style="width: 100%; padding: 4px;">
+                    </div>
+                    <div>
+                        <label for="loopCount">Loop Count:</label>
+                        <input type="number" id="loopCount" value="3" min="1" max="20" step="1" style="width: 100%; padding: 4px;">
+                    </div>
+                    <div>
+                        <label for="zoomLevel">Zoom Level:</label>
+                        <input type="number" id="zoomLevel" value="1.0" min="0.5" max="3.0" step="0.1" style="width: 100%; padding: 4px;">
+                    </div>
+                    <div>
+                        <label for="viewportSize">Viewport:</label>
+                        <select id="viewportSize" style="width: 100%; padding: 4px;">
+                            <option value="1920x1080">1920x1080 (Full HD)</option>
+                            <option value="1280x720">1280x720 (HD)</option>
+                            <option value="800x600">800x600 (4:3)</option>
+                            <option value="1024x768">1024x768 (4:3)</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Control Buttons -->
+            <div class="button-group" style="margin-bottom: 15px;">
+                <button id="webcastStartBtn" onclick="startWebcast()" class="btn success" style="background-color: #28a745; color: white; margin-right: 10px;">
+                    ▶️ Start Webcast
+                </button>
+                <button id="webcastStopBtn" onclick="stopWebcast()" class="btn danger" style="background-color: #dc3545; color: white; margin-right: 10px;">
+                    ⏹️ Stop Webcast
+                </button>
+                <button onclick="refreshWebcastStatus()" class="btn secondary" style="background-color: #6c757d; color: white;">
+                    🔄 Refresh
+                </button>
+            </div>
+            
+            <!-- Manual Controls -->
+            <div class="manual-controls" style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                <h4>Manual Control</h4>
+                <div class="button-group" style="margin: 10px 0;">
+                    <button onclick="scrollWebcast('up')" class="btn" style="margin-right: 5px;">⬆️ Scroll Up</button>
+                    <button onclick="scrollWebcast('down')" class="btn" style="margin-right: 5px;">⬇️ Scroll Down</button>
+                    <button onclick="jumpToPosition(0)" class="btn" style="margin-right: 5px;">⏮️ Top</button>
+                    <button onclick="jumpToPosition(50)" class="btn" style="margin-right: 5px;">⏸️ Middle</button>
+                    <button onclick="jumpToPosition(100)" class="btn">⏭️ Bottom</button>
+                </div>
+                <div>
+                    <label for="jumpPosition">Jump to position (%):</label>
+                    <input type="range" id="jumpPosition" min="0" max="100" value="0" style="width: 70%; margin: 0 10px;">
+                    <button onclick="jumpToPosition(document.getElementById('jumpPosition').value)" class="btn">Jump</button>
+                </div>
+            </div>
+            
+            <!-- Status Display -->
+            <div id="webcastStatus" style="font-size: 0.9em; margin-bottom: 10px;">
+                <div><strong>Status:</strong> <span id="webcastState">Stopped</span></div>
+                <div id="webcastUrl_display" style="display: none;"><strong>URL:</strong> <span id="webcastCurrentUrl">-</span></div>
+                <div id="webcastProgress" style="display: none;">
+                    <strong>Progress:</strong> <span id="webcastScrollPercent">0</span>% | 
+                    Loop: <span id="webcastCurrentLoop">0</span>/<span id="webcastMaxLoops">0</span>
+                </div>
+                <div id="webcastDimensions" style="display: none;">
+                    <strong>Page:</strong> <span id="webcastPageHeight">0</span>px total
+                </div>
+            </div>
+            
+            <div id="webcastInfo" style="font-size: 0.8em; color: #666; border-top: 1px solid #eee; padding-top: 10px;">
+                <p><strong>How it works:</strong></p>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    <li>Enter a website URL and configure auto-scroll settings</li>
+                    <li>The system captures screenshots as it scrolls through the page</li>
+                    <li>Screenshots are displayed on the canvas in real-time</li>
+                    <li>Use manual controls to override auto-scrolling</li>
+                    <li>Webcast automatically loops through the page</li>
                 </ul>
             </div>
         </div>
@@ -1211,6 +1313,225 @@
             }
         }
 
+        // Webcast Functions
+        async function startWebcast() {
+            const button = document.getElementById('webcastStartBtn');
+            
+            try {
+                setButtonLoading(button, true);
+                
+                const url = document.getElementById('webcastUrl').value;
+                if (!url) {
+                    throw new Error('Please enter a website URL');
+                }
+                
+                // Parse viewport size
+                const viewportSize = document.getElementById('viewportSize').value;
+                const [width, height] = viewportSize.split('x').map(Number);
+                
+                const config = {
+                    url: url,
+                    viewport_width: width,
+                    viewport_height: height,
+                    scroll_delay: parseFloat(document.getElementById('scrollDelay').value),
+                    scroll_percentage: parseFloat(document.getElementById('scrollPercentage').value),
+                    overlap_percentage: parseFloat(document.getElementById('overlapPercentage').value),
+                    loop_count: parseInt(document.getElementById('loopCount').value),
+                    zoom_level: parseFloat(document.getElementById('zoomLevel').value)
+                };
+                
+                showStatus('Starting webcast...', 'info');
+                
+                const response = await fetch('/webcast/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to start webcast');
+                }
+                
+                showStatus('Webcast started successfully', 'success');
+                updateWebcastUI(result);
+                
+                // Start refreshing webcast status
+                startWebcastStatusUpdates();
+                
+            } catch (error) {
+                showStatus(`Failed to start webcast: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        async function stopWebcast() {
+            const button = document.getElementById('webcastStopBtn');
+            
+            try {
+                setButtonLoading(button, true);
+                showStatus('Stopping webcast...', 'info');
+                
+                const response = await fetch('/webcast/stop', {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to stop webcast');
+                }
+                
+                showStatus('Webcast stopped', 'success');
+                updateWebcastUI(result);
+                
+                // Stop refreshing webcast status
+                stopWebcastStatusUpdates();
+                
+            } catch (error) {
+                showStatus(`Failed to stop webcast: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(button, false);
+            }
+        }
+
+        async function refreshWebcastStatus() {
+            try {
+                const response = await fetch('/webcast/status');
+                const status = await response.json();
+                updateWebcastUI(status);
+            } catch (error) {
+                console.error('Failed to refresh webcast status:', error);
+            }
+        }
+
+        async function scrollWebcast(direction) {
+            try {
+                showStatus(`Scrolling ${direction}...`, 'info');
+                
+                const response = await fetch('/webcast/scroll', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ direction: direction })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to scroll webcast');
+                }
+                
+                updateWebcastUI(result);
+                showStatus(`Scrolled ${direction}`, 'success');
+                
+            } catch (error) {
+                showStatus(`Failed to scroll: ${error.message}`, 'error');
+            }
+        }
+
+        async function jumpToPosition(position) {
+            try {
+                const positionPercent = parseFloat(position);
+                showStatus(`Jumping to ${positionPercent}%...`, 'info');
+                
+                const response = await fetch('/webcast/jump', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ position_percent: positionPercent })
+                });
+                
+                const result = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(result.detail || 'Failed to jump position');
+                }
+                
+                updateWebcastUI(result);
+                showStatus(`Jumped to ${positionPercent}%`, 'success');
+                
+                // Update the slider position
+                document.getElementById('jumpPosition').value = positionPercent;
+                
+            } catch (error) {
+                showStatus(`Failed to jump: ${error.message}`, 'error');
+            }
+        }
+
+        function updateWebcastUI(status) {
+            const state = document.getElementById('webcastState');
+            const urlDisplay = document.getElementById('webcastUrl_display');
+            const currentUrl = document.getElementById('webcastCurrentUrl');
+            const progress = document.getElementById('webcastProgress');
+            const scrollPercent = document.getElementById('webcastScrollPercent');
+            const currentLoop = document.getElementById('webcastCurrentLoop');
+            const maxLoops = document.getElementById('webcastMaxLoops');
+            const dimensions = document.getElementById('webcastDimensions');
+            const pageHeight = document.getElementById('webcastPageHeight');
+            
+            if (status.status === 'running') {
+                state.textContent = '🟢 Running';
+                state.style.color = '#28a745';
+                
+                // Show additional info
+                urlDisplay.style.display = 'block';
+                progress.style.display = 'block';
+                dimensions.style.display = 'block';
+                
+                // Update values
+                if (status.url) currentUrl.textContent = status.url;
+                if (status.scroll_percentage !== undefined) {
+                    scrollPercent.textContent = Math.round(status.scroll_percentage);
+                    // Update the position slider
+                    document.getElementById('jumpPosition').value = Math.round(status.scroll_percentage);
+                }
+                if (status.current_loop !== undefined) currentLoop.textContent = status.current_loop;
+                if (status.max_loops !== undefined) maxLoops.textContent = status.max_loops;
+                if (status.total_height !== undefined) pageHeight.textContent = status.total_height;
+                
+                // Enable/disable buttons
+                document.getElementById('webcastStartBtn').disabled = true;
+                document.getElementById('webcastStopBtn').disabled = false;
+                
+            } else {
+                state.textContent = '🔴 Stopped';
+                state.style.color = '#dc3545';
+                
+                // Hide additional info
+                urlDisplay.style.display = 'none';
+                progress.style.display = 'none';
+                dimensions.style.display = 'none';
+                
+                // Enable/disable buttons
+                document.getElementById('webcastStartBtn').disabled = false;
+                document.getElementById('webcastStopBtn').disabled = true;
+            }
+        }
+
+        let webcastStatusInterval = null;
+
+        function startWebcastStatusUpdates() {
+            // Clear any existing interval
+            stopWebcastStatusUpdates();
+            
+            // Start new interval for frequent updates when webcast is running
+            webcastStatusInterval = setInterval(refreshWebcastStatus, 2000);
+        }
+
+        function stopWebcastStatusUpdates() {
+            if (webcastStatusInterval) {
+                clearInterval(webcastStatusInterval);
+                webcastStatusInterval = null;
+            }
+        }
+
         // Auto-refresh every 10 seconds
         setInterval(refreshStatus, 10000);
         setInterval(updateScreenStreamUI, 5000); // Update screen stream UI more frequently
@@ -1223,6 +1544,7 @@
         updateScreenStreamUI();
         refreshBackgroundStatus();
         refreshCECStatus();
+        refreshWebcastStatus();
     </script>
 </body>
 </html>

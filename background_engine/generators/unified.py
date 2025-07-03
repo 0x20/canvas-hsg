@@ -38,7 +38,15 @@ class UnifiedBackgroundGenerator:
             logging.warning(f"Background configuration issues: {issues}")
     
     def create_static_background(self, width: int, height: int, 
-                                config_override: Optional[BackgroundConfig] = None) -> Image.Image:
+                                config_override: Optional[BackgroundConfig] = None,
+                                title_height_percent: float = 0.08,
+                                title_spacing_percent: float = 0.02,
+                                qr_height_percent: float = 0.12,
+                                qr_spacing_percent: float = 0.02,
+                                text_height_percent: float = 0.04,
+                                text_spacing_percent: float = 0.02,
+                                logo_height_percent: float = 0.12,
+                                logo_spacing_percent: float = 0.02) -> Image.Image:
         """
         Create a static background with title, lines, QR code, text, and logo.
         
@@ -55,39 +63,35 @@ class UnifiedBackgroundGenerator:
         # Create layout engine
         engine = LayoutEngine(width, height, config)
         
-        # Add components in order with configured spacing
-        engine.add_component(
-            TitleComponent(component_id="main_title"),
-            spacing_after=config.title_spacing_after
-        )
+        # Add components with direct height control
+        # Calculate absolute heights from percentages
+        title_height = int(height * title_height_percent)
+        qr_height = int(height * qr_height_percent)
+        text_height = int(height * text_height_percent)
+        logo_height = int(height * logo_height_percent)
         
-        engine.add_component(
-            LineComponent(component_id="upper_line"),
-            spacing_before=config.upper_line_spacing_before,
-            spacing_after=config.upper_line_spacing_after
-        )
+        title_spacing = int(height * title_spacing_percent)
+        qr_spacing = int(height * qr_spacing_percent)
+        text_spacing = int(height * text_spacing_percent)
+        logo_spacing = int(height * logo_spacing_percent)
         
-        engine.add_component(
-            QRCodeComponent(component_id="qr_code"),
-            spacing_before=config.qr_spacing_before,
-            spacing_after=config.qr_spacing_after
-        )
+        # Force component sizes by overriding their calculate_size methods
+        title_comp = TitleComponent(component_id="main_title")
+        title_comp.calculate_size = lambda cw, ch, cfg: (width, title_height)
         
-        engine.add_component(
-            TextComponent(config.subtitle_text, component_id="subtitle"),
-            spacing_after=config.text_spacing_after
-        )
+        qr_comp = QRCodeComponent(component_id="qr_code")
+        qr_comp.calculate_size = lambda cw, ch, cfg: (qr_height, qr_height)
         
-        engine.add_component(
-            LineComponent(component_id="lower_line"),
-            spacing_before=config.lower_line_spacing_before,
-            spacing_after=config.lower_line_spacing_after
-        )
+        text_comp = TextComponent(config.subtitle_text, component_id="subtitle")
+        text_comp.calculate_size = lambda cw, ch, cfg: (width, text_height)
         
-        engine.add_component(
-            LogoComponent(component_id="logo"),
-            spacing_before=config.logo_spacing_before
-        )
+        logo_comp = LogoComponent(component_id="logo")
+        logo_comp.calculate_size = lambda cw, ch, cfg: (logo_height, logo_height)
+        
+        engine.add_component(title_comp, spacing_after=title_spacing)
+        engine.add_component(qr_comp, spacing_after=qr_spacing)
+        engine.add_component(text_comp, spacing_after=text_spacing)
+        engine.add_component(logo_comp, spacing_after=logo_spacing)
         
         # Render and return
         try:
@@ -99,7 +103,17 @@ class UnifiedBackgroundGenerator:
     
     def create_splitflap_background(self, width: int, height: int, 
                                    splitflap_clock: 'SplitflapClock',
-                                   config_override: Optional[BackgroundConfig] = None) -> Image.Image:
+                                   config_override: Optional[BackgroundConfig] = None,
+                                   title_height_percent: float = 0.08,
+                                   title_spacing_percent: float = 0.02,
+                                   clock_height_percent: float = 0.15,
+                                   clock_spacing_percent: float = 0.02,
+                                   qr_height_percent: float = 0.12,
+                                   qr_spacing_percent: float = 0.02,
+                                   text_height_percent: float = 0.04,
+                                   text_spacing_percent: float = 0.02,
+                                   logo_height_percent: float = 0.12,
+                                   logo_spacing_percent: float = 0.02) -> Image.Image:
         """
         Create a splitflap background with title, lines, clock, QR code, text, and logo.
         
@@ -117,45 +131,41 @@ class UnifiedBackgroundGenerator:
         # Create layout engine
         engine = LayoutEngine(width, height, config)
         
-        # Add components in order with configured spacing
-        engine.add_component(
-            TitleComponent(component_id="main_title"),
-            spacing_after=config.title_spacing_after
-        )
+        # Add components with direct height control
+        # Calculate absolute heights from percentages
+        title_height = int(height * title_height_percent)
+        clock_height = int(height * clock_height_percent)
+        qr_height = int(height * qr_height_percent)
+        text_height = int(height * text_height_percent)
+        logo_height = int(height * logo_height_percent)
         
-        engine.add_component(
-            LineComponent(component_id="upper_line"),
-            spacing_before=config.upper_line_spacing_before,
-            spacing_after=config.upper_line_spacing_after
-        )
+        title_spacing = int(height * title_spacing_percent)
+        clock_spacing = int(height * clock_spacing_percent)
+        qr_spacing = int(height * qr_spacing_percent)
+        text_spacing = int(height * text_spacing_percent)
+        logo_spacing = int(height * logo_spacing_percent)
         
-        engine.add_component(
-            ClockComponent(splitflap_clock, component_id="splitflap_clock"),
-            spacing_before=config.clock_spacing_before,
-            spacing_after=config.clock_spacing_after
-        )
+        # Force component sizes by overriding their calculate_size methods
+        title_comp = TitleComponent(component_id="main_title")
+        title_comp.calculate_size = lambda cw, ch, cfg: (width, title_height)
         
-        engine.add_component(
-            QRCodeComponent(component_id="qr_code"),
-            spacing_before=config.qr_spacing_before,
-            spacing_after=config.qr_spacing_after
-        )
+        clock_comp = ClockComponent(splitflap_clock, component_id="splitflap_clock")
+        clock_comp.calculate_size = lambda cw, ch, cfg: (splitflap_clock.total_width, clock_height)
         
-        engine.add_component(
-            TextComponent(config.subtitle_text, component_id="subtitle"),
-            spacing_after=config.text_spacing_after
-        )
+        qr_comp = QRCodeComponent(component_id="qr_code")
+        qr_comp.calculate_size = lambda cw, ch, cfg: (qr_height, qr_height)
         
-        engine.add_component(
-            LineComponent(component_id="lower_line"),
-            spacing_before=config.lower_line_spacing_before,
-            spacing_after=config.lower_line_spacing_after
-        )
+        text_comp = TextComponent(config.subtitle_text, component_id="subtitle")
+        text_comp.calculate_size = lambda cw, ch, cfg: (width, text_height)
         
-        engine.add_component(
-            LogoComponent(component_id="logo"),
-            spacing_before=config.logo_spacing_before
-        )
+        logo_comp = LogoComponent(component_id="logo")
+        logo_comp.calculate_size = lambda cw, ch, cfg: (logo_height, logo_height)
+        
+        engine.add_component(title_comp, spacing_after=title_spacing)
+        engine.add_component(clock_comp, spacing_after=clock_spacing)
+        engine.add_component(qr_comp, spacing_after=qr_spacing)
+        engine.add_component(text_comp, spacing_after=text_spacing)
+        engine.add_component(logo_comp, spacing_after=logo_spacing)
         
         # Render and return
         try:

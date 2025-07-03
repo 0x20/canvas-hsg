@@ -214,7 +214,7 @@ class SplitflapRenderer:
         ], fill=self.accent_color)
         
         # Add logo image below the decorative line
-        logo_path = "/home/hsg/srs_server/static/hsg_logo.png"
+        logo_path = "/home/hsg/srs_server/static/hsg_logo_invert.png"
         try:
             logo_image = Image.open(logo_path)
             logo_resized = logo_image.resize((self.logo_size, self.logo_size), Image.Resampling.LANCZOS)

@@ -77,12 +77,11 @@ class QRCodeComponent(LayoutComponent):
     
     def calculate_size(self, canvas_width: int, canvas_height: int, 
                       config: BackgroundConfig) -> Tuple[int, int]:
-        """Calculate QR code size based on configuration"""
+        """Calculate QR code size based on configuration - 30% of canvas height"""
         size_percent = self._get_size_percent(config)
         
-        # Calculate size as percentage of smaller canvas dimension
-        smaller_dimension = min(canvas_width, canvas_height)
-        qr_size = int(smaller_dimension * size_percent)
+        # Calculate size as percentage of canvas height (30%)
+        qr_size = int(canvas_height * size_percent)
         
         return qr_size, qr_size
     
@@ -152,6 +151,5 @@ class QRCodeComponent(LayoutComponent):
                     config: BackgroundConfig) -> Tuple[int, int]:
         """QR code max size is constrained by configuration percentage"""
         size_percent = self._get_size_percent(config)
-        smaller_dimension = min(canvas_width, canvas_height)
-        max_size = int(smaller_dimension * size_percent)
+        max_size = int(canvas_height * size_percent)
         return max_size, max_size

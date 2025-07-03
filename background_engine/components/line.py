@@ -27,7 +27,16 @@ class LineComponent(LayoutComponent):
     
     def _get_height_px(self, config: BackgroundConfig) -> int:
         """Get height in pixels, using config default if not specified"""
-        return self.height_px if self.height_px is not None else config.line_height_px
+        if self.height_px is not None:
+            return self.height_px
+        
+        # Use specific line height based on component ID
+        if self.component_id == "upper_line":
+            return config.upper_line_height_px
+        elif self.component_id == "lower_line":
+            return config.lower_line_height_px
+        else:
+            return config.line_height_px
     
     def _get_color(self, config: BackgroundConfig) -> Tuple[int, int, int]:
         """Get color, using config default if not specified"""
