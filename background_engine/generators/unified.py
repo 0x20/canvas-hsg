@@ -39,14 +39,14 @@ class UnifiedBackgroundGenerator:
     
     def create_static_background(self, width: int, height: int, 
                                 config_override: Optional[BackgroundConfig] = None,
-                                title_height_percent: float = 0.08,
-                                title_spacing_percent: float = 0.02,
-                                qr_height_percent: float = 0.12,
-                                qr_spacing_percent: float = 0.02,
-                                text_height_percent: float = 0.04,
-                                text_spacing_percent: float = 0.02,
-                                logo_height_percent: float = 0.12,
-                                logo_spacing_percent: float = 0.02) -> Image.Image:
+                                title_height_percent: float = 0.10,    # Larger title (increased from 0.08)
+                                title_spacing_percent: float = 0.05,   # More space after title (increased from 0.02)
+                                qr_height_percent: float = 0.20,       # Larger QR code (increased from 0.12)
+                                qr_spacing_percent: float = 0.04,      # More space around QR (increased from 0.02)
+                                text_height_percent: float = 0.06,     # Larger text (increased from 0.04)
+                                text_spacing_percent: float = 0.04,    # More space around text (increased from 0.02)
+                                logo_height_percent: float = 0.18,     # Larger logo (increased from 0.12)
+                                logo_spacing_percent: float = 0.03) -> Image.Image:    # Space after logo
         """
         Create a static background with title, lines, QR code, text, and logo.
         
@@ -104,16 +104,16 @@ class UnifiedBackgroundGenerator:
     def create_splitflap_background(self, width: int, height: int, 
                                    splitflap_clock: 'SplitflapClock',
                                    config_override: Optional[BackgroundConfig] = None,
-                                   title_height_percent: float = 0.08,
-                                   title_spacing_percent: float = 0.02,
-                                   clock_height_percent: float = 0.15,
-                                   clock_spacing_percent: float = 0.02,
-                                   qr_height_percent: float = 0.12,
-                                   qr_spacing_percent: float = 0.02,
-                                   text_height_percent: float = 0.04,
-                                   text_spacing_percent: float = 0.02,
-                                   logo_height_percent: float = 0.12,
-                                   logo_spacing_percent: float = 0.02) -> Image.Image:
+                                   title_height_percent: float = 0.08,    # Slightly smaller title for splitflap mode
+                                   title_spacing_percent: float = 0.03,   # Space after title
+                                   clock_height_percent: float = 0.15,    # Clock size
+                                   clock_spacing_percent: float = 0.03,   # Space around clock
+                                   qr_height_percent: float = 0.18,       # Larger QR code (increased from 0.12)
+                                   qr_spacing_percent: float = 0.03,      # Space around QR
+                                   text_height_percent: float = 0.05,     # Larger text (increased from 0.04)
+                                   text_spacing_percent: float = 0.03,    # Space around text
+                                   logo_height_percent: float = 0.16,     # Larger logo (increased from 0.12)
+                                   logo_spacing_percent: float = 0.02) -> Image.Image:    # Space after logo
         """
         Create a splitflap background with title, lines, clock, QR code, text, and logo.
         

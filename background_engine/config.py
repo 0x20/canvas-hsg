@@ -23,26 +23,26 @@ class BackgroundConfig:
     background_color: Tuple[int, int, int] = (20, 20, 30)
     canvas_padding: float = 0.05  # 5% padding around edges
     
-    # Global spacing settings (as percentages of canvas height)
-    default_component_spacing: float = 0.025  # 2.5% default spacing between components
+    # Global spacing settings (as percentages of canvas height) - Better distribution
+    default_component_spacing: float = 0.04   # 4% default spacing between components (increased from 2.5%)
     
-    # Component-specific spacing (overrides default if set)
-    title_spacing_after: float = 0.015  # 1.5% space after title
+    # Component-specific spacing (overrides default if set) - Improved for hsgback.png style layout
+    title_spacing_after: float = 0.05    # 5% space after title (increased from 1.5%)
     upper_line_spacing_before: float = 0.0   # No lines
     upper_line_spacing_after: float = 0.0    # No lines
-    qr_spacing_before: float = 0.015    # 1.5% space before QR code
-    qr_spacing_after: float = 0.015     # 1.5% space after QR code
-    text_spacing_after: float = 0.015   # 1.5% space after subtitle text
+    qr_spacing_before: float = 0.04     # 4% space before QR code (increased from 1.5%)
+    qr_spacing_after: float = 0.04      # 4% space after QR code (increased from 1.5%)
+    text_spacing_after: float = 0.04    # 4% space after subtitle text (increased from 1.5%)
     lower_line_spacing_before: float = 0.0   # No lines
     lower_line_spacing_after: float = 0.0    # No lines
-    logo_spacing_before: float = 0.015  # 1.5% space before logo
-    clock_spacing_before: float = 0.01  # 1% space before clock
-    clock_spacing_after: float = 0.015  # 1.5% space after clock
+    logo_spacing_before: float = 0.04   # 4% space before logo (increased from 1.5%)
+    clock_spacing_before: float = 0.03  # 3% space before clock (increased from 1%)
+    clock_spacing_after: float = 0.04   # 4% space after clock (increased from 1.5%)
     
-    # Title settings
+    # Title settings - Larger and more prominent
     title_text: str = "Hackerspace.gent Canvas"
-    title_font_scale: float = 1.0
-    title_color: Tuple[int, int, int] = (100, 150, 255)
+    title_font_scale: float = 1.2       # Larger title (increased from 1.0)
+    title_color: Tuple[int, int, int] = (120, 170, 255)  # Slightly brighter blue
     title_glow_enabled: bool = True
     title_glow_color: Tuple[int, int, int] = (50, 50, 50)
     title_glow_offset: float = 0.025  # As percentage of font size
@@ -54,26 +54,26 @@ class BackgroundConfig:
     line_height_px: int = 0             # Disabled
     line_color: Tuple[int, int, int] = (100, 150, 255)
     
-    # QR Code settings  
-    qr_size_percent: float = 0.12       # 12% of canvas height
+    # QR Code settings - Significantly larger for better visibility
+    qr_size_percent: float = 0.20       # 20% of canvas height (increased from 12%)
     qr_box_size_scale: float = 1.0      # Multiplier for QR box size
     qr_border: int = 4                  # QR code border size
     qr_foreground_color: str = "white"
     qr_background_color: Optional[Tuple[int, int, int]] = None  # None = use canvas background
     
-    # Subtitle text settings
+    # Subtitle text settings - Much larger and more readable
     subtitle_text: str = "Scan to access web interface"
-    subtitle_font_scale: float = 1.5    # Larger text but reasonable
-    subtitle_color: Tuple[int, int, int] = (180, 180, 180)
+    subtitle_font_scale: float = 2.5    # Much larger text (increased from 1.5)
+    subtitle_color: Tuple[int, int, int] = (200, 200, 200)  # Slightly brighter
     subtitle_glow_enabled: bool = True
     subtitle_glow_color: Tuple[int, int, int] = (50, 50, 50)
     subtitle_glow_offset: float = 0.5   # As percentage of font size
     
-    # Logo settings
+    # Logo settings - Larger and more prominent
     logo_path: str = "/home/hsg/srs_server/static/hsg_logo_invert.png"
-    logo_size_percent: float = 0.12     # 12% of canvas height
-    logo_min_size: int = 100            # Minimum logo size in pixels
-    logo_max_size: int = 300            # Maximum logo size in pixels
+    logo_size_percent: float = 0.18     # 18% of canvas height (increased from 12%)
+    logo_min_size: int = 150            # Larger minimum size (increased from 100)
+    logo_max_size: int = 400            # Larger maximum size (increased from 300)
     
     # Clock settings (for splitflap mode)
     clock_digit_width_scale: float = 1.4   # Multiplier for clock digit width (increased from 1.0)

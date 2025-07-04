@@ -35,7 +35,7 @@ SRS_RTMP_URL = f"rtmp://{HOST}:1935/live"
 SRS_HTTP_FLV_URL = f"http://{HOST}:8080/live"
 SRS_HLS_URL = f"http://{HOST}:8080/live"
 SRS_API_URL = f"http://{HOST}:1985/api/v1"
-DEFAULT_BACKGROUND_PATH = "/tmp/stream_images/default_background.jpg"
+# BackgroundManager handles all background generation - no legacy paths needed
 
 # Explicit player command matrix for all resolutions
 OPTIMAL_PLAYER_COMMANDS = {
@@ -1640,25 +1640,16 @@ class StreamManager:
             return False
     
     async def show_background(self):
-        """Show the default background image using framebuffer or DRM fallback"""
-        try:
-            if os.path.exists(DEFAULT_BACKGROUND_PATH):
-                # Try framebuffer first for instant, seamless display
-                if self.framebuffer.is_available:
-                    success = self.framebuffer.display_image(DEFAULT_BACKGROUND_PATH)
-                    if success:
-                        logging.info("Background displayed on framebuffer")
-                        return
-                    else:
-                        logging.warning("Framebuffer display failed, trying fallback")
-                
-                # Fallback to original mpv method for non-framebuffer environments
-                await self.display_image(DEFAULT_BACKGROUND_PATH, duration=0)
-                logging.info("Background displayed via fallback method")
-            else:
-                logging.warning("Default background not found")
-        except Exception as e:
-            logging.error(f"Failed to show background: {e}")
+        """Show the default background using BackgroundManager"""
+        if not self.background_manager:
+            raise RuntimeError("BackgroundManager not initialized")
+        
+        from background_modes import BackgroundMode
+        success = await self.background_manager.set_mode(BackgroundMode.STATIC)
+        if not success:
+            raise RuntimeError("Failed to activate background via BackgroundManager")
+        
+        logging.info("Background activated via BackgroundManager")
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None) -> bool:
         """Play YouTube video with optimal resolution and performance"""
@@ -1684,21 +1675,24 @@ class StreamManager:
             
             # Performance-optimized configs for optimal resolution
             configs = [
-                # Method 1: 4K optimized with advanced caching and threading
+                # Method 1: CPU-optimized with better caching
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
                     f"--ytdl-format={youtube_quality}", "--vd-lavc-dr=yes", "--cache=yes",
-                    "--demuxer-max-bytes=200MiB", "--demuxer-max-back-bytes=100MiB",
-                    "--vd-lavc-threads=4", "--cache-secs=10", "--cache-file-size=300MiB",
-                    "--video-sync=display-resample", "--interpolation"
+                    "--demuxer-max-bytes=300MiB", "--demuxer-max-back-bytes=150MiB",
+                    "--vd-lavc-threads=2", "--cache-secs=15", "--cache-file-size=500MiB",
+                    "--vd-lavc-skiploopfilter=all", "--vd-lavc-fast", "--vd-lavc-skipidct=all",
+                    "--framedrop=decoder+vo", "--priority=idle", "--video-sync=audio",
+                    "--opengl-shaders-cache-dir=/tmp", "--no-audio-display"
                 ],
                 # Method 2: 4K with reduced settings for stability
                 [
                     "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
                     "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
                     f"--ytdl-format={youtube_quality}", "--cache=yes",
-                    "--demuxer-max-bytes=150MiB", "--vd-lavc-threads=4", "--cache-secs=5"
+                    "--demuxer-max-bytes=75MiB", "--vd-lavc-threads=2", "--cache-secs=3",
+                    "--vd-lavc-skiploopfilter=all", "--no-audio-display"
                 ],
                 # Method 3: Reduced quality for stability
                 [
