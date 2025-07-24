@@ -43,16 +43,15 @@ OPTIMAL_PLAYER_COMMANDS = {
     "mpv_3840x2160_60hz": [
         "mpv", "--vo=drm", "--drm-mode=3840x2160@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=200MiB",
-        "--demuxer-max-back-bytes=100MiB", "--cache-secs=10", "--cache-file-size=300MiB",
-        "--video-sync=display-resample", "--interpolation", "--vd-lavc-dr=yes",
+        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
+        "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
         "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_3840x2160_30hz": [
         "mpv", "--vo=drm", "--drm-mode=3840x2160@30", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=200MiB",
-        "--cache-secs=8", "--vd-lavc-dr=yes",
+        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
+        "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
         "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     
@@ -60,7 +59,7 @@ OPTIMAL_PLAYER_COMMANDS = {
     "mpv_2560x1440_144hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--interpolation", "--video-sync=display-resample",
+        "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
         "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_2560x1440_120hz": [
@@ -78,7 +77,7 @@ OPTIMAL_PLAYER_COMMANDS = {
     "mpv_1920x1080_144hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--interpolation", "--video-sync=display-resample",
+        "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
         "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "mpv_1920x1080_120hz": [
@@ -172,6 +171,11 @@ OPTIMAL_PLAYER_COMMANDS = {
     "mpv_optimized": [
         "mpv", "--vo=drm", "--fs", "--quiet", 
         "--no-input-default-bindings", "--no-osc", "--untimed",
+        "--audio-device=alsa/sysdefault:CARD=Headphones"
+    ],
+    "mpv_no_cache": [
+        "mpv", "--vo=drm", "--fs", "--quiet", "--hwdec=v4l2m2m",
+        "--no-input-default-bindings", "--no-osc", "--cache=no",
         "--audio-device=alsa/sysdefault:CARD=Headphones"
     ],
     "ffplay_basic": ["ffplay", "-fs", "-autoexit"],
