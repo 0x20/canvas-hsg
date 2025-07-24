@@ -168,6 +168,24 @@
             }
         }
 
+        button.small-btn {
+            padding: 8px 12px;
+            font-size: 12px;
+            min-width: 80px;
+            background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin: 2px;
+        }
+
+        button.small-btn:hover {
+            background: linear-gradient(135deg, #5a6268 0%, #495057 100%);
+            transform: translateY(-1px);
+        }
+
         .validation-error {
             background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
             color: #721c24;
@@ -357,8 +375,38 @@
                 <input type="url" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 300px;">
                 <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
                 <br>
+                <label style="margin: 10px 0; display: inline-block;">
+                    <input type="checkbox" id="youtubeMute" style="margin-right: 5px;">
+                    🔇 Mute video (keep audio stream playing)
+                </label>
+                <br>
                 <button onclick="playYoutube()">Play YouTube Video</button>
                 <button onclick="stopPlayback()" class="danger">Stop Video</button>
+            </div>
+
+            <!-- Audio Streaming -->
+            <div class="card">
+                <h2>🎵 Audio Streaming</h2>
+                <p>Stream audio from soma.fm, web radio, or any audio URL</p>
+                <input type="url" id="audioStreamUrl" placeholder="https://api.somafm.com/groovesalad256.pls" style="width: 300px;">
+                <input type="range" id="audioVolume" min="0" max="100" value="80" style="width: 150px;">
+                <span id="volumeDisplay">80</span>%
+                <br>
+                <button onclick="startAudioStream()">Start Audio Stream</button>
+                <button onclick="stopAudioStream()" class="danger">Stop Audio</button>
+                <div id="audioStatus" style="margin-top: 10px; font-size: 14px;"></div>
+                
+                <!-- Quick soma.fm links -->
+                <div style="margin-top: 15px;">
+                    <h4>🎧 Quick soma.fm Stations:</h4>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
+                        <button onclick="setAudioUrl('https://api.somafm.com/groovesalad256.pls')" class="small-btn">Groove Salad</button>
+                        <button onclick="setAudioUrl('https://api.somafm.com/dronezone256.pls')" class="small-btn">Drone Zone</button>
+                        <button onclick="setAudioUrl('https://api.somafm.com/lush256.pls')" class="small-btn">Lush</button>
+                        <button onclick="setAudioUrl('https://api.somafm.com/digitalis256.pls')" class="small-btn">Digitalis</button>
+                        <button onclick="setAudioUrl('https://api.somafm.com/defcon256.pls')" class="small-btn">DEF CON Radio</button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -838,6 +886,7 @@
             // Get form values
             const youtubeUrl = document.getElementById('youtubeUrl').value.trim();
             const duration = document.getElementById('youtubeDuration').value;
+            const mute = document.getElementById('youtubeMute').checked;
             
             // Validation
             if (!youtubeUrl) {
@@ -853,10 +902,11 @@
             
             // Visual feedback
             setButtonLoading(playButton, true);
-            showStatus('Starting YouTube video...', 'success');
+            const muteText = mute ? ' (muted)' : '';
+            showStatus(`Starting YouTube video${muteText}...`, 'success');
             
             try {
-                const data = { youtube_url: youtubeUrl };
+                const data = { youtube_url: youtubeUrl, mute: mute };
                 if (duration) data.duration = parseInt(duration);
                 
                 await apiCall('POST', '/playback/youtube', data);
@@ -905,6 +955,103 @@
                 setButtonLoading(generateButton, false);
             }
         }
+
+        // Audio streaming functions
+        async function startAudioStream() {
+            const startButton = event ? event.target : document.querySelector('button[onclick="startAudioStream()"]');
+            const audioCard = startButton.closest('.card');
+            
+            // Clear previous validation errors
+            clearValidationErrors(audioCard);
+            
+            // Get form values
+            const streamUrl = document.getElementById('audioStreamUrl').value.trim();
+            const volume = document.getElementById('audioVolume').value;
+            
+            // Validation
+            if (!streamUrl) {
+                showValidationError(audioCard, 'Please enter an audio stream URL');
+                return;
+            }
+            
+            // Visual feedback
+            setButtonLoading(startButton, true);
+            showStatus('Starting audio stream...', 'success');
+            
+            try {
+                const data = { 
+                    stream_url: streamUrl,
+                    volume: parseInt(volume)
+                };
+                
+                await apiCall('POST', '/audio/start', data);
+                showStatus(`Audio stream started: ${streamUrl}`, 'success');
+                updateAudioStatus();
+            } catch (error) {
+                showValidationError(audioCard, `Failed to start audio stream: ${error.message}`);
+                showStatus(`Audio stream failed: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(startButton, false);
+            }
+        }
+
+        async function stopAudioStream() {
+            const stopButton = event ? event.target : document.querySelector('button[onclick="stopAudioStream()"]');
+            
+            // Visual feedback
+            setButtonLoading(stopButton, true);
+            showStatus('Stopping audio stream...', 'success');
+            
+            try {
+                await apiCall('POST', '/audio/stop');
+                showStatus('Audio stream stopped', 'success');
+                updateAudioStatus();
+            } catch (error) {
+                showStatus(`Failed to stop audio stream: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(stopButton, false);
+            }
+        }
+
+        function setAudioUrl(url) {
+            document.getElementById('audioStreamUrl').value = url;
+        }
+
+        async function updateAudioStatus() {
+            try {
+                const status = await apiCall('GET', '/audio/status');
+                const statusDiv = document.getElementById('audioStatus');
+                
+                if (status.is_playing) {
+                    statusDiv.innerHTML = `<span style="color: #28a745;">🎵 Playing: ${status.current_stream}</span><br>
+                                          <span style="font-size: 12px;">Volume: ${status.volume}%</span>`;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: #6c757d;">No audio stream playing</span>';
+                }
+            } catch (error) {
+                console.error('Failed to update audio status:', error);
+            }
+        }
+
+        // Volume slider update
+        document.addEventListener('DOMContentLoaded', function() {
+            const volumeSlider = document.getElementById('audioVolume');
+            const volumeDisplay = document.getElementById('volumeDisplay');
+            
+            if (volumeSlider && volumeDisplay) {
+                volumeSlider.addEventListener('input', function() {
+                    volumeDisplay.textContent = this.value;
+                });
+                
+                volumeSlider.addEventListener('change', async function() {
+                    try {
+                        await apiCall('PUT', '/audio/volume', { volume: parseInt(this.value) });
+                    } catch (error) {
+                        console.error('Failed to set volume:', error);
+                    }
+                });
+            }
+        });
 
         async function setBackground() {
             const fileInput = document.getElementById('backgroundFile');
@@ -1167,6 +1314,9 @@
                 }
 
                 showStatus('Status refreshed', 'success');
+                // Update audio status
+                updateAudioStatus();
+                
             } catch (error) {
                 showStatus('Failed to refresh status', 'error');
             }

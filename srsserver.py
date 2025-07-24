@@ -218,10 +218,18 @@ class ImageDisplayRequest(BaseModel):
 class YoutubePlayRequest(BaseModel):
     youtube_url: str
     duration: Optional[int] = None  # None = play full video
+    mute: Optional[bool] = False  # True = no audio output
 
 class QRCodeRequest(BaseModel):
     content: str  # URL or text to encode in QR code
     duration: Optional[int] = None  # seconds to display, None = forever
+
+class AudioStreamRequest(BaseModel):
+    stream_url: str
+    volume: Optional[int] = None  # 0-100, None = use current setting
+
+class AudioVolumeRequest(BaseModel):
+    volume: int  # 0-100
 
 class DisplayCapabilityDetector:
     """Comprehensive display capability detection for optimal resolution utilization"""
@@ -745,6 +753,11 @@ class StreamManager:
         self.current_protocol: Optional[str] = None
         self.current_player: Optional[str] = None
         self.background_process: Optional[subprocess.Popen] = None
+        
+        # Audio streaming support
+        self.audio_process: Optional[subprocess.Popen] = None
+        self.current_audio_stream: Optional[str] = None
+        self.audio_volume: int = 80
         
         # Background mode management
         from background_modes import BackgroundManager
@@ -1651,7 +1664,7 @@ class StreamManager:
         
         logging.info("Background activated via BackgroundManager")
 
-    async def play_youtube(self, youtube_url: str, duration: Optional[int] = None) -> bool:
+    async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play YouTube video with optimal resolution and performance"""
         try:
             if self.player_process:
@@ -1720,6 +1733,8 @@ class StreamManager:
                     cmd = base_cmd.copy()
                     if duration:
                         cmd.extend([f"--end={duration}"])
+                    if mute:
+                        cmd.extend(["--no-audio"])
                     cmd.append(youtube_url)
                     
                     # Set environment for DRM
@@ -2054,6 +2069,142 @@ class StreamManager:
             logging.error(f"Failed to generate and display QR code: {e}")
             return False
     
+    async def _resolve_audio_url(self, stream_url: str) -> str:
+        """Resolve PLS/M3U playlist URLs to direct stream URLs"""
+        try:
+            if stream_url.endswith('.pls'):
+                # Parse PLS playlist format
+                import requests
+                response = requests.get(stream_url, timeout=10)
+                if response.status_code == 200:
+                    content = response.text
+                    for line in content.split('\n'):
+                        if line.startswith('File1='):
+                            direct_url = line.split('=', 1)[1].strip()
+                            logging.info(f"Resolved PLS URL {stream_url} to {direct_url}")
+                            return direct_url
+            elif stream_url.endswith('.m3u') or stream_url.endswith('.m3u8'):
+                # Parse M3U playlist format
+                import requests
+                response = requests.get(stream_url, timeout=10)
+                if response.status_code == 200:
+                    content = response.text
+                    for line in content.split('\n'):
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            logging.info(f"Resolved M3U URL {stream_url} to {line}")
+                            return line
+            
+            # Return original URL if not a playlist or parsing failed
+            return stream_url
+            
+        except Exception as e:
+            logging.warning(f"Failed to resolve playlist URL {stream_url}: {e}")
+            return stream_url
+
+    async def start_audio_stream(self, stream_url: str, volume: int = None) -> bool:
+        """Start audio streaming using mpv with audio-only mode"""
+        try:
+            # Stop any existing audio stream
+            if self.audio_process:
+                await self.stop_audio_stream()
+            
+            # Use provided volume or current setting
+            if volume is not None:
+                self.audio_volume = max(0, min(100, volume))
+            
+            # Resolve playlist URLs to direct stream URLs
+            resolved_url = await self._resolve_audio_url(stream_url)
+            
+            # Build mpv command for audio-only streaming
+            cmd = [
+                "mpv",
+                "--no-video",
+                "--quiet",
+                f"--volume={self.audio_volume}",
+                "--no-input-default-bindings",
+                "--no-osc",
+                resolved_url
+            ]
+            
+            logging.info(f"Starting audio stream: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
+            
+            # Start audio process
+            self.audio_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid
+            )
+            
+            # Give it a moment to start
+            await asyncio.sleep(1)
+            
+            # Check if process is still running
+            if self.audio_process.poll() is None:
+                self.current_audio_stream = stream_url
+                logging.info(f"Audio stream started successfully: {stream_url}")
+                return True
+            else:
+                stderr = self.audio_process.stderr.read().decode() if self.audio_process.stderr else ""
+                logging.error(f"Audio stream failed to start: {stderr}")
+                self.audio_process = None
+                return False
+                
+        except Exception as e:
+            logging.error(f"Failed to start audio stream: {e}")
+            if self.audio_process:
+                try:
+                    self.audio_process.terminate()
+                except:
+                    pass
+                self.audio_process = None
+            return False
+    
+    async def stop_audio_stream(self) -> bool:
+        """Stop the current audio stream"""
+        try:
+            if self.audio_process:
+                logging.info("Stopping audio stream")
+                
+                try:
+                    # Terminate the process group
+                    os.killpg(os.getpgid(self.audio_process.pid), signal.SIGTERM)
+                    self.audio_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    # Force kill if it doesn't respond to SIGTERM
+                    os.killpg(os.getpgid(self.audio_process.pid), signal.SIGKILL)
+                    self.audio_process.wait(timeout=3)
+                except ProcessLookupError:
+                    # Process already died
+                    pass
+                
+                self.audio_process = None
+                self.current_audio_stream = None
+                logging.info("Audio stream stopped")
+                return True
+            else:
+                logging.info("No audio stream to stop")
+                return True
+                
+        except Exception as e:
+            logging.error(f"Failed to stop audio stream: {e}")
+            self.audio_process = None
+            self.current_audio_stream = None
+            return False
+    
+    def get_audio_status(self) -> Dict[str, Any]:
+        """Get current audio streaming status"""
+        is_playing = (self.audio_process is not None and 
+                     self.audio_process.poll() is None)
+        
+        return {
+            "is_playing": is_playing,
+            "current_stream": self.current_audio_stream if is_playing else None,
+            "volume": self.audio_volume,
+            "process_id": self.audio_process.pid if is_playing else None
+        }
+    
     def cleanup(self):
         """Clean up all resources"""
         try:
@@ -2064,6 +2215,8 @@ class StreamManager:
                 self.background_process.terminate()
             if self.screen_stream_process:
                 self.screen_stream_process.terminate()
+            if self.audio_process:
+                self.audio_process.terminate()
             
             # Clean up framebuffer resources
             if (hasattr(self, 'framebuffer') and self.framebuffer and 
@@ -2220,12 +2373,57 @@ async def switch_player(player: str, mode: str = "optimized"):
 async def play_youtube_video(request: YoutubePlayRequest):
     """Play a YouTube video with DRM acceleration"""
     await stream_manager.stop_all_visual_content()
-    success = await stream_manager.play_youtube(request.youtube_url, request.duration)
+    success = await stream_manager.play_youtube(request.youtube_url, request.duration, request.mute)
     if success:
         duration_text = f" for {request.duration}s" if request.duration else ""
-        return {"message": f"Playing YouTube video with DRM acceleration{duration_text}"}
+        mute_text = " (muted)" if request.mute else ""
+        return {"message": f"Playing YouTube video with DRM acceleration{duration_text}{mute_text}"}
     else:
         raise HTTPException(status_code=500, detail="Failed to play YouTube video")
+
+@app.post("/audio/start")
+async def start_audio_stream(request: AudioStreamRequest):
+    """Start audio streaming (supports soma.fm and other audio streams)"""
+    success = await stream_manager.start_audio_stream(request.stream_url, request.volume)
+    if success:
+        volume_text = f" at volume {request.volume}" if request.volume is not None else ""
+        return {"message": f"Audio stream started: {request.stream_url}{volume_text}"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to start audio stream")
+
+@app.post("/audio/stop")
+async def stop_audio_stream():
+    """Stop current audio stream"""
+    success = await stream_manager.stop_audio_stream()
+    if success:
+        return {"message": "Audio stream stopped"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to stop audio stream")
+
+@app.get("/audio/status")
+async def get_audio_status():
+    """Get current audio streaming status"""
+    return stream_manager.get_audio_status()
+
+@app.put("/audio/volume")
+async def set_audio_volume(request: AudioVolumeRequest):
+    """Set audio volume (0-100)"""
+    if not 0 <= request.volume <= 100:
+        raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
+    
+    stream_manager.audio_volume = request.volume
+    
+    # If audio is currently playing, restart with new volume
+    if stream_manager.audio_process and stream_manager.current_audio_stream:
+        current_stream = stream_manager.current_audio_stream
+        await stream_manager.stop_audio_stream()
+        success = await stream_manager.start_audio_stream(current_stream, request.volume)
+        if success:
+            return {"message": f"Audio volume set to {request.volume}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to apply volume change")
+    else:
+        return {"message": f"Audio volume set to {request.volume} (will apply to next stream)"}
 
 @app.post("/display/qrcode")
 async def display_qr_code(request: QRCodeRequest):
@@ -2669,6 +2867,7 @@ async def get_status():
             "protocol": stream_manager.current_protocol,
             "player": stream_manager.current_player
         },
+        "audio_playback": stream_manager.get_audio_status(),
         "player_running": stream_manager.player_process is not None,
         "drm_info": {
             "connector": stream_manager.drm_connector,
