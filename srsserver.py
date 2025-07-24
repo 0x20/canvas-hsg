@@ -2109,6 +2109,10 @@ class StreamManager:
     async def start_audio_stream(self, stream_url: str, volume: int = None) -> bool:
         """Start audio streaming using mpv with audio-only mode"""
         try:
+            # Stop any existing playback (video/YouTube) to free audio resources
+            if self.player_process:
+                await self.stop_playback()
+            
             # Stop any existing audio stream
             if self.audio_process:
                 await self.stop_audio_stream()
