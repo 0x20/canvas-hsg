@@ -36,7 +36,9 @@ SRS_RTMP_URL = f"rtmp://{HOST}:1935/live"
 SRS_HTTP_FLV_URL = f"http://{HOST}:8080/live"
 SRS_HLS_URL = f"http://{HOST}:8080/live"
 SRS_API_URL = f"http://{HOST}:1985/api/v1"
-# BackgroundManager handles all background generation - no legacy paths needed
+
+# Static background image path
+DEFAULT_BACKGROUND_PATH = "/home/hsg/srs_server/canvas_background.png"
 
 # Explicit player command matrix for all resolutions
 OPTIMAL_PLAYER_COMMANDS = {
@@ -463,6 +465,38 @@ class FramebufferManager:
         # Pack into 16-bit value: RRRRRGGGGGGBBBBB
         return (r5 << 11) | (g6 << 5) | b5
     
+    def _resize_image_preserve_aspect(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
+        """Resize image to target dimensions while preserving aspect ratio"""
+        orig_width, orig_height = img.size
+        
+        # If image already matches target resolution exactly, return as-is
+        if orig_width == target_width and orig_height == target_height:
+            return img
+        
+        # Calculate scaling factor to fit within target dimensions
+        width_ratio = target_width / orig_width
+        height_ratio = target_height / orig_height
+        scale_factor = min(width_ratio, height_ratio)
+        
+        # Calculate new dimensions
+        new_width = int(orig_width * scale_factor)
+        new_height = int(orig_height * scale_factor)
+        
+        # If scale factor is 1 and dimensions match, no need for canvas
+        if scale_factor == 1.0 and new_width == target_width and new_height == target_height:
+            return img
+        
+        # Resize image
+        scaled_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Create target canvas and center the scaled image
+        canvas = Image.new('RGB', (target_width, target_height), (0, 0, 0))
+        x_offset = (target_width - new_width) // 2
+        y_offset = (target_height - new_height) // 2
+        canvas.paste(scaled_img, (x_offset, y_offset))
+        
+        return canvas
+    
     def display_image(self, image_path: str) -> bool:
         """Display an image on the framebuffer"""
         if not self.is_available:
@@ -475,8 +509,8 @@ class FramebufferManager:
                 if img.mode != 'RGB':
                     img = img.convert('RGB')
                 
-                # Resize to framebuffer dimensions
-                img_resized = img.resize((self.fb_width, self.fb_height), Image.Resampling.LANCZOS)
+                # Resize to framebuffer dimensions while preserving aspect ratio
+                img_resized = self._resize_image_preserve_aspect(img, self.fb_width, self.fb_height)
                 
                 # Convert to numpy array
                 img_array = np.array(img_resized)
@@ -943,16 +977,13 @@ class StreamManager:
     async def create_default_background(self, mode: str = "static") -> bool:
         """Create and display background using the new background manager"""
         try:
-            from background_modes import BackgroundMode
+            # Only static mode is supported
+            if mode != "static":
+                logging.warning(f"Unsupported background mode '{mode}', using static")
+                mode = "static"
             
-            # Convert mode string to enum
-            if mode == "splitflap_clock":
-                bg_mode = BackgroundMode.SPLITFLAP_CLOCK
-            else:
-                bg_mode = BackgroundMode.STATIC
-            
-            # Set background mode
-            success = await self.background_manager.set_mode(bg_mode)
+            # Start static background mode
+            success = await self.background_manager.start_static_mode()
             if success:
                 logging.info(f"Background set to {mode} mode")
                 return True
@@ -965,7 +996,7 @@ class StreamManager:
             return False
     
     async def set_background_mode(self, mode: str) -> bool:
-        """Set background mode (static or splitflap_clock)"""
+        """Set background mode (static only)"""
         return await self.create_default_background(mode)
     
     def get_background_status(self) -> dict:
@@ -1658,11 +1689,15 @@ class StreamManager:
             return False
     
     async def show_background(self):
-        """Show the default background using BackgroundManager with audio status"""
+        """Show the static background image scaled to monitor resolution"""
         if not self.background_manager:
             raise RuntimeError("BackgroundManager not initialized")
         
         from background_modes import BackgroundMode
+        
+        # Set the background image if it exists
+        if os.path.exists(DEFAULT_BACKGROUND_PATH):
+            self.background_manager.set_background_image(DEFAULT_BACKGROUND_PATH)
         
         # Check if audio is currently playing
         audio_status = self.get_audio_status()
@@ -1674,7 +1709,20 @@ class StreamManager:
         if not success:
             raise RuntimeError("Failed to activate background via BackgroundManager")
         
-        logging.info(f"Background activated via BackgroundManager (audio icon: {show_audio_icon})")
+        logging.info(f"Static background displayed (audio icon: {show_audio_icon})")
+
+    def set_background_image(self, image_path: str) -> bool:
+        """Set a new background image"""
+        try:
+            if not self.background_manager:
+                logging.error("BackgroundManager not initialized")
+                return False
+            
+            return self.background_manager.set_background_image(image_path)
+            
+        except Exception as e:
+            logging.error(f"Failed to set background image: {e}")
+            return False
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play YouTube video with optimal resolution and performance"""
@@ -2160,6 +2208,7 @@ class StreamManager:
             if self.audio_process.poll() is None:
                 self.current_audio_stream = stream_url
                 logging.info(f"Audio stream started successfully: {stream_url}")
+                logging.info(f"Audio process PID: {self.audio_process.pid}")
                 
                 # Update background to show audio icon
                 if not self.player_process:  # Only if no video is playing
@@ -2224,12 +2273,45 @@ class StreamManager:
         is_playing = (self.audio_process is not None and 
                      self.audio_process.poll() is None)
         
+        # Get a user-friendly stream name
+        stream_name = None
+        if is_playing and self.current_audio_stream:
+            stream_name = self._get_friendly_stream_name(self.current_audio_stream)
+        
         return {
             "is_playing": is_playing,
             "current_stream": self.current_audio_stream if is_playing else None,
+            "stream_name": stream_name,
             "volume": self.audio_volume,
             "process_id": self.audio_process.pid if is_playing else None
         }
+    
+    def _get_friendly_stream_name(self, stream_url: str) -> str:
+        """Convert stream URL to a user-friendly name"""
+        if not stream_url:
+            return "Unknown Stream"
+        
+        # Handle common streaming services
+        if "soma.fm" in stream_url.lower():
+            # Extract station name from soma.fm URLs
+            parts = stream_url.split('/')
+            for part in parts:
+                if part and not part.startswith('http') and '.' not in part:
+                    return f"SomaFM - {part.title()}"
+            return "SomaFM"
+        elif "radio" in stream_url.lower():
+            return "Radio Stream"
+        elif stream_url.startswith("http"):
+            # Try to extract hostname
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(stream_url)
+                hostname = parsed.hostname or "Unknown"
+                return f"Stream from {hostname}"
+            except:
+                return "Audio Stream"
+        else:
+            return "Audio Stream"
     
     def cleanup(self):
         """Clean up all resources"""
@@ -2471,18 +2553,23 @@ async def show_background():
 
 @app.post("/background/set")
 async def set_background(file: UploadFile = File(...)):
-    """Set a new default background image"""
+    """Set a new static background image"""
     await stream_manager.stop_all_visual_content()
     try:
         image_data = await file.read()
         temp_dir = Path("/tmp/stream_images")
         temp_dir.mkdir(exist_ok=True)
         
+        # Save the uploaded image
         with open(DEFAULT_BACKGROUND_PATH, "wb") as f:
             f.write(image_data)
         
-        await stream_manager.show_background()
-        return {"message": "Background updated and displayed with DRM acceleration"}
+        # Set and display the background
+        if stream_manager.set_background_image(DEFAULT_BACKGROUND_PATH):
+            await stream_manager.show_background()
+            return {"message": "Background image set and scaled to monitor resolution"}
+        else:
+            raise HTTPException(status_code=400, detail="Invalid background image")
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to set background: {str(e)}")
@@ -2830,14 +2917,14 @@ async def test_drm_acceleration():
 
 @app.post("/background/mode")
 async def set_background_mode(request: dict):
-    """Set background display mode (static or splitflap_clock)"""
+    """Set background display mode (static only)"""
     logging.info(f"POST /background/mode called with request: {request}")
     await stream_manager.stop_all_visual_content()
     try:
         mode = request.get("mode", "static")
         logging.info(f"Setting background mode to: {mode}")
-        if mode not in ["static", "splitflap_clock"]:
-            raise HTTPException(status_code=400, detail="Invalid mode. Use 'static' or 'splitflap_clock'")
+        if mode != "static":
+            raise HTTPException(status_code=400, detail="Invalid mode. Only 'static' mode is supported")
         
         success = await stream_manager.set_background_mode(mode)
         logging.info(f"Background mode set result: {success}")
@@ -2862,19 +2949,15 @@ async def get_background_mode():
         logging.error(f"Failed to get background status: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/background/clock/regenerate")
-async def regenerate_clock_background():
-    """Force regeneration of splitflap clock background"""
+@app.post("/background/refresh")
+async def refresh_background():
+    """Refresh static background display"""
     await stream_manager.stop_all_visual_content()
     try:
         if stream_manager.background_manager:
-            # Clear cache and restart splitflap mode if active
-            current_status = stream_manager.get_background_status()
-            if current_status.get("mode") == "splitflap_clock":
-                await stream_manager.set_background_mode("splitflap_clock")
-                return {"status": "success", "message": "Splitflap clock regenerated"}
-            else:
-                return {"status": "info", "message": "Splitflap clock not active"}
+            # Restart static background mode
+            await stream_manager.set_background_mode("static")
+            return {"status": "success", "message": "Static background refreshed"}
         else:
             raise HTTPException(status_code=500, detail="Background manager not available")
     except Exception as e:

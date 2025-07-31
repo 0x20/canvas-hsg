@@ -445,11 +445,8 @@
             <div style="margin-bottom: 20px;">
                 <h3>Background Mode</h3>
                 <div style="display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap;">
-                    <button id="staticModeBtn" onclick="setBackgroundMode('static')" class="mode-button">
-                        🖼️ Static Image
-                    </button>
-                    <button id="clockModeBtn" onclick="setBackgroundMode('splitflap_clock')" class="mode-button">
-                        🕐 Splitflap Clock
+                    <button id="staticModeBtn" onclick="setBackgroundMode('static')" class="mode-button active">
+                        🖼️ Static Background
                     </button>
                 </div>
                 <div id="backgroundStatus" style="font-size: 0.9em; color: #666; margin-bottom: 15px;">
@@ -465,13 +462,9 @@
                 <button onclick="setBackground()">Set New Background</button>
             </div>
             
-            <!-- Clock Controls -->
-            <div id="clockControls" style="margin-bottom: 15px; display: none;">
-                <h4>Splitflap Clock Settings</h4>
-                <p style="font-size: 0.9em; color: #666; margin-bottom: 10px;">
-                    Animated splitflap-style clock with transitions every minute
-                </p>
-                <button onclick="regenerateClock()">🔄 Regenerate Clock</button>
+            <!-- Background Refresh Controls -->
+            <div id="refreshControls" style="margin-bottom: 15px;">
+                <button onclick="refreshBackground()">🔄 Refresh Background</button>
             </div>
             
             <!-- Common Controls -->
@@ -1023,7 +1016,8 @@
                 const statusDiv = document.getElementById('audioStatus');
                 
                 if (status.is_playing) {
-                    statusDiv.innerHTML = `<span style="color: #28a745;">🎵 Playing: ${status.current_stream}</span><br>
+                    const displayName = status.stream_name || status.current_stream || 'Unknown Stream';
+                    statusDiv.innerHTML = `<span style="color: #28a745;">🎵 Playing: ${displayName}</span><br>
                                           <span style="font-size: 12px;">Volume: ${status.volume}%</span>`;
                 } else {
                     statusDiv.innerHTML = '<span style="color: #6c757d;">No audio stream playing</span>';
@@ -1091,11 +1085,9 @@
         // Background Mode Management
         async function setBackgroundMode(mode) {
             const staticBtn = document.getElementById('staticModeBtn');
-            const clockBtn = document.getElementById('clockModeBtn');
             
-            // Disable buttons during operation
+            // Disable button during operation
             staticBtn.disabled = true;
-            clockBtn.disabled = true;
             
             try {
                 showStatus(`Setting background mode to ${mode}...`, 'info');
@@ -1119,7 +1111,6 @@
                 showStatus(`Failed to set background mode: ${error.message}`, 'error');
             } finally {
                 staticBtn.disabled = false;
-                clockBtn.disabled = false;
             }
         }
 
@@ -1130,30 +1121,20 @@
                 
                 const statusDiv = document.getElementById('backgroundStatus');
                 const staticBtn = document.getElementById('staticModeBtn');
-                const clockBtn = document.getElementById('clockModeBtn');
                 const staticControls = document.getElementById('staticControls');
-                const clockControls = document.getElementById('clockControls');
                 
                 // Update status display
                 let statusText = `Current mode: ${status.mode}`;
-                if (status.mode === 'splitflap_clock' && status.current_time) {
-                    statusText += ` (${status.current_time})`;
-                    if (status.is_animating) {
-                        statusText += ' ⚡ animating';
-                    }
-                }
                 if (!status.is_running) {
                     statusText += ' ❌ not running';
                 }
                 statusDiv.textContent = statusText;
                 
-                // Update button states
-                staticBtn.classList.toggle('active', status.mode === 'static');
-                clockBtn.classList.toggle('active', status.mode === 'splitflap_clock');
+                // Static mode button is always active since it's the only mode
+                staticBtn.classList.add('active');
                 
-                // Show/hide appropriate controls
-                staticControls.style.display = status.mode === 'static' ? 'block' : 'none';
-                clockControls.style.display = status.mode === 'splitflap_clock' ? 'block' : 'none';
+                // Static controls are always visible
+                staticControls.style.display = 'block';
                 
             } catch (error) {
                 console.error('Failed to refresh background status:', error);
@@ -1161,11 +1142,11 @@
             }
         }
 
-        async function regenerateClock() {
+        async function refreshBackground() {
             try {
-                showStatus('Regenerating splitflap clock...', 'info');
+                showStatus('Refreshing background...', 'info');
                 
-                const response = await fetch('/background/clock/regenerate', {
+                const response = await fetch('/background/refresh', {
                     method: 'POST'
                 });
                 
