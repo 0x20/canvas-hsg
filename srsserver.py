@@ -1657,16 +1657,23 @@ class StreamManager:
             return False
     
     async def show_background(self):
-        """Show the default background using BackgroundManager"""
+        """Show the default background using BackgroundManager with audio status"""
         if not self.background_manager:
             raise RuntimeError("BackgroundManager not initialized")
         
         from background_modes import BackgroundMode
-        success = await self.background_manager.set_mode(BackgroundMode.STATIC)
+        
+        # Check if audio is currently playing
+        audio_status = self.get_audio_status()
+        show_audio_icon = audio_status.get("is_playing", False)
+        
+        success = await self.background_manager.set_mode_with_audio_status(
+            BackgroundMode.STATIC, show_audio_icon=show_audio_icon
+        )
         if not success:
             raise RuntimeError("Failed to activate background via BackgroundManager")
         
-        logging.info("Background activated via BackgroundManager")
+        logging.info(f"Background activated via BackgroundManager (audio icon: {show_audio_icon})")
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play YouTube video with optimal resolution and performance"""
@@ -2152,6 +2159,11 @@ class StreamManager:
             if self.audio_process.poll() is None:
                 self.current_audio_stream = stream_url
                 logging.info(f"Audio stream started successfully: {stream_url}")
+                
+                # Update background to show audio icon
+                if not self.player_process:  # Only if no video is playing
+                    await self.show_background()
+                
                 return True
             else:
                 stderr = self.audio_process.stderr.read().decode() if self.audio_process.stderr else ""
@@ -2190,6 +2202,11 @@ class StreamManager:
                 self.audio_process = None
                 self.current_audio_stream = None
                 logging.info("Audio stream stopped")
+                
+                # Update background to remove audio icon
+                if not self.player_process:  # Only if no video is playing
+                    await self.show_background()
+                
                 return True
             else:
                 logging.info("No audio stream to stop")

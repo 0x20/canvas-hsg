@@ -10,6 +10,7 @@ from .qrcode import QRCodeComponent
 from .text import TextComponent
 from .logo import LogoComponent
 from .clock import ClockComponent
+from .audio_icon import AudioIconComponent
 
 __all__ = [
     'TitleComponent',
@@ -17,5 +18,6 @@ __all__ = [
     'QRCodeComponent',
     'TextComponent',
     'LogoComponent',
-    'ClockComponent'
+    'ClockComponent',
+    'AudioIconComponent'
 ]

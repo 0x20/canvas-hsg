@@ -70,9 +70,30 @@ class BackgroundManager:
             logging.error(f"Failed to set background mode to {mode.value}: {e}")
             return False
     
-    async def _start_static_mode(self) -> None:
+    async def set_mode_with_audio_status(self, mode: BackgroundMode, show_audio_icon: bool = False) -> bool:
+        """Set background mode with audio status for icon display"""
+        try:
+            # Stop current mode
+            await self.stop()
+            
+            self.current_mode = mode
+            logging.info(f"Setting background mode to: {mode.value} (audio icon: {show_audio_icon})")
+            
+            if mode == BackgroundMode.STATIC:
+                await self._start_static_mode(show_audio_icon=show_audio_icon)
+            elif mode == BackgroundMode.SPLITFLAP_CLOCK:
+                await self._start_splitflap_mode()
+            
+            self.is_running = True
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to set background mode to {mode.value}: {e}")
+            return False
+    
+    async def _start_static_mode(self, show_audio_icon: bool = False) -> None:
         """Start static background mode"""
-        await self._create_static_background()
+        await self._create_static_background(show_audio_icon=show_audio_icon)
         await self._display_current_background()
     
     async def _start_splitflap_mode(self) -> None:
@@ -136,7 +157,7 @@ class BackgroundManager:
         except Exception as e:
             logging.error(f"Failed to update splitflap frame: {e}")
     
-    async def _create_static_background(self) -> None:
+    async def _create_static_background(self, show_audio_icon: bool = False) -> None:
         """Create static background using the new modular background engine"""
         try:
             # Get optimal resolution
@@ -144,11 +165,13 @@ class BackgroundManager:
             width, height = display_config['width'], display_config['height']
             
             # Generate background using the new engine
-            img = self.background_generator.create_static_background(width, height)
+            img = self.background_generator.create_static_background(
+                width, height, show_audio_icon=show_audio_icon
+            )
             
             # Save static background
             img.save(str(self.current_background_path))
-            logging.info(f"Created static background: {width}x{height}")
+            logging.info(f"Created static background: {width}x{height} (audio icon: {show_audio_icon})")
             
         except Exception as e:
             logging.error(f"Failed to create static background: {e}")

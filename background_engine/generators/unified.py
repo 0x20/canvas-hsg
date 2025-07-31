@@ -11,7 +11,7 @@ import logging
 
 from ..config import BackgroundConfig, ConfigPresets
 from ..layout import LayoutEngine
-from ..components import TitleComponent, LineComponent, QRCodeComponent, TextComponent, LogoComponent, ClockComponent
+from ..components import TitleComponent, LineComponent, QRCodeComponent, TextComponent, LogoComponent, ClockComponent, AudioIconComponent
 
 if TYPE_CHECKING:
     from ...splitflap.clock import SplitflapClock
@@ -46,7 +46,8 @@ class UnifiedBackgroundGenerator:
                                 text_height_percent: float = 0.06,     # Larger text (increased from 0.04)
                                 text_spacing_percent: float = 0.04,    # More space around text (increased from 0.02)
                                 logo_height_percent: float = 0.18,     # Larger logo (increased from 0.12)
-                                logo_spacing_percent: float = 0.03) -> Image.Image:    # Space after logo
+                                logo_spacing_percent: float = 0.03,    # Space after logo
+                                show_audio_icon: bool = False) -> Image.Image:
         """
         Create a static background with title, lines, QR code, text, and logo.
         
@@ -92,6 +93,14 @@ class UnifiedBackgroundGenerator:
         engine.add_component(qr_comp, spacing_after=qr_spacing)
         engine.add_component(text_comp, spacing_after=text_spacing)
         engine.add_component(logo_comp, spacing_after=logo_spacing)
+        
+        # Add audio icon if audio is playing
+        if show_audio_icon:
+            audio_icon_comp = AudioIconComponent(component_id="audio_icon")
+            # Small icon, positioned after logo
+            audio_icon_height = int(height * 0.08)  # 8% of screen height
+            audio_icon_comp.calculate_size = lambda cw, ch, cfg: (audio_icon_height, audio_icon_height)
+            engine.add_component(audio_icon_comp, spacing_after=int(height * 0.02))
         
         # Render and return
         try:
