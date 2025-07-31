@@ -4,6 +4,7 @@ A FastAPI-based server for controlling media streams and playback on Raspberry P
 Optimized for maximum performance using DRM/KMS acceleration.
 """
 
+import argparse
 import asyncio
 import subprocess
 import json
@@ -3089,11 +3090,26 @@ async def _display_webcast_loop():
 # Cleanup is now handled in the lifespan context manager above
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='HSG Canvas - Media streaming server')
+    parser.add_argument('--production', action='store_true', 
+                       help='Run in production mode (port 80)')
+    args = parser.parse_args()
+    
+    # Configure logging and port based on mode
+    if args.production:
+        logging.basicConfig(level=logging.WARNING)
+        port = 80
+        mode = "production"
+    else:
+        logging.basicConfig(level=logging.INFO)
+        port = 8000
+        mode = "debug"
     
     # Log startup info
-    logging.info("Starting HSG Canvas v2.0.0")
+    logging.info(f"Starting HSG Canvas v2.0.0 in {mode} mode")
     logging.info(f"Detected DRM connector: {StreamManager().drm_connector}")
     logging.info(f"GPU memory split: {StreamManager()._get_gpu_memory()}MB")
+    logging.info(f"Server will run on port {port}")
     
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
