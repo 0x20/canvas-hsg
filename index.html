@@ -396,15 +396,41 @@
                 <button onclick="stopAudioStream()" class="danger">Stop Audio</button>
                 <div id="audioStatus" style="margin-top: 10px; font-size: 14px;"></div>
                 
-                <!-- Quick soma.fm links -->
+                
+                <!-- Quick Stream Selection -->
                 <div style="margin-top: 15px;">
-                    <h4>🎧 Quick soma.fm Stations:</h4>
-                    <div style="display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px;">
-                        <button onclick="setAudioUrl('https://api.somafm.com/groovesalad256.pls')" class="small-btn">Groove Salad</button>
-                        <button onclick="setAudioUrl('https://api.somafm.com/dronezone256.pls')" class="small-btn">Drone Zone</button>
-                        <button onclick="setAudioUrl('https://api.somafm.com/lush256.pls')" class="small-btn">Lush</button>
-                        <button onclick="setAudioUrl('https://api.somafm.com/digitalis256.pls')" class="small-btn">Digitalis</button>
-                        <button onclick="setAudioUrl('https://api.somafm.com/defcon256.pls')" class="small-btn">DEF CON Radio</button>
+                    <h4>🎧 Quick Stream Selection:</h4>
+                    <div style="margin-top: 10px;">
+                        <select id="quickStreamSelect" style="width: 280px;" onchange="onQuickStreamChange()">
+                            <option value="">Select a stream...</option>
+                            <optgroup label="soma.fm Stations">
+                                <option value="https://somafm.com/groovesalad.pls">Groove Salad</option>
+                                <option value="https://somafm.com/dronezone.pls">Drone Zone</option>
+                                <option value="https://somafm.com/lush.pls">Lush</option>
+                                <option value="https://somafm.com/digitalis.pls">Digitalis</option>
+                                <option value="https://somafm.com/defcon.pls">DEF CON Radio</option>
+                                <option value="https://somafm.com/spacestation.pls">Space Station Soma</option>
+                                <option value="https://somafm.com/secretagent.pls">Secret Agent</option>
+                                <option value="https://somafm.com/indiepop.pls">Indie Pop Rocks!</option>
+                                <option value="https://somafm.com/beatblender.pls">Beat Blender</option>
+                                <option value="https://somafm.com/u80s.pls">Underground 80s</option>
+                                <option value="https://somafm.com/thetrip.pls">The Trip</option>
+                                <option value="https://somafm.com/cliqhop.pls">cliqhop idm</option>
+                                <option value="https://somafm.com/deepspaceone.pls">Deep Space One</option>
+                            </optgroup>
+                            <optgroup label="High-Quality FLAC Stations">
+                                <option value="http://stream.radioparadise.com/flac">Radio Paradise Main Mix (FLAC)</option>
+                                <option value="http://stream.radioparadise.com/mellow-flac">Radio Paradise Mellow Mix (FLAC)</option>
+                                <option value="http://stream.radioparadise.com/rock-flac">Radio Paradise Rock Mix (FLAC)</option>
+                                <option value="http://stream.radioparadise.com/global-flac">Radio Paradise Global Mix (FLAC)</option>
+                                <option value="http://server9.streamserver24.com:18900/motherearth">Mother Earth Radio (FLAC)</option>
+                                <option value="https://maggie.torontocast.com:8076/flac">JB Radio Net (FLAC)</option>
+                                <option value="http://198.204.228.202:8160/mp3_autodj">SuperStereo 1 - Retro Party (MP3 128k)</option>
+                            </optgroup>
+                            <optgroup label="High-Quality Stations">
+                                <option value="http://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/bbc_6music.m3u8">BBC Radio 6 Music (320kbps)</option>
+                            </optgroup>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -1010,6 +1036,33 @@
             document.getElementById('audioStreamUrl').value = url;
         }
 
+        function onQuickStreamChange() {
+            const dropdown = document.getElementById('quickStreamSelect');
+            const selectedUrl = dropdown.value;
+            
+            // Load stream immediately when selected
+            if (selectedUrl) {
+                document.getElementById('audioStreamUrl').value = selectedUrl;
+                
+                // Visual feedback
+                const audioUrlInput = document.getElementById('audioStreamUrl');
+                audioUrlInput.style.borderColor = '#28a745';
+                audioUrlInput.style.boxShadow = '0 0 0 3px rgba(40, 167, 69, 0.1)';
+                
+                // Reset border after 2 seconds
+                setTimeout(() => {
+                    audioUrlInput.style.borderColor = '#e9ecef';
+                    audioUrlInput.style.boxShadow = 'none';
+                }, 2000);
+                
+                // Reset dropdown to placeholder
+                dropdown.value = '';
+                
+            }
+        }
+
+
+
         async function updateAudioStatus() {
             try {
                 const status = await apiCall('GET', '/audio/status');
@@ -1017,8 +1070,27 @@
                 
                 if (status.is_playing) {
                     const displayName = status.stream_name || status.current_stream || 'Unknown Stream';
-                    statusDiv.innerHTML = `<span style="color: #28a745;">🎵 Playing: ${displayName}</span><br>
-                                          <span style="font-size: 12px;">Volume: ${status.volume}%</span>`;
+                    let statusHtml = `<span style="color: #28a745;">🎵 Playing: ${displayName}</span><br>
+                                     <span style="font-size: 12px;">Volume: ${status.volume}%</span>`;
+                    
+                    // Add metadata if available
+                    if (status.metadata) {
+                        const metadata = status.metadata;
+                        statusHtml += '<br><div style="margin-top: 8px; padding: 8px; background: rgba(40, 167, 69, 0.1); border-radius: 4px;">';
+                        statusHtml += `<div style="font-weight: bold; color: #155724;">${metadata.title}</div>`;
+                        if (metadata.artist) {
+                            statusHtml += `<div style="color: #155724; font-size: 12px;">by ${metadata.artist}</div>`;
+                        }
+                        if (metadata.album) {
+                            statusHtml += `<div style="color: #155724; font-size: 11px;">${metadata.album}</div>`;
+                        }
+                        if (metadata.station) {
+                            statusHtml += `<div style="color: #6c757d; font-size: 10px; margin-top: 4px;">${metadata.station}</div>`;
+                        }
+                        statusHtml += '</div>';
+                    }
+                    
+                    statusDiv.innerHTML = statusHtml;
                 } else {
                     statusDiv.innerHTML = '<span style="color: #6c757d;">No audio stream playing</span>';
                 }
@@ -1027,7 +1099,7 @@
             }
         }
 
-        // Volume slider update
+        // Volume slider update and dropdown initialization
         document.addEventListener('DOMContentLoaded', function() {
             const volumeSlider = document.getElementById('audioVolume');
             const volumeDisplay = document.getElementById('volumeDisplay');
@@ -1045,6 +1117,7 @@
                     }
                 });
             }
+            
         });
 
         async function setBackground() {
@@ -1281,9 +1354,11 @@
                         `).join('');
                 }
 
-                // Update current playback
+                // Update current playback (check both video streams and audio)
                 const currentPlayback = document.getElementById('currentPlayback');
                 const playback = streams.current_playback;
+                
+                // Check for video/stream playback first
                 if (playback.stream) {
                     currentPlayback.innerHTML = `
                         <strong>Stream:</strong> ${playback.stream}<br>
@@ -1291,7 +1366,27 @@
                         <strong>Protocol:</strong> ${playback.protocol}
                     `;
                 } else {
-                    currentPlayback.innerHTML = 'No active playback';
+                    // Check for audio playback
+                    try {
+                        const audioStatus = await fetch('/audio/status').then(r => r.json());
+                        if (audioStatus.is_playing) {
+                            let audioInfo = `<strong>🎵 Audio Stream:</strong> ${audioStatus.stream_name || 'Audio Stream'}<br>
+                                           <strong>Volume:</strong> ${audioStatus.volume}%`;
+                            
+                            if (audioStatus.metadata) {
+                                const meta = audioStatus.metadata;
+                                audioInfo += `<br><strong>Now Playing:</strong> ${meta.title}`;
+                                if (meta.artist) audioInfo += ` by ${meta.artist}`;
+                                if (meta.station) audioInfo += `<br><strong>Station:</strong> ${meta.station}`;
+                            }
+                            
+                            currentPlayback.innerHTML = audioInfo;
+                        } else {
+                            currentPlayback.innerHTML = 'No active playback';
+                        }
+                    } catch (error) {
+                        currentPlayback.innerHTML = 'No active playback';
+                    }
                 }
 
                 showStatus('Status refreshed', 'success');

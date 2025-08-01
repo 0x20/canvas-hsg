@@ -11,6 +11,9 @@ import json
 import logging
 import os
 import signal
+import re
+import time
+import aiohttp
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any, List
@@ -797,6 +800,10 @@ class StreamManager:
         self.audio_process: Optional[subprocess.Popen] = None
         self.current_audio_stream: Optional[str] = None
         self.audio_volume: int = 80
+        
+        # Metadata storage for currently playing tracks
+        self.current_metadata: Dict[str, Any] = {}
+        self.metadata_task: Optional[asyncio.Task] = None
         
         # Background mode management
         from background_modes import BackgroundManager
@@ -1693,8 +1700,6 @@ class StreamManager:
         if not self.background_manager:
             raise RuntimeError("BackgroundManager not initialized")
         
-        from background_modes import BackgroundMode
-        
         # Set the background image if it exists
         if os.path.exists(DEFAULT_BACKGROUND_PATH):
             self.background_manager.set_background_image(DEFAULT_BACKGROUND_PATH)
@@ -1703,8 +1708,8 @@ class StreamManager:
         audio_status = self.get_audio_status()
         show_audio_icon = audio_status.get("is_playing", False)
         
-        success = await self.background_manager.set_mode_with_audio_status(
-            BackgroundMode.STATIC, show_audio_icon=show_audio_icon
+        success = await self.background_manager.start_static_mode_with_audio_status(
+            show_audio_icon=show_audio_icon
         )
         if not success:
             raise RuntimeError("Failed to activate background via BackgroundManager")
@@ -2210,6 +2215,9 @@ class StreamManager:
                 logging.info(f"Audio stream started successfully: {stream_url}")
                 logging.info(f"Audio process PID: {self.audio_process.pid}")
                 
+                # Start metadata updates
+                self.start_metadata_updates()
+                
                 # Update background to show audio icon
                 if not self.player_process:  # Only if no video is playing
                     await self.show_background()
@@ -2253,6 +2261,9 @@ class StreamManager:
                 self.current_audio_stream = None
                 logging.info("Audio stream stopped")
                 
+                # Stop metadata updates
+                self.stop_metadata_updates()
+                
                 # Update background to remove audio icon
                 if not self.player_process:  # Only if no video is playing
                     await self.show_background()
@@ -2278,13 +2289,19 @@ class StreamManager:
         if is_playing and self.current_audio_stream:
             stream_name = self._get_friendly_stream_name(self.current_audio_stream)
         
-        return {
+        status = {
             "is_playing": is_playing,
             "current_stream": self.current_audio_stream if is_playing else None,
             "stream_name": stream_name,
             "volume": self.audio_volume,
             "process_id": self.audio_process.pid if is_playing else None
         }
+        
+        # Add metadata if available
+        if is_playing and self.current_metadata:
+            status["metadata"] = self.current_metadata
+        
+        return status
     
     def _get_friendly_stream_name(self, stream_url: str) -> str:
         """Convert stream URL to a user-friendly name"""
@@ -2312,6 +2329,121 @@ class StreamManager:
                 return "Audio Stream"
         else:
             return "Audio Stream"
+    
+    def _detect_stream_type(self, url: str) -> Optional[Dict[str, Any]]:
+        """Detect stream type and return metadata source info"""
+        if not url:
+            return None
+            
+        # SomaFM detection
+        somafm_match = re.search(r'somafm\.com/(\w+)\.pls', url)
+        if somafm_match:
+            return {'type': 'somafm', 'station': somafm_match.group(1)}
+        
+        # Radio Paradise detection
+        if 'radioparadise.com' in url.lower():
+            if 'mellow' in url.lower():
+                return {'type': 'radioparadise', 'channel': 1}
+            elif 'rock' in url.lower():
+                return {'type': 'radioparadise', 'channel': 2}
+            elif 'global' in url.lower():
+                return {'type': 'radioparadise', 'channel': 3}
+            else:
+                return {'type': 'radioparadise', 'channel': 0}  # main mix
+        
+        # SuperStereo (Icecast) detection
+        if '198.204.228.202:8160' in url:
+            return {'type': 'icecast', 'server': 'http://198.204.228.202:8160'}
+        
+        return None
+    
+    async def _fetch_metadata(self, stream_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Fetch metadata from appropriate API"""
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                if stream_info['type'] == 'somafm':
+                    url = f"https://somafm.com/songs/{stream_info['station']}.json"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            if data.get('songs') and len(data['songs']) > 0:
+                                current = data['songs'][0]
+                                return {
+                                    'title': current.get('title', 'Unknown Track'),
+                                    'artist': current.get('artist', ''),
+                                    'album': current.get('album', ''),
+                                    'station': f"SomaFM {stream_info['station'].title()}",
+                                    'source': 'somafm'
+                                }
+                
+                elif stream_info['type'] == 'radioparadise':
+                    url = f"https://api.radioparadise.com/api/now_playing?chan={stream_info['channel']}"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            channel_names = ['Main Mix', 'Mellow Mix', 'Rock Mix', 'Global Mix']
+                            return {
+                                'title': data.get('title', 'Unknown Track'),
+                                'artist': data.get('artist', ''),
+                                'album': data.get('album', '') + (f" ({data.get('year')})" if data.get('year') else ''),
+                                'station': f"Radio Paradise {channel_names[stream_info['channel']]}",
+                                'source': 'radioparadise'
+                            }
+                
+                elif stream_info['type'] == 'icecast':
+                    url = f"{stream_info['server']}/status-json.xsl"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            # Find active stream with title info
+                            for source in data.get('icestats', {}).get('source', []):
+                                if source.get('title') and source.get('server_description'):
+                                    return {
+                                        'title': source.get('title', 'Unknown Track'),
+                                        'artist': '',
+                                        'album': '',
+                                        'station': f"{source.get('server_description')} ({source.get('bitrate')}kbps)",
+                                        'source': 'icecast'
+                                    }
+        
+        except Exception as e:
+            logging.warning(f"Failed to fetch metadata: {e}")
+        
+        return None
+    
+    async def _update_metadata_loop(self):
+        """Background task to periodically update metadata"""
+        while self.audio_process and self.audio_process.poll() is None:
+            try:
+                if self.current_audio_stream:
+                    stream_info = self._detect_stream_type(self.current_audio_stream)
+                    if stream_info:
+                        metadata = await self._fetch_metadata(stream_info)
+                        if metadata:
+                            metadata['last_updated'] = datetime.now().isoformat()
+                            self.current_metadata = metadata
+                            logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
+                
+                # Wait 15 seconds before next update
+                await asyncio.sleep(15)
+                
+            except Exception as e:
+                logging.warning(f"Metadata update failed: {e}")
+                await asyncio.sleep(30)  # Wait longer on error
+    
+    def start_metadata_updates(self):
+        """Start the metadata update background task"""
+        if self.metadata_task:
+            self.metadata_task.cancel()
+        
+        self.metadata_task = asyncio.create_task(self._update_metadata_loop())
+    
+    def stop_metadata_updates(self):
+        """Stop the metadata update background task"""
+        if self.metadata_task:
+            self.metadata_task.cancel()
+            self.metadata_task = None
+        self.current_metadata = {}
     
     def cleanup(self):
         """Clean up all resources"""
