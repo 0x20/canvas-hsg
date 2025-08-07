@@ -433,6 +433,64 @@
                         </select>
                     </div>
                 </div>
+                
+                <!-- Background Video Selection -->
+                <div style="margin-top: 20px; border-top: 1px solid #eee; padding-top: 15px;">
+                    <h4>🎬 Background Video Selection:</h4>
+                    <p style="font-size: 12px; color: #666; margin-bottom: 10px;">Choose a long-running YouTube video for background visuals</p>
+                    
+                    <!-- Preset Selection -->
+                    <div style="margin-bottom: 15px;">
+                        <select id="backgroundVideoPresets" style="width: 280px;" onchange="onBackgroundVideoPresetChange()">
+                            <option value="">Select a background video...</option>
+                            <optgroup label="🎵 Live Streams (Verified Working)">
+                                <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">🎧 Lofi Hip Hop Radio - 24/7 Live</option>
+                                <option value="https://www.youtube.com/watch?v=36YnV9STBqc">🏠 The Good Life Radio - 24/7 Live</option>
+                                <option value="https://www.youtube.com/watch?v=5yx6BWlEVcY">🎵 Chillhop Radio - 24/7 Live</option>
+                            </optgroup>
+                            <optgroup label="🌿 Nature & Long Duration (Verified Working)">
+                                <option value="https://www.youtube.com/watch?v=q76bMs-NwRk">🌧️ Gentle Night Rain (3 Hours)</option>
+                                <option value="https://www.youtube.com/watch?v=UgHKb_7884o">🔥 Relaxing Fireplace (12 Hours)</option>
+                            </optgroup>
+                            <optgroup label="🔍 Search YouTube for More Options:">
+                                <option value="">🌊 "ocean waves 10 hours"</option>
+                                <option value="">⛈️ "thunder rain 8 hours sleep"</option>
+                                <option value="">🌲 "forest sounds birds 10 hours"</option>
+                                <option value="">☕ "coffee shop ambience 8 hours"</option>
+                                <option value="">📚 "library sounds study 10 hours"</option>
+                                <option value="">🤖 "synthwave radio live stream"</option>
+                                <option value="">🚀 "space ambient music 10 hours"</option>
+                                <option value="">⭐ "cosmic meditation deep space"</option>
+                                <option value="">🌌 "nasa space videos with music"</option>
+                            </optgroup>
+                            <optgroup label="🎨 Custom URL">
+                                <option value="custom">📝 Enter your own YouTube URL...</option>
+                            </optgroup>
+                        </select>
+                    </div>
+                    
+                    <!-- Custom URL Input (hidden initially) -->
+                    <div id="customUrlSection" style="display: none; margin-bottom: 15px;">
+                        <input type="url" id="backgroundVideoUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 280px; margin-bottom: 5px;">
+                    </div>
+                    
+                    <!-- Control Buttons -->
+                    <div style="margin-top: 8px;">
+                        <button onclick="startBackgroundVideoFromSelection()" style="font-size: 12px; padding: 6px 12px;">▶️ Start Background Video</button>
+                        <button onclick="stopBackgroundVideo()" class="danger" style="font-size: 12px; padding: 6px 12px;">⏹️ Stop Video</button>
+                    </div>
+                    
+                    <!-- Status and Help -->
+                    <div id="backgroundVideoStatus" style="margin-top: 8px; font-size: 12px; color: #666;"></div>
+                    
+                    <div style="background: #f8f9fa; padding: 8px; border-radius: 4px; font-size: 10px; color: #555; margin-top: 10px;">
+                        <strong>💡 How to use:</strong><br>
+                        1. Select a video type from the dropdown to see search suggestions<br>
+                        2. Search YouTube using those exact terms in quotes<br>
+                        3. Choose "Custom URL" option and paste your chosen video URL<br>
+                        4. Recommended: Videos 2+ hours long work best for background visuals
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -898,42 +956,67 @@
         async function playYoutube() {
             const playButton = event ? event.target : document.querySelector('button[onclick="playYoutube()"]');
             const youtubeCard = playButton.closest('.card');
+            const urlInput = document.getElementById('youtubeUrl');
             
             // Clear previous validation errors
             clearValidationErrors(youtubeCard);
             
             // Get form values
-            const youtubeUrl = document.getElementById('youtubeUrl').value.trim();
+            const youtubeUrl = urlInput.value.trim();
             const duration = document.getElementById('youtubeDuration').value;
             const mute = document.getElementById('youtubeMute').checked;
             
-            // Validation
-            if (!youtubeUrl) {
-                showValidationError(youtubeCard, 'Please enter a YouTube URL');
-                return;
-            }
-            
-            // Basic URL validation
-            if (!youtubeUrl.includes('youtube.com') && !youtubeUrl.includes('youtu.be')) {
-                showValidationError(youtubeCard, 'Please enter a valid YouTube URL');
-                return;
-            }
-            
-            // Visual feedback
-            setButtonLoading(playButton, true);
-            const muteText = mute ? ' (muted)' : '';
-            showStatus(`Starting YouTube video${muteText}...`, 'success');
-            
             try {
-                const data = { youtube_url: youtubeUrl, mute: mute };
+                setButtonLoading(playButton, true);
+                const muteText = mute ? ' (muted)' : '';
+                
+                // Validate URL before stopping current playback
+                const validation = await validateVideoUrl(youtubeUrl, (msg) => showStatus(msg.replace(/<[^>]*>/g, ''), 'success'));
+                
+                if (!validation.valid) {
+                    showValidationError(youtubeCard, validation.error);
+                    
+                    // Error feedback for URL input
+                    urlInput.style.borderColor = '#dc3545';
+                    urlInput.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
+                    setTimeout(() => {
+                        urlInput.style.borderColor = '#e9ecef';
+                        urlInput.style.boxShadow = 'none';
+                    }, 3000);
+                    return;
+                }
+                
+                // URL is valid, proceed with playback
+                showStatus(`Starting YouTube video${muteText}...`, 'success');
+                
+                const data = { youtube_url: validation.url, mute: mute };
                 if (duration) data.duration = parseInt(duration);
                 
                 await apiCall('POST', '/playback/youtube', data);
-                showStatus(`YouTube video started successfully`, 'success');
+                
+                const title = validation.title ? ` (${validation.title})` : '';
+                showStatus(`YouTube video started successfully${title}`, 'success');
                 refreshStatus();
+                
+                // Success feedback for URL input
+                urlInput.style.borderColor = '#28a745';
+                urlInput.style.boxShadow = '0 0 0 3px rgba(40, 167, 69, 0.1)';
+                setTimeout(() => {
+                    urlInput.style.borderColor = '#e9ecef';
+                    urlInput.style.boxShadow = 'none';
+                }, 3000);
+                
             } catch (error) {
                 showValidationError(youtubeCard, `Failed to play YouTube video: ${error.message}`);
                 showStatus(`YouTube playback failed: ${error.message}`, 'error');
+                
+                // Error feedback for URL input
+                urlInput.style.borderColor = '#dc3545';
+                urlInput.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
+                setTimeout(() => {
+                    urlInput.style.borderColor = '#e9ecef';
+                    urlInput.style.boxShadow = 'none';
+                }, 3000);
             } finally {
                 setButtonLoading(playButton, false);
             }
@@ -1058,6 +1141,219 @@
                 // Reset dropdown to placeholder
                 dropdown.value = '';
                 
+            }
+        }
+
+        // Background video functions
+        function onBackgroundVideoPresetChange() {
+            const dropdown = document.getElementById('backgroundVideoPresets');
+            const customUrlSection = document.getElementById('customUrlSection');
+            const statusDiv = document.getElementById('backgroundVideoStatus');
+            
+            if (dropdown.value === 'custom') {
+                customUrlSection.style.display = 'block';
+                statusDiv.innerHTML = '<span style="color: #667eea;">Enter a custom YouTube URL below</span>';
+            } else if (dropdown.value === '') {
+                // Empty option - search instruction
+                customUrlSection.style.display = 'none';
+                statusDiv.innerHTML = '<span style="color: #6c757d;">Please select a video option</span>';
+            } else if (dropdown.value.startsWith('http')) {
+                // Real URL
+                customUrlSection.style.display = 'none';
+                const videoTitle = dropdown.options[dropdown.selectedIndex].text;
+                statusDiv.innerHTML = `<span style="color: #667eea;">Selected: ${videoTitle}</span>`;
+            } else {
+                // Search instruction option
+                customUrlSection.style.display = 'none';
+                const searchTerm = dropdown.options[dropdown.selectedIndex].text;
+                statusDiv.innerHTML = `<span style="color: #ffc107;">⚠️ Search YouTube for this content, then use "Custom URL" option</span>`;
+            }
+        }
+
+        // Shared URL validation function for video URLs
+        async function validateVideoUrl(url, statusCallback = null) {
+            if (!url || !url.trim()) {
+                return { valid: false, error: 'Please enter a video URL' };
+            }
+            
+            const trimmedUrl = url.trim();
+            
+            // Basic URL format validation
+            const urlRegex = /^(https?:\/\/)?([a-zA-Z0-9-._]+\.[a-zA-Z]{2,})(\/[^\s]*)?$/;
+            if (!urlRegex.test(trimmedUrl)) {
+                return { valid: false, error: 'Please enter a valid URL' };
+            }
+            
+            // Normalize URL (add https if missing)
+            const testUrl = trimmedUrl.startsWith('http') ? trimmedUrl : `https://${trimmedUrl}`;
+            
+            // Optional: Test if URL is accessible
+            if (statusCallback) {
+                statusCallback('<span style="color: #667eea;">🔍 Checking URL accessibility...</span>');
+            }
+            
+            try {
+                // Make a simple HEAD request to check if the URL exists
+                const response = await fetch(testUrl, {
+                    method: 'HEAD',
+                    mode: 'no-cors', // Avoid CORS issues
+                    signal: AbortSignal.timeout(5000) // 5 second timeout
+                });
+                
+                // With no-cors mode, we can't check response status, so assume it's accessible
+                return { valid: true, url: testUrl };
+                
+            } catch (error) {
+                // For CORS or network errors, we'll do a basic reachability test
+                try {
+                    // Try to load the URL in an invisible iframe as a fallback test
+                    const testFrame = document.createElement('iframe');
+                    testFrame.style.display = 'none';
+                    testFrame.style.width = '1px';
+                    testFrame.style.height = '1px';
+                    
+                    return new Promise((resolve) => {
+                        const timeout = setTimeout(() => {
+                            document.body.removeChild(testFrame);
+                            // If we can't verify, assume it's valid (let the backend handle it)
+                            resolve({ valid: true, url: testUrl });
+                        }, 3000);
+                        
+                        testFrame.onload = () => {
+                            clearTimeout(timeout);
+                            document.body.removeChild(testFrame);
+                            resolve({ valid: true, url: testUrl });
+                        };
+                        
+                        testFrame.onerror = () => {
+                            clearTimeout(timeout);
+                            document.body.removeChild(testFrame);
+                            resolve({ valid: false, error: 'URL may not be accessible' });
+                        };
+                        
+                        document.body.appendChild(testFrame);
+                        testFrame.src = testUrl;
+                    });
+                    
+                } catch (fallbackError) {
+                    // If all tests fail, assume URL is valid (basic format passed)
+                    return { valid: true, url: testUrl };
+                }
+            }
+        }
+
+        async function startBackgroundVideoFromSelection() {
+            const startButton = event ? event.target : document.querySelector('button[onclick="startBackgroundVideoFromSelection()"]');
+            const dropdown = document.getElementById('backgroundVideoPresets');
+            const urlInput = document.getElementById('backgroundVideoUrl');
+            const statusDiv = document.getElementById('backgroundVideoStatus');
+            
+            let videoUrl = '';
+            let videoTitle = '';
+            
+            // Determine video URL source
+            console.log('Dropdown value:', `"${dropdown.value}"`); // Debug log
+            console.log('Dropdown selectedIndex:', dropdown.selectedIndex); // Debug log
+            
+            if (dropdown.value === 'custom') {
+                videoUrl = urlInput.value.trim();
+                videoTitle = 'Custom Video';
+                console.log('Using custom URL:', videoUrl);
+            } else if (dropdown.value && dropdown.value.startsWith('http')) {
+                videoUrl = dropdown.value;
+                videoTitle = dropdown.options[dropdown.selectedIndex].text;
+                console.log('Using preset URL:', videoUrl);
+            } else if (dropdown.value === '') {
+                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a background video from the dropdown</span>';
+                return;
+            } else {
+                // Handle search suggestion options or other values
+                console.log('Invalid dropdown value detected:', `"${dropdown.value}"`);
+                statusDiv.innerHTML = '<span style="color: #ffc107;">⚠️ This is a search suggestion. Please search YouTube for this content and use "Custom URL" option</span>';
+                return;
+            }
+            
+            try {
+                setButtonLoading(startButton, true);
+                
+                // Validate URL before stopping current playback
+                const validation = await validateVideoUrl(videoUrl, (msg) => statusDiv.innerHTML = msg);
+                
+                if (!validation.valid) {
+                    statusDiv.innerHTML = `<span style="color: #dc3545;">${validation.error}</span>`;
+                    
+                    // Error feedback
+                    const targetElement = dropdown.value === 'custom' ? urlInput : dropdown;
+                    targetElement.style.borderColor = '#dc3545';
+                    targetElement.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
+                    setTimeout(() => {
+                        targetElement.style.borderColor = '#e9ecef';
+                        targetElement.style.boxShadow = 'none';
+                    }, 3000);
+                    return;
+                }
+                
+                // URL is valid, now proceed with playback
+                statusDiv.innerHTML = '<span style="color: #667eea;">Starting background video...</span>';
+                
+                const data = {
+                    youtube_url: validation.url,
+                    mute: true // Background videos should be muted since we're playing audio streams
+                };
+                
+                await apiCall('POST', '/playback/youtube', data);
+                
+                const displayTitle = validation.title || videoTitle;
+                statusDiv.innerHTML = `<span style="color: #28a745;">🎬 Playing: ${displayTitle}</span>`;
+                showStatus('Background video started', 'success');
+                refreshStatus();
+                
+                // Visual feedback for success
+                const targetElement = dropdown.value === 'custom' ? urlInput : dropdown;
+                targetElement.style.borderColor = '#28a745';
+                targetElement.style.boxShadow = '0 0 0 3px rgba(40, 167, 69, 0.1)';
+                setTimeout(() => {
+                    targetElement.style.borderColor = '#e9ecef';
+                    targetElement.style.boxShadow = 'none';
+                }, 3000);
+                
+            } catch (error) {
+                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to start: ${error.message}</span>`;
+                showStatus(`Background video failed: ${error.message}`, 'error');
+                
+                // Error feedback
+                const targetElement = dropdown.value === 'custom' ? urlInput : dropdown;
+                targetElement.style.borderColor = '#dc3545';
+                targetElement.style.boxShadow = '0 0 0 3px rgba(220, 53, 69, 0.1)';
+                setTimeout(() => {
+                    targetElement.style.borderColor = '#e9ecef';
+                    targetElement.style.boxShadow = 'none';
+                }, 3000);
+            } finally {
+                setButtonLoading(startButton, false);
+            }
+        }
+
+        async function stopBackgroundVideo() {
+            const stopButton = event ? event.target : document.querySelector('button[onclick="stopBackgroundVideo()"]');
+            
+            try {
+                setButtonLoading(stopButton, true);
+                const statusDiv = document.getElementById('backgroundVideoStatus');
+                statusDiv.innerHTML = '<span style="color: #667eea;">Stopping background video...</span>';
+                
+                await apiCall('DELETE', '/playback/stop');
+                
+                statusDiv.innerHTML = '<span style="color: #6c757d;">Background video stopped</span>';
+                showStatus('Background video stopped', 'success');
+                refreshStatus();
+                
+            } catch (error) {
+                const statusDiv = document.getElementById('backgroundVideoStatus');
+                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to stop: ${error.message}</span>`;
+                showStatus(`Failed to stop background video: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(stopButton, false);
             }
         }
 
