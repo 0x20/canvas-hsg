@@ -40,6 +40,9 @@ SRS_HTTP_FLV_URL = f"http://{HOST}:8080/live"
 SRS_HLS_URL = f"http://{HOST}:8080/live"
 SRS_API_URL = f"http://{HOST}:1985/api/v1"
 
+# Audio configuration
+AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "alsa/sysdefault:CARD=3")
+
 # Static background image path
 DEFAULT_BACKGROUND_PATH = "/home/hsg/srs_server/canvas_background.png"
 
@@ -51,14 +54,14 @@ OPTIMAL_PLAYER_COMMANDS = {
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
         "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_3840x2160_30hz": [
         "mpv", "--vo=drm", "--drm-mode=3840x2160@30", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
         "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # 1440p Commands
@@ -66,17 +69,17 @@ OPTIMAL_PLAYER_COMMANDS = {
         "mpv", "--vo=drm", "--drm-mode=2560x1440@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_2560x1440_120hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@120", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_2560x1440_60hz": [
         "mpv", "--vo=drm", "--drm-mode=2560x1440@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # 1080p Commands
@@ -84,64 +87,64 @@ OPTIMAL_PLAYER_COMMANDS = {
         "mpv", "--vo=drm", "--drm-mode=1920x1080@144", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_1920x1080_120hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@120", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_1920x1080_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1920x1080@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--ao=pulse", "--audio-channels=stereo",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # 720p Commands
     "mpv_1280x720_120hz": [
         "mpv", "--vo=drm", "--drm-mode=1280x720@120", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_1280x720_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1280x720@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--ao=pulse", "--audio-channels=stereo",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # XGA Commands
     "mpv_1024x768_75hz": [
         "mpv", "--vo=drm", "--drm-mode=1024x768@75", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_1024x768_60hz": [
         "mpv", "--vo=drm", "--drm-mode=1024x768@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--ao=pulse", "--audio-channels=stereo",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # SVGA Commands
     "mpv_800x600_75hz": [
         "mpv", "--vo=drm", "--drm-mode=800x600@75", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_800x600_60hz": [
         "mpv", "--vo=drm", "--drm-mode=800x600@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
         "--ao=pulse", "--audio-channels=stereo",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # VGA Fallback Commands
     "mpv_640x480_60hz": [
         "mpv", "--vo=drm", "--drm-mode=640x480@60", "--fs", "--quiet",
         "--no-input-default-bindings", "--no-osc",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     
     # FFplay Variants
@@ -173,16 +176,16 @@ OPTIMAL_PLAYER_COMMANDS = {
     ],
     
     # Legacy compatibility commands
-    "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet", "--audio-device=alsa/sysdefault:CARD=Headphones"],
+    "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet", f"--audio-device={AUDIO_DEVICE}"],
     "mpv_optimized": [
         "mpv", "--vo=drm", "--fs", "--quiet", 
         "--no-input-default-bindings", "--no-osc", "--untimed",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "mpv_no_cache": [
         "mpv", "--vo=drm", "--fs", "--quiet", "--hwdec=v4l2m2m",
         "--no-input-default-bindings", "--no-osc", "--cache=no",
-        "--audio-device=alsa/sysdefault:CARD=Headphones"
+        f"--audio-device={AUDIO_DEVICE}"
     ],
     "ffplay_basic": ["ffplay", "-fs", "-autoexit"],
     "vlc_basic": ["vlc", "--intf", "dummy", "--fullscreen"]
@@ -2191,6 +2194,7 @@ class StreamManager:
                 "--no-video",
                 "--quiet",
                 f"--volume={self.audio_volume}",
+                f"--audio-device={AUDIO_DEVICE}",
                 "--no-input-default-bindings",
                 "--no-osc",
                 resolved_url
