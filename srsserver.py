@@ -17,6 +17,9 @@ import aiohttp
 from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Optional, Dict, Any, List
+from dataclasses import dataclass, field
+import threading
+import queue
 from pathlib import Path
 import base64
 
@@ -32,6 +35,443 @@ import numpy as np
 import mmap
 import qrcode
 import io
+import socket
+import select
+import errno
+
+# MPV IPC Controller Classes
+class MPVController:
+    """Handles IPC communication with a single mpv process"""
+    
+    def __init__(self, socket_path: str, process_id: int):
+        self.socket_path = socket_path
+        self.process_id = process_id
+        self.socket = None
+        self.connected = False
+        self.request_id = 0
+        self.pending_requests = {}
+        self.observed_properties = {}
+        self.in_use = False
+        
+    async def connect(self, timeout: float = 5.0) -> bool:
+        """Connect to mpv IPC socket"""
+        try:
+            self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.socket.settimeout(timeout)
+            
+            # Use asyncio to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.socket.connect, self.socket_path)
+            
+            self.socket.setblocking(False)
+            self.connected = True
+            logging.info(f"Connected to mpv process {self.process_id} at {self.socket_path}")
+            return True
+        except Exception as e:
+            logging.error(f"Failed to connect to mpv process {self.process_id}: {e}")
+            self.connected = False
+            return False
+    
+    def disconnect(self):
+        """Disconnect from mpv IPC socket"""
+        if self.socket:
+            try:
+                self.socket.close()
+            except:
+                pass
+        self.socket = None
+        self.connected = False
+        self.pending_requests.clear()
+        
+    async def send_command(self, command: list, **kwargs) -> dict:
+        """Send a command to mpv and return response"""
+        if not self.connected:
+            return {"error": "not_connected"}
+            
+        self.request_id += 1
+        request = {
+            "command": command,
+            "request_id": self.request_id
+        }
+        request.update(kwargs)
+        
+        try:
+            message = json.dumps(request) + '\n'
+            # Use asyncio to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.socket.send, message.encode('utf-8'))
+            
+            # Wait for response
+            response = await self._read_response(self.request_id)
+            return response
+            
+        except Exception as e:
+            # Try to reconnect if socket is broken
+            if "Broken pipe" in str(e) or "Connection reset" in str(e):
+                logging.info(f"Socket broken, attempting to reconnect for command {command}")
+                try:
+                    self.disconnect()
+                    if await self.connect():
+                        # Retry the command once after reconnecting
+                        message = json.dumps(request) + '\n'
+                        loop = asyncio.get_event_loop()
+                        await loop.run_in_executor(None, self.socket.send, message.encode('utf-8'))
+                        response = await self._read_response(self.request_id)
+                        logging.info(f"Command {command} succeeded after reconnection")
+                        return response
+                    else:
+                        logging.error(f"Failed to reconnect for command {command}")
+                        return {"error": "reconnection_failed"}
+                except Exception as reconnect_error:
+                    logging.error(f"Reconnection attempt failed for command {command}: {reconnect_error}")
+                    return {"error": str(reconnect_error)}
+
+            logging.error(f"Failed to send command {command}: {e}")
+            return {"error": str(e)}
+    
+    async def _read_response(self, request_id: int, timeout: float = 5.0) -> dict:
+        """Read response from mpv socket"""
+        start_time = time.time()
+        buffer = ""
+        loop = asyncio.get_event_loop()
+        
+        while time.time() - start_time < timeout:
+            try:
+                # Use run_in_executor for blocking select call
+                ready, _, _ = await loop.run_in_executor(None, select.select, [self.socket], [], [], 0.1)
+                if ready:
+                    # Use run_in_executor for blocking recv call
+                    data = await loop.run_in_executor(None, self.socket.recv, 4096)
+                    if not data:
+                        break
+                    buffer += data.decode('utf-8')
+                    
+                    # Process complete JSON lines
+                    while '\n' in buffer:
+                        line, buffer = buffer.split('\n', 1)
+                        if line.strip():
+                            try:
+                                response = json.loads(line)
+                                if response.get('request_id') == request_id:
+                                    return response
+                                elif 'event' in response:
+                                    # Handle property change events
+                                    self._handle_property_event(response)
+                            except json.JSONDecodeError:
+                                continue
+            except socket.error as e:
+                if e.errno == errno.EAGAIN or e.errno == errno.EWOULDBLOCK:
+                    await asyncio.sleep(0.01)
+                else:
+                    break
+        
+        return {"error": "timeout"}
+    
+    def _handle_property_event(self, event: dict):
+        """Handle property change events from mpv"""
+        if event.get('event') == 'property-change':
+            prop_name = event.get('name')
+            prop_value = event.get('data')
+            if prop_name in self.observed_properties:
+                self.observed_properties[prop_name] = prop_value
+    
+    async def set_property(self, property_name: str, value) -> dict:
+        """Set a property value"""
+        return await self.send_command(["set", property_name, value])
+    
+    async def get_property(self, property_name: str) -> dict:
+        """Get a property value"""
+        return await self.send_command(["get_property", property_name])
+    
+    async def add_property(self, property_name: str, value: float) -> dict:
+        """Add to a numeric property"""
+        return await self.send_command(["add", property_name, value])
+    
+    async def multiply_property(self, property_name: str, value: float) -> dict:
+        """Multiply a numeric property"""
+        return await self.send_command(["multiply", property_name, value])
+    
+    async def cycle_property(self, property_name: str, direction: str = "up") -> dict:
+        """Cycle through property values"""
+        return await self.send_command(["cycle", property_name, direction])
+    
+    async def observe_property(self, property_name: str) -> dict:
+        """Start observing a property for changes"""
+        obs_id = len(self.observed_properties) + 1
+        result = await self.send_command(["observe_property", obs_id, property_name])
+        if result.get('error') == 'success':
+            self.observed_properties[property_name] = None
+        return result
+    
+    async def loadfile(self, filename: str, mode: str = "replace") -> dict:
+        """Load a file for playback"""
+        return await self.send_command(["loadfile", filename, mode])
+    
+    async def pause(self, state: bool = None) -> dict:
+        """Pause/unpause playback"""
+        if state is None:
+            return await self.cycle_property("pause")
+        else:
+            return await self.set_property("pause", state)
+    
+    async def seek(self, position, mode: str = "relative") -> dict:
+        """Seek to position"""
+        return await self.send_command(["seek", position, mode])
+    
+    async def quit(self) -> dict:
+        """Quit mpv"""
+        return await self.send_command(["quit"])
+
+class MPVProcessPool:
+    """Manages a fixed pool of 2 mpv processes with IPC control"""
+    
+    def __init__(self):
+        self.pool_size = 2
+        self.processes = {}  # process_id -> subprocess.Popen
+        self.controllers = {}  # process_id -> MPVController
+        self.process_status = {}  # process_id -> {"status": "idle/busy", "content_type": str, "stream_key": str}
+        self.socket_dir = "/tmp"
+        
+    async def initialize(self) -> bool:
+        """Initialize the pool with 2 mpv processes"""
+        try:
+            logging.info("Starting MPV process pool initialization...")
+            # Ensure socket directory exists
+            os.makedirs(self.socket_dir, exist_ok=True)
+            logging.info(f"Created socket directory: {self.socket_dir}")
+            
+            for process_id in range(1, self.pool_size + 1):
+                logging.info(f"Starting MPV process {process_id}...")
+                success = await self._start_process(process_id)
+                if not success:
+                    logging.error(f"Failed to start mpv process {process_id}")
+                    await self.cleanup()
+                    return False
+                logging.info(f"Successfully started MPV process {process_id}")
+                    
+            logging.info(f"MPV process pool initialized with {self.pool_size} processes")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize MPV process pool: {e}")
+            import traceback
+            traceback.print_exc()
+            await self.cleanup()
+            return False
+    
+    async def _start_process(self, process_id: int) -> bool:
+        """Start a single mpv process with IPC"""
+        try:
+            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
+            
+            # Remove existing socket if it exists
+            if os.path.exists(socket_path):
+                os.remove(socket_path)
+            
+            # Get optimal mpv command
+            cmd = self._get_optimal_mpv_command(socket_path)
+            
+            # Start mpv process
+            env = os.environ.copy()
+            env.update({
+                'DRM_DEVICE': '/dev/dri/card0',
+                'DRM_CONNECTOR': 'HDMI-A-1'
+            })
+            
+            process = subprocess.Popen(
+                cmd,
+                env=env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=os.setsid
+            )
+            
+            # Wait for socket to be created
+            await self._wait_for_socket(socket_path)
+            
+            # Create controller and connect
+            controller = MPVController(socket_path, process_id)
+            connected = await controller.connect()
+            
+            if not connected:
+                process.terminate()
+                return False
+            
+            # Store process and controller
+            self.processes[process_id] = process
+            self.controllers[process_id] = controller
+            self.process_status[process_id] = {
+                "status": "idle",
+                "content_type": None,
+                "stream_key": None
+            }
+            
+            # Set up initial property observations
+            await controller.observe_property("time-pos")
+            await controller.observe_property("duration")
+            await controller.observe_property("volume")
+            await controller.observe_property("pause")
+            await controller.observe_property("speed")
+            
+            logging.info(f"MPV process {process_id} started and connected")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to start MPV process {process_id}: {e}")
+            return False
+    
+    def _get_optimal_mpv_command(self, socket_path: str) -> list:
+        """Get optimal mpv command with IPC enabled"""
+        return [
+            "mpv", 
+            "--vo=null",  # Use null video output for pool initialization
+            f"--audio-device={AUDIO_DEVICE}",  # Use proper audio device
+            "--quiet",
+            "--no-input-default-bindings", 
+            "--no-osc",
+            f"--input-ipc-server={socket_path}",
+            "--idle=yes",  # Keep process alive when no content
+            "--no-terminal"  # Disable terminal output
+        ]
+    
+    async def _wait_for_socket(self, socket_path: str, timeout: float = 10.0) -> bool:
+        """Wait for mpv to create the IPC socket"""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            if os.path.exists(socket_path):
+                # Socket exists, wait a bit more for mpv to be ready
+                await asyncio.sleep(0.5)
+                return True
+            await asyncio.sleep(0.1)
+        return False
+    
+    def get_available_process(self) -> Optional[int]:
+        """Get an available process ID, prefer idle processes"""
+        # Check if pool is initialized, if not initialize it
+        if not self.processes:
+            logging.warning("MPV pool not initialized, attempting lazy initialization")
+            return None
+            
+        # First, look for idle processes
+        for process_id, status in self.process_status.items():
+            if status["status"] == "idle":
+                return process_id
+        
+        # If no idle processes, return None (all busy)
+        return None
+    
+    async def get_available_controller(self) -> Optional['MPVController']:
+        """Get an available MPVController, prefer idle processes"""
+        # Check if pool is initialized, if not initialize it
+        if not self.processes:
+            logging.warning("MPV pool not initialized, attempting lazy initialization")
+            return None
+            
+        # First, look for idle processes
+        for process_id, status in self.process_status.items():
+            if status["status"] == "idle":
+                controller = self.controllers.get(process_id)
+                if controller:
+                    # Mark as in use
+                    controller.in_use = True
+                    self.process_status[process_id]["status"] = "busy"
+                    return controller
+        
+        # If no idle processes, return None (all busy)
+        return None
+    
+    async def release_controller(self, controller: 'MPVController'):
+        """Release a controller back to idle state"""
+        controller.in_use = False
+        if controller.process_id in self.process_status:
+            self.process_status[controller.process_id]["status"] = "idle"
+            logging.info(f"Released MPV controller {controller.process_id} back to pool")
+    
+    async def allocate_process(self, content_type: str, stream_key: str) -> Optional[int]:
+        """Allocate a process for content playback"""
+        process_id = self.get_available_process()
+        if process_id is None:
+            return None
+        
+        self.process_status[process_id] = {
+            "status": "busy",
+            "content_type": content_type,
+            "stream_key": stream_key
+        }
+        
+        logging.info(f"Allocated MPV process {process_id} for {content_type}: {stream_key}")
+        return process_id
+    
+    async def release_process(self, process_id: int):
+        """Release a process back to idle state"""
+        if process_id in self.process_status:
+            # Stop current playback
+            controller = self.controllers.get(process_id)
+            if controller:
+                await controller.send_command(["stop"])
+            
+            self.process_status[process_id] = {
+                "status": "idle", 
+                "content_type": None,
+                "stream_key": None
+            }
+            
+            logging.info(f"Released MPV process {process_id} to idle state")
+    
+    def get_controller(self, process_id: int) -> Optional[MPVController]:
+        """Get the controller for a specific process"""
+        return self.controllers.get(process_id)
+    
+    def get_process_status(self) -> dict:
+        """Get status of all processes"""
+        status = {}
+        for process_id in range(1, self.pool_size + 1):
+            if process_id in self.processes:
+                process = self.processes[process_id]
+                controller = self.controllers[process_id]
+                status[process_id] = {
+                    "running": process.poll() is None,
+                    "connected": controller.connected,
+                    **self.process_status[process_id]
+                }
+            else:
+                status[process_id] = {"running": False, "connected": False}
+        return status
+    
+    async def cleanup(self):
+        """Clean up all processes and connections"""
+        for process_id in list(self.controllers.keys()):
+            controller = self.controllers[process_id]
+            try:
+                await controller.quit()
+                controller.disconnect()
+            except:
+                pass
+        
+        for process_id in list(self.processes.keys()):
+            process = self.processes[process_id]
+            try:
+                process.terminate()
+                process.wait(timeout=5)
+            except:
+                try:
+                    process.kill()
+                except:
+                    pass
+        
+        # Clean up socket files
+        for process_id in range(1, self.pool_size + 1):
+            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
+            if os.path.exists(socket_path):
+                os.remove(socket_path)
+        
+        self.processes.clear()
+        self.controllers.clear()
+        self.process_status.clear()
+        
+        logging.info("MPV process pool cleaned up")
+
+# IPC-based playback statistics (replaced stdout parsing)
 
 # Configuration
 HOST="localhost"
@@ -793,16 +1233,22 @@ class StreamManager:
     
     def __init__(self):
         self.active_streams: Dict[str, Dict[str, Any]] = {}
-        self.player_process: Optional[subprocess.Popen] = None
+        
+        # MPV Process Pool - replaces all direct process management
+        self.mpv_pool: MPVProcessPool = MPVProcessPool()
+        self.current_process_id: Optional[int] = None
         self.current_stream: Optional[str] = None
         self.current_protocol: Optional[str] = None
         self.current_player: Optional[str] = None
-        self.background_process: Optional[subprocess.Popen] = None
         
-        # Audio streaming support
-        self.audio_process: Optional[subprocess.Popen] = None
+        # Audio streaming support (may also use pool for audio+video simultaneously)
+        self.audio_process_id: Optional[int] = None
         self.current_audio_stream: Optional[str] = None
         self.audio_volume: int = 80
+        
+        # Legacy process references for compatibility
+        self.audio_process: Optional[subprocess.Popen] = None
+        self.player_process: Optional[subprocess.Popen] = None
         
         # Metadata storage for currently playing tracks
         self.current_metadata: Dict[str, Any] = {}
@@ -836,6 +1282,41 @@ class StreamManager:
         
         # Initialize HDMI-CEC manager
         self.cec_manager = HDMICECManager()
+    
+    async def initialize(self) -> bool:
+        """Initialize the StreamManager including the MPV process pool"""
+        try:
+            # Initialize the MPV process pool
+            pool_initialized = await self.mpv_pool.initialize()
+            if not pool_initialized:
+                logging.error("Failed to initialize MPV process pool")
+                return False
+            
+            logging.info("StreamManager initialized successfully with MPV process pool")
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to initialize StreamManager: {e}")
+            return False
+    
+    async def cleanup(self):
+        """Clean up all resources including MPV process pool"""
+        try:
+            # Clean up MPV process pool
+            await self.mpv_pool.cleanup()
+            
+            # Stop any background processes
+            if self.screen_stream_process:
+                try:
+                    self.screen_stream_process.terminate()
+                    self.screen_stream_process.wait(timeout=5)
+                except:
+                    pass
+            
+            logging.info("StreamManager cleanup completed")
+            
+        except Exception as e:
+            logging.error(f"Error during StreamManager cleanup: {e}")
         
     def _detect_drm_connector(self) -> str:
         """Detect the active DRM connector for Pi4 and check available modes"""
@@ -1313,12 +1794,48 @@ class StreamManager:
         
         return capabilities
     
+    # Removed stdout parsing methods - now using IPC for statistics
+    
+    async def get_current_playback_stats(self) -> dict:
+        """Get current playback statistics via IPC"""
+        if self.current_process_id is None:
+            return {
+                "time_pos": None,
+                "duration": None,
+                "volume": None,
+                "pause": None,
+                "speed": None,
+                "connected": False
+            }
+        
+        controller = self.mpv_pool.get_controller(self.current_process_id)
+        if not controller or not controller.connected:
+            return {
+                "time_pos": None,
+                "duration": None,
+                "volume": None,
+                "pause": None,
+                "speed": None,
+                "connected": False
+            }
+        
+        # Return observed properties (updated in real-time)
+        return {
+            "time_pos": controller.observed_properties.get("time-pos"),
+            "duration": controller.observed_properties.get("duration"),
+            "volume": controller.observed_properties.get("volume"),
+            "pause": controller.observed_properties.get("pause"),
+            "speed": controller.observed_properties.get("speed"),
+            "connected": True
+        }
+    
     async def start_playback(self, stream_key: str, player: str = "mpv", mode: str = "optimized", protocol: str = "rtmp") -> bool:
-        """Start optimal resolution playback using display capabilities"""
+        """Start playback using MPV process pool"""
         try:
-            if self.player_process:
-                await self.stop_playback()
+            # Stop any current playback
+            await self.stop_playback()
             
+            # Build stream URL
             if protocol == "rtmp":
                 stream_url = f"{SRS_RTMP_URL}/{stream_key}"
             elif protocol == "http_flv":
@@ -1328,92 +1845,53 @@ class StreamManager:
             else:
                 raise ValueError(f"Unsupported protocol: {protocol}")
             
-            # Get optimal connector and device
-            optimal_connector, optimal_device = self.get_optimal_connector_and_device()
+            # Allocate a process from the pool
+            process_id = await self.mpv_pool.allocate_process("stream", stream_key)
+            if process_id is None:
+                logging.error("No available MPV processes in pool")
+                return False
             
-            # Try capability-matched optimal commands first, then legacy fallbacks
-            methods_to_try = [
-                # Method 1: Optimal resolution-matched command
-                (self.get_optimal_player_command(player, "stream"), f"{player} optimal resolution"),
-                # Method 2: Legacy fallback if optimal fails
-                (PLAYER_COMMANDS.get(player, {}).get(mode, 
-                    PLAYER_COMMANDS.get(player, {}).get("optimized", 
-                        ["mpv", "--vo=drm", "--fs", "--quiet"])).copy(), f"{player} {mode} legacy"),
-                # Method 3: Basic fallback
-                (PLAYER_COMMANDS.get(player, {}).get("basic", 
-                    ["mpv", "--vo=drm", "--fs", "--quiet"]).copy(), f"{player} basic legacy")
-            ]
+            # Get the controller for this process
+            controller = self.mpv_pool.get_controller(process_id)
+            if not controller or not controller.connected:
+                logging.error(f"MPV process {process_id} controller not available")
+                await self.mpv_pool.release_process(process_id)
+                return False
             
-            last_error = None
-            for cmd_template, method_name in methods_to_try:
-                try:
-                    cmd = cmd_template.copy()
-                    cmd.append(stream_url)
-                    
-                    # Set environment for optimal DRM device
-                    env = os.environ.copy()
-                    env.update({
-                        'DRM_DEVICE': optimal_device,
-                        'DRM_CONNECTOR': optimal_connector
-                    })
-                    
-                    logging.info(f"Trying playback method: {method_name}")
-                    self.player_process = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    
-                    # Check if it starts successfully
-                    await asyncio.sleep(2.0)  # Give more time for DRM initialization
-                    
-                    if self.player_process.poll() is None:
-                        # Still running, likely success
-                        self.current_stream = stream_key
-                        self.current_protocol = protocol
-                        self.current_player = f"{player}_{method_name.replace(' ', '_')}"
-                        logging.info(f"Successfully started {method_name} playback of {stream_key} via {protocol}")
-                        return True
-                    else:
-                        # Process died, check output
-                        stdout, stderr = self.player_process.communicate()
-                        output = stderr.decode() if stderr else stdout.decode()
-                        
-                        # Check for permission errors specifically
-                        if "Permission denied" in output:
-                            logging.warning(f"Method '{method_name}' failed: Permission denied")
-                            last_error = f"{method_name}: Permission denied - try running as sudo"
-                        elif "VO: [drm]" in output:
-                            logging.info(f"Method '{method_name}' worked but exited - normal for some streams")
-                            # This might actually be success for some stream types
-                            self.current_stream = stream_key
-                            self.current_protocol = protocol
-                            self.current_player = f"{player}_{method_name.replace(' ', '_')}"
-                            return True
-                        else:
-                            logging.warning(f"Method '{method_name}' failed: {output}")
-                            last_error = f"{method_name}: {output}"
-                        
-                        self.player_process = None
-                        
-                except Exception as e:
-                    logging.error(f"Exception with method '{method_name}': {e}")
-                    last_error = f"{method_name}: {str(e)}"
-                    if self.player_process:
-                        try:
-                            self.player_process.terminate()
-                        except:
-                            pass
-                        self.player_process = None
-                    continue
+            # Load the stream
+            result = await controller.loadfile(stream_url, "replace")
+            if result.get('error') != 'success':
+                logging.error(f"Failed to load stream {stream_url}: {result}")
+                await self.mpv_pool.release_process(process_id)
+                return False
             
-            # All methods failed
-            raise Exception(f"All playback methods failed. Last error: {last_error}")
+            # Set up property observations for this stream
+            await controller.observe_property("time-pos")
+            await controller.observe_property("duration") 
+            await controller.observe_property("volume")
+            await controller.observe_property("pause")
+            await controller.observe_property("speed")
+            
+            # Store current playback info
+            self.current_process_id = process_id
+            self.current_stream = stream_key
+            self.current_protocol = protocol
+            self.current_player = player
+            
+            logging.info(f"Successfully started {player} playback of {stream_key} via {protocol} on process {process_id}")
+            return True
             
         except Exception as e:
             logging.error(f"Failed to start {player} playback: {e}")
+            if self.current_process_id:
+                await self.mpv_pool.release_process(self.current_process_id)
+                self.current_process_id = None
             return False
     
     async def stop_playback(self) -> bool:
         """Stop current playback and return to background with seamless transition"""
         try:
-            if self.player_process:
+            if self.current_process_id is not None:
                 old_protocol = self.current_protocol
                 
                 # Show background for seamless transition 
@@ -1425,10 +1903,11 @@ class StreamManager:
                     if not self.framebuffer.is_available:
                         await asyncio.sleep(0.1)  # Reduced from 0.2s
                 
-                self.player_process.terminate()
-                self.player_process.wait(timeout=5)
-                self.player_process = None
+                # Release the process back to the pool
+                await self.mpv_pool.release_process(self.current_process_id)
                 
+                # Clear current playback info
+                self.current_process_id = None
                 self.current_stream = None
                 self.current_protocol = None
                 self.current_player = None
@@ -1733,180 +2212,100 @@ class StreamManager:
             return False
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
-        """Play YouTube video with optimal resolution and performance"""
+        """Play YouTube video using IPC-controlled mpv process from pool"""
+        global mpv_pool
         try:
+            # Stop any existing playback to free resources
             if self.player_process:
                 await self.stop_playback()
-            
+
+            # Stop any existing audio stream if we need video
+            if self.audio_process:
+                await self.stop_audio_stream()
+
             # Get optimal display configuration
             optimal_connector, optimal_device = self.get_optimal_connector_and_device()
             width, height, refresh = self.display_detector.get_resolution_for_content_type("youtube")
-            
-            # Choose YouTube quality based on display resolution
-            if height >= 2160:
-                youtube_quality = "best[height<=2160]"  # 4K
-            elif height >= 1440:
-                youtube_quality = "best[height<=1440]"  # 1440p  
-            elif height >= 1080:
-                youtube_quality = "best[height<=1080]"  # 1080p
-            elif height >= 720:
-                youtube_quality = "best[height<=720]"   # 720p
+
+            # Choose YouTube quality optimized for Pi hardware decoding - prefer H.264 over VP9
+            # Use best available format with H.264 codec, fallback to best available
+            youtube_quality = "bestvideo[vcodec^=avc1][height<=720]+bestaudio/best[height<=720]"
+
+            # Get an available mpv controller from the pool
+            controller = await mpv_pool.get_available_controller()
+            if not controller:
+                logging.error(f"No available mpv processes in pool for YouTube: {youtube_url}")
+                return False
+
+            logging.info(f"Starting YouTube video using pool: {youtube_url}")
+
+            # Configure for video playback with DRM
+            await controller.send_command(["set", "vo", "drm"])
+            await controller.send_command(["set", "drm-device", optimal_device])
+            await controller.send_command(["set", "drm-connector", optimal_connector])
+            await controller.send_command(["set", "hwdec", "v4l2m2m"])
+            await controller.send_command(["set", "fullscreen", "yes"])
+            await controller.send_command(["set", "ytdl-format", youtube_quality])
+
+            if mute:
+                await controller.send_command(["set", "audio", "no"])
             else:
-                youtube_quality = "best[height<=480]"   # 480p fallback
-            
-            # Performance-optimized configs for optimal resolution
-            configs = [
-                # Method 1: CPU-optimized with better caching
-                [
-                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
-                    "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    f"--ytdl-format={youtube_quality}", "--vd-lavc-dr=yes", "--cache=yes",
-                    "--demuxer-max-bytes=300MiB", "--demuxer-max-back-bytes=150MiB",
-                    "--vd-lavc-threads=2", "--cache-secs=15", "--cache-file-size=500MiB",
-                    "--vd-lavc-skiploopfilter=all", "--vd-lavc-fast", "--vd-lavc-skipidct=all",
-                    "--framedrop=decoder+vo", "--priority=idle", "--video-sync=audio",
-                    "--opengl-shaders-cache-dir=/tmp", "--no-audio-display"
-                ],
-                # Method 2: 4K with reduced settings for stability
-                [
-                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
-                    "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    f"--ytdl-format={youtube_quality}", "--cache=yes",
-                    "--demuxer-max-bytes=75MiB", "--vd-lavc-threads=2", "--cache-secs=3",
-                    "--vd-lavc-skiploopfilter=all", "--no-audio-display"
-                ],
-                # Method 3: Reduced quality for stability
-                [
-                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
-                    "--hwdec=v4l2m2m", "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=best[height<=720]", "--profile=fast", "--cache=yes"
-                ],
-                # Method 4: Low quality but stable
-                [
-                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
-                    "--fs", "--quiet", "--no-input-default-bindings",
-                    "--ytdl-format=best[height<=480]", "--profile=low-latency"
-                ],
-                # Method 5: Basic fallback
-                [
-                    "mpv", "--vo=drm", f"--drm-device={optimal_device}", f"--drm-connector={optimal_connector}",
-                    "--fs", "--quiet", "--no-input-default-bindings"
-                ]
-            ]
-            
-            last_error = None
-            success_method = None
-            for i, base_cmd in enumerate(configs, 1):
-                try:
-                    cmd = base_cmd.copy()
-                    if duration:
-                        cmd.extend([f"--end={duration}"])
-                    if mute:
-                        cmd.extend(["--no-audio"])
-                    cmd.append(youtube_url)
-                    
-                    # Set environment for DRM
-                    env = os.environ.copy()
-                    env.update({
-                        'DRM_DEVICE': '/dev/dri/card1'
-                    })
-                    
-                    # Get method name for logging
-                    if "height<=480" in str(base_cmd):
-                        method_name = "480p + HW decode"
-                    elif "height<=360" in str(base_cmd):
-                        method_name = "360p smooth"
-                    elif "low-latency" in str(base_cmd):
-                        method_name = "Low latency"
-                    else:
-                        method_name = "Standard quality"
-                    
-                    logging.info(f"YouTube performance attempt {i}/4: {method_name}")
-                    
-                    self.player_process = subprocess.Popen(
-                        cmd, 
-                        env=env,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE
-                    )
-                    
-                    # Give YouTube time to start
-                    await asyncio.sleep(5.0)
-                    
-                    if self.player_process.poll() is None:
-                        # Still running = success!
-                        self.current_player = f"mpv_{method_name.replace(' ', '_')}"
-                        success_method = method_name
-                        logging.info(f"✅ YouTube SUCCESS with {method_name}")
-                        break
-                    else:
-                        # Process died, check why
-                        stdout, stderr = self.player_process.communicate()
-                        output = stderr.decode() if stderr else stdout.decode()
-                        
-                        if "VO: [drm]" in output:
-                            # DRM worked but video failed
-                            logging.info(f"⚠️  {method_name}: DRM OK but video failed - trying next")
-                            last_error = f"{method_name}: DRM OK, video issue"
-                        else:
-                            logging.info(f"❌ {method_name}: Failed")
-                            last_error = f"{method_name}: {output[:100] if output else 'Unknown'}"
-                        
-                        self.player_process = None
-                        continue
-                        
-                except Exception as e:
-                    logging.warning(f"Exception with {method_name}: {e}")
-                    last_error = str(e)
-                    if self.player_process:
-                        try:
-                            self.player_process.terminate()
-                        except:
-                            pass
-                        self.player_process = None
-                    continue
-            else:
-                raise Exception(f"YouTube failed with all performance optimizations. Last error: {last_error}")
-            
-            self.current_stream = f"youtube:{youtube_url}"
-            self.current_protocol = "youtube"
-            
+                await controller.send_command(["set", "audio", "yes"])
+                await controller.send_command(["set", "audio-device", AUDIO_DEVICE])
+
             if duration:
-                asyncio.create_task(self._auto_return_to_background(duration))
+                await controller.send_command(["set", "end", str(duration)])
+
+            # Load the YouTube video
+            result = await controller.send_command(["loadfile", youtube_url])
+            if result.get("error") and result.get("error") != "success":
+                error_msg = result.get("error", "Unknown loadfile error")
+                logging.error(f"Failed to load YouTube video {youtube_url}: {error_msg}")
+                await mpv_pool.release_controller(controller)
+                return False
+            
+            # Give mpv a moment to configure
+            await asyncio.sleep(2)
+            
+            # Verify playback started
+            pause_response = await controller.get_property("pause")
+            is_paused = pause_response.get("data", True) if pause_response else True
+
+            if pause_response and pause_response.get("error") and pause_response.get("error") != "success":
+                error_msg = pause_response.get("error", "Unknown pause property error")
+                logging.error(f"Failed to check YouTube playback status for {youtube_url}: {error_msg}")
+
+            if not is_paused:
+                # Set current status
+                self.current_stream = f"youtube:{youtube_url}"
+                self.current_protocol = "youtube"
+                self.video_controller = controller
+                self.player_process = mpv_pool.processes[controller.process_id]  # For compatibility
+
+                logging.info(f"YouTube video started successfully using pool: {youtube_url}")
+                logging.info(f"Using mpv process ID: {controller.process_id}, muted: {mute}")
+
+                # Auto-return to background after duration if specified
+                if duration:
+                    asyncio.create_task(self._auto_return_to_background(duration))
+                else:
+                    # Monitor playback if no specific duration
+                    asyncio.create_task(self._monitor_youtube_playback())
+
+                return True
             else:
-                asyncio.create_task(self._monitor_youtube_playback())
-            
-            logging.info(f"🎬 Playing YouTube with {success_method} for {duration or 'full'} duration")
-            return True
-            
+                logging.error(f"YouTube video failed to start: {youtube_url}")
+                await mpv_pool.release_controller(controller)
+                await self.show_background()
+                return False
+
         except Exception as e:
             logging.error(f"YouTube playback failed: {e}")
+            if 'controller' in locals():
+                await mpv_pool.release_controller(controller)
             await self.show_background()
             return False
-    
-    async def _auto_return_to_background(self, duration: int):
-        """Return to background after specified duration"""
-        await asyncio.sleep(duration)
-        if self.current_protocol == "youtube":
-            await self.stop_playback()
-    
-    async def _monitor_youtube_playback(self):
-        """Monitor YouTube playback and return to background when finished"""
-        try:
-            if self.player_process:
-                await self._wait_for_process(self.player_process)
-                if self.current_protocol == "youtube":
-                    await self.show_background()
-        except Exception as e:
-            logging.error(f"Error monitoring YouTube playback: {e}")
-            await self.show_background()
-    
-    async def _wait_for_process(self, process):
-        """Wait for a process to finish"""
-        while process.poll() is None:
-            await asyncio.sleep(1)
-        return process.poll()
-    
+
     async def _check_display_setup(self) -> Dict[str, bool]:
         """Check what DRM/display methods are available"""
         available = {
@@ -1916,7 +2315,7 @@ class StreamManager:
             'v4l2m2m': False,
             'viewers': []
         }
-        
+
         # Check DRM access
         try:
             drm_devices = []
@@ -1965,11 +2364,14 @@ class StreamManager:
                 
         return available
     
-    def get_srs_stats(self) -> Dict[str, Any]:
+    async def get_srs_stats(self) -> Dict[str, Any]:
         """Get SRS server statistics"""
         try:
-            response = requests.get(f"{SRS_API_URL}/streams", timeout=5)
-            return response.json() if response.status_code == 200 else {}
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{SRS_API_URL}/streams", timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        return await response.json()
+                    return {}
         except Exception as e:
             logging.error(f"Failed to get SRS stats: {e}")
             return {}
@@ -2142,26 +2544,26 @@ class StreamManager:
         try:
             if stream_url.endswith('.pls'):
                 # Parse PLS playlist format
-                import requests
-                response = requests.get(stream_url, timeout=10)
-                if response.status_code == 200:
-                    content = response.text
-                    for line in content.split('\n'):
-                        if line.startswith('File1='):
-                            direct_url = line.split('=', 1)[1].strip()
-                            logging.info(f"Resolved PLS URL {stream_url} to {direct_url}")
-                            return direct_url
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                        if response.status == 200:
+                            content = await response.text()
+                            for line in content.split('\n'):
+                                if line.startswith('File1='):
+                                    direct_url = line.split('=', 1)[1].strip()
+                                    logging.info(f"Resolved PLS URL {stream_url} to {direct_url}")
+                                    return direct_url
             elif stream_url.endswith('.m3u') or stream_url.endswith('.m3u8'):
                 # Parse M3U playlist format
-                import requests
-                response = requests.get(stream_url, timeout=10)
-                if response.status_code == 200:
-                    content = response.text
-                    for line in content.split('\n'):
-                        line = line.strip()
-                        if line and not line.startswith('#'):
-                            logging.info(f"Resolved M3U URL {stream_url} to {line}")
-                            return line
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                        if response.status == 200:
+                            content = await response.text()
+                            for line in content.split('\n'):
+                                line = line.strip()
+                                if line and not line.startswith('#'):
+                                    logging.info(f"Resolved M3U URL {stream_url} to {line}")
+                                    return line
             
             # Return original URL if not a playlist or parsing failed
             return stream_url
@@ -2171,9 +2573,10 @@ class StreamManager:
             return stream_url
 
     async def start_audio_stream(self, stream_url: str, volume: int = None) -> bool:
-        """Start audio streaming using mpv with audio-only mode"""
+        """Start audio streaming using IPC-controlled mpv process"""
+        global mpv_pool
         try:
-            # Stop any existing playback (video/YouTube) to free audio resources
+            # Stop any existing playback to free resources
             if self.player_process:
                 await self.stop_playback()
             
@@ -2188,88 +2591,102 @@ class StreamManager:
             # Resolve playlist URLs to direct stream URLs
             resolved_url = await self._resolve_audio_url(stream_url)
             
-            # Build mpv command for audio-only streaming
-            cmd = [
-                "mpv",
-                "--no-video",
-                "--quiet",
-                f"--volume={self.audio_volume}",
-                f"--audio-device={AUDIO_DEVICE}",
-                "--no-input-default-bindings",
-                "--no-osc",
-                resolved_url
-            ]
+            # Get an available mpv controller from the pool
+            controller = await mpv_pool.get_available_controller()
+            if not controller:
+                logging.error(f"No available mpv processes in pool for audio stream: {stream_url}")
+                logging.error(f"Pool status: {len(mpv_pool.processes)} total processes, {len([p for p in mpv_pool.controllers.values() if p.in_use])} in use")
+                return False
             
             logging.info(f"Starting audio stream: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
             
-            # Start audio process
-            self.audio_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-                preexec_fn=os.setsid
-            )
+            # Configure for audio-only playback
+            await controller.send_command(["set", "video", "no"])
+            await controller.send_command(["set", "audio-device", AUDIO_DEVICE])
             
-            # Give it a moment to start
+            # Load the audio stream
+            result = await controller.send_command(["loadfile", resolved_url])
+            if result.get("error") and result.get("error") != "success":
+                error_msg = result.get("error", "Unknown loadfile error")
+                logging.error(f"Failed to load audio stream {resolved_url}: {error_msg}")
+                await mpv_pool.release_controller(controller)
+                return False
+            
+            # Give it a moment to start and then set volume
             await asyncio.sleep(1)
             
-            # Check if process is still running
-            if self.audio_process.poll() is None:
+            # Set volume after file is loaded to ensure it takes effect
+            await controller.send_command(["set", "volume", str(self.audio_volume)])
+            
+            # Verify playback started
+            pause_response = await controller.get_property("pause")
+            is_paused = pause_response.get("data", True) if pause_response else True
+            
+            if pause_response and pause_response.get("error") and pause_response.get("error") != "success":
+                error_msg = pause_response.get("error", "Unknown pause property error")
+                logging.error(f"Failed to check playback status for {stream_url}: {error_msg}")
+            
+            if not is_paused:
                 self.current_audio_stream = stream_url
+                self.audio_controller = controller
+                self.audio_process = mpv_pool.processes[controller.process_id]  # For compatibility
+                
                 logging.info(f"Audio stream started successfully: {stream_url}")
-                logging.info(f"Audio process PID: {self.audio_process.pid}")
+                logging.info(f"Using mpv process ID: {controller.process_id}, volume: {self.audio_volume}")
                 
                 # Start metadata updates
                 self.start_metadata_updates()
                 
                 # Update background to show audio icon
-                if not self.player_process:  # Only if no video is playing
+                if not self.player_process:
                     await self.show_background()
                 
                 return True
             else:
-                stderr = self.audio_process.stderr.read().decode() if self.audio_process.stderr else ""
-                logging.error(f"Audio stream failed to start: {stderr}")
-                self.audio_process = None
+                logging.error(f"Audio stream failed to start playing: {stream_url} (is_paused: {is_paused})")
+                if pause_response:
+                    logging.error(f"Pause response details: {pause_response}")
+                await mpv_pool.release_controller(controller)
                 return False
                 
         except Exception as e:
-            logging.error(f"Failed to start audio stream: {e}")
-            if self.audio_process:
+            logging.error(f"Failed to start audio stream {stream_url}: {type(e).__name__}: {e}")
+            logging.error(f"Audio stream error details - resolved_url: {resolved_url if 'resolved_url' in locals() else 'N/A'}, volume: {self.audio_volume}")
+            if 'controller' in locals():
                 try:
-                    self.audio_process.terminate()
-                except:
-                    pass
-                self.audio_process = None
+                    await mpv_pool.release_controller(controller)
+                    logging.info(f"Released mpv controller {controller.process_id} after error")
+                except Exception as release_error:
+                    logging.error(f"Failed to release mpv controller after audio stream error: {release_error}")
+            if hasattr(self, 'audio_controller'):
+                delattr(self, 'audio_controller')
             return False
     
     async def stop_audio_stream(self) -> bool:
-        """Stop the current audio stream"""
+        """Stop the current audio stream using IPC"""
+        global mpv_pool
         try:
-            if self.audio_process:
+            if hasattr(self, 'audio_controller') and self.audio_controller:
                 logging.info("Stopping audio stream")
                 
-                try:
-                    # Terminate the process group
-                    os.killpg(os.getpgid(self.audio_process.pid), signal.SIGTERM)
-                    self.audio_process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    # Force kill if it doesn't respond to SIGTERM
-                    os.killpg(os.getpgid(self.audio_process.pid), signal.SIGKILL)
-                    self.audio_process.wait(timeout=3)
-                except ProcessLookupError:
-                    # Process already died
-                    pass
+                # Stop playback via IPC
+                await self.audio_controller.send_command(["stop"])
                 
+                # Release the controller back to the pool
+                await mpv_pool.release_controller(self.audio_controller)
+                
+                # Clean up references
+                self.audio_controller = None
                 self.audio_process = None
                 self.current_audio_stream = None
+                
                 logging.info("Audio stream stopped")
                 
                 # Stop metadata updates
                 self.stop_metadata_updates()
                 
                 # Update background to remove audio icon
-                if not self.player_process:  # Only if no video is playing
+                if not self.player_process:
                     await self.show_background()
                 
                 return True
@@ -2278,7 +2695,15 @@ class StreamManager:
                 return True
                 
         except Exception as e:
-            logging.error(f"Failed to stop audio stream: {e}")
+            logging.error(f"Failed to stop audio stream: {type(e).__name__}: {e}")
+            logging.error(f"Current stream: {self.current_audio_stream}")
+            if hasattr(self, 'audio_controller'):
+                try:
+                    await mpv_pool.release_controller(self.audio_controller)
+                    logging.info(f"Released mpv controller {self.audio_controller.process_id} after stop error")
+                except Exception as release_error:
+                    logging.error(f"Failed to release mpv process after stop error: {release_error}")
+                delattr(self, 'audio_controller')
             self.audio_process = None
             self.current_audio_stream = None
             return False
@@ -2476,6 +2901,7 @@ from webcast_manager import WebcastManager, WebcastConfig
 
 # Global stream manager instance
 stream_manager = StreamManager()
+mpv_pool = None
 
 # Global webcast manager instance
 webcast_manager = WebcastManager()
@@ -2484,7 +2910,17 @@ webcast_manager = WebcastManager()
 async def lifespan(app: FastAPI):
     """Manage application lifecycle (startup and shutdown)"""
     # Startup
+    print("LIFESPAN FUNCTION CALLED - DEBUG")
     logging.info("Starting HSG Canvas application...")
+    
+    # Initialize StreamManager with MPV process pool
+    pool_ready = await stream_manager.initialize()
+    if not pool_ready:
+        logging.error("Failed to initialize MPV process pool - application may not function properly")
+    else:
+        # Set global reference to mpv_pool for audio streaming
+        global mpv_pool
+        mpv_pool = stream_manager.mpv_pool
     
     # Create static directory if it doesn't exist
     os.makedirs("static", exist_ok=True)
@@ -2504,6 +2940,9 @@ async def lifespan(app: FastAPI):
     for stream_key in list(stream_manager.active_streams.keys()):
         await stream_manager.stop_stream(stream_key)
     await webcast_manager.stop_webcast()
+    
+    # Clean up StreamManager and MPV process pool
+    await stream_manager.cleanup()
 
 # FastAPI app initialization with lifespan
 app = FastAPI(
@@ -2595,6 +3034,127 @@ async def stop_playback():
     else:
         raise HTTPException(status_code=500, detail="Failed to stop playback")
 
+# New IPC-based playback control endpoints
+@app.post("/playback/{stream_key}/volume")
+async def set_volume(stream_key: str, volume: int):
+    """Set volume for current playback"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    if stream_manager.current_process_id is None:
+        raise HTTPException(status_code=404, detail="No active playback")
+    
+    controller = stream_manager.mpv_pool.get_controller(stream_manager.current_process_id)
+    if not controller or not controller.connected:
+        raise HTTPException(status_code=500, detail="Playback controller not available")
+    
+    # Clamp volume to valid range
+    volume = max(0, min(130, volume))
+    
+    result = await controller.set_property("volume", volume)
+    if result.get('error') == 'success':
+        return {"message": f"Volume set to {volume}%", "volume": volume}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to set volume: {result}")
+
+@app.post("/playback/{stream_key}/volume/adjust")
+async def adjust_volume(stream_key: str, adjustment: int):
+    """Adjust volume by relative amount"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    if stream_manager.current_process_id is None:
+        raise HTTPException(status_code=404, detail="No active playback")
+    
+    controller = stream_manager.mpv_pool.get_controller(stream_manager.current_process_id)
+    if not controller or not controller.connected:
+        raise HTTPException(status_code=500, detail="Playback controller not available")
+    
+    result = await controller.add_property("volume", adjustment)
+    if result.get('error') == 'success':
+        # Get current volume for response
+        vol_result = await controller.get_property("volume")
+        current_volume = vol_result.get('data', 'unknown')
+        return {"message": f"Volume adjusted by {adjustment}", "current_volume": current_volume}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to adjust volume: {result}")
+
+@app.post("/playback/{stream_key}/pause")
+async def toggle_pause(stream_key: str, pause: bool = None):
+    """Toggle pause/play or set specific pause state"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    if stream_manager.current_process_id is None:
+        raise HTTPException(status_code=404, detail="No active playback")
+    
+    controller = stream_manager.mpv_pool.get_controller(stream_manager.current_process_id)
+    if not controller or not controller.connected:
+        raise HTTPException(status_code=500, detail="Playback controller not available")
+    
+    result = await controller.pause(pause)
+    if result.get('error') == 'success':
+        action = "paused" if pause else ("unpaused" if pause is False else "toggled")
+        return {"message": f"Playback {action}"}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to pause/unpause: {result}")
+
+@app.post("/playback/{stream_key}/seek")
+async def seek_playback(stream_key: str, position: float, mode: str = "absolute"):
+    """Seek to position in playback"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    if stream_manager.current_process_id is None:
+        raise HTTPException(status_code=404, detail="No active playback")
+    
+    controller = stream_manager.mpv_pool.get_controller(stream_manager.current_process_id)
+    if not controller or not controller.connected:
+        raise HTTPException(status_code=500, detail="Playback controller not available")
+    
+    result = await controller.seek(position, mode)
+    if result.get('error') == 'success':
+        return {"message": f"Seeked to {position} ({mode})", "position": position, "mode": mode}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to seek: {result}")
+
+@app.get("/playback/{stream_key}/status")
+async def get_playback_status(stream_key: str):
+    """Get detailed playback status via IPC"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    stats = await stream_manager.get_current_playback_stats()
+    return {
+        "stream_key": stream_key,
+        "process_id": stream_manager.current_process_id,
+        "protocol": stream_manager.current_protocol,
+        "player": stream_manager.current_player,
+        **stats
+    }
+
+@app.post("/playback/{stream_key}/speed")
+async def set_playback_speed(stream_key: str, speed: float):
+    """Set playback speed multiplier"""
+    if stream_key != stream_manager.current_stream:
+        raise HTTPException(status_code=404, detail="Stream not currently playing")
+    
+    if stream_manager.current_process_id is None:
+        raise HTTPException(status_code=404, detail="No active playback")
+    
+    controller = stream_manager.mpv_pool.get_controller(stream_manager.current_process_id)
+    if not controller or not controller.connected:
+        raise HTTPException(status_code=500, detail="Playback controller not available")
+    
+    # Clamp speed to reasonable range
+    speed = max(0.1, min(4.0, speed))
+    
+    result = await controller.set_property("speed", speed)
+    if result.get('error') == 'success':
+        return {"message": f"Playback speed set to {speed}x", "speed": speed}
+    else:
+        raise HTTPException(status_code=500, detail=f"Failed to set speed: {result}")
+
 @app.post("/playback/switch/{stream_key}")
 async def switch_stream(stream_key: str):
     """Quickly switch to different stream"""
@@ -2617,13 +3177,29 @@ async def switch_player(player: str, mode: str = "optimized"):
 async def play_youtube_video(request: YoutubePlayRequest):
     """Play a YouTube video with DRM acceleration"""
     await stream_manager.stop_all_visual_content()
-    success = await stream_manager.play_youtube(request.youtube_url, request.duration, request.mute)
-    if success:
-        duration_text = f" for {request.duration}s" if request.duration else ""
-        mute_text = " (muted)" if request.mute else ""
-        return {"message": f"Playing YouTube video with DRM acceleration{duration_text}{mute_text}"}
-    else:
-        raise HTTPException(status_code=500, detail="Failed to play YouTube video")
+    try:
+        success = await stream_manager.play_youtube(request.youtube_url, request.duration, request.mute)
+        if success:
+            duration_text = f" for {request.duration}s" if request.duration else ""
+            mute_text = " (muted)" if request.mute else ""
+            return {"message": f"Playing YouTube video with DRM acceleration{duration_text}{mute_text}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to play YouTube video")
+    except Exception as e:
+        # Extract meaningful error details from mpv/youtube-dl failures
+        error_msg = str(e)
+        if "Requested format is not available" in error_msg:
+            detail = "This video format is not supported. Try a different video or check if the video is available in your region."
+        elif "youtube" in error_msg.lower() and "error" in error_msg.lower():
+            detail = f"YouTube error: {error_msg}"
+        elif "No video ID" in error_msg:
+            detail = "Invalid YouTube URL. Please check the video URL and try again."
+        elif "Private video" in error_msg or "unavailable" in error_msg.lower():
+            detail = "This video is private or unavailable. Please try a different video."
+        else:
+            detail = f"Playback failed: {error_msg}"
+        
+        raise HTTPException(status_code=400, detail=detail)
 
 @app.post("/audio/start")
 async def start_audio_stream(request: AudioStreamRequest):
@@ -2649,24 +3225,33 @@ async def get_audio_status():
     """Get current audio streaming status"""
     return stream_manager.get_audio_status()
 
+@app.post("/audio/pause")
+async def toggle_audio_pause():
+    """Toggle audio pause/play via IPC"""
+    if hasattr(stream_manager, 'audio_controller') and stream_manager.audio_controller:
+        success = await stream_manager.audio_controller.send_command(["cycle", "pause"])
+        if success:
+            return {"message": "Audio pause toggled"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to toggle audio pause")
+    else:
+        raise HTTPException(status_code=404, detail="No active audio stream")
+
 @app.put("/audio/volume")
 async def set_audio_volume(request: AudioVolumeRequest):
-    """Set audio volume (0-100)"""
+    """Set audio volume via IPC (0-100)"""
     if not 0 <= request.volume <= 100:
         raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
     
-    stream_manager.audio_volume = request.volume
-    
-    # If audio is currently playing, restart with new volume
-    if stream_manager.audio_process and stream_manager.current_audio_stream:
-        current_stream = stream_manager.current_audio_stream
-        await stream_manager.stop_audio_stream()
-        success = await stream_manager.start_audio_stream(current_stream, request.volume)
+    if hasattr(stream_manager, 'audio_controller') and stream_manager.audio_controller:
+        success = await stream_manager.audio_controller.send_command(["set", "volume", str(request.volume)])
         if success:
+            stream_manager.audio_volume = request.volume
             return {"message": f"Audio volume set to {request.volume}"}
         else:
-            raise HTTPException(status_code=500, detail="Failed to apply volume change")
+            raise HTTPException(status_code=500, detail="Failed to set audio volume")
     else:
+        stream_manager.audio_volume = request.volume
         return {"message": f"Audio volume set to {request.volume} (will apply to next stream)"}
 
 @app.post("/display/qrcode")
@@ -3104,16 +3689,18 @@ async def refresh_background():
 async def get_status():
     """Get overall system and streaming status with DRM info"""
     return {
-        "srs_stats": stream_manager.get_srs_stats(),
+        "srs_stats": await stream_manager.get_srs_stats(),
         "system_stats": stream_manager.get_system_stats(),
         "active_streams": len(stream_manager.active_streams),
         "current_playback": {
             "stream": stream_manager.current_stream,
             "protocol": stream_manager.current_protocol,
-            "player": stream_manager.current_player
+            "player": stream_manager.current_player,
+            "process_id": stream_manager.current_process_id,
+            "stats": await stream_manager.get_current_playback_stats()
         },
         "audio_playback": stream_manager.get_audio_status(),
-        "player_running": stream_manager.player_process is not None,
+        "player_running": stream_manager.current_process_id is not None,
         "drm_info": {
             "connector": stream_manager.drm_connector,
             "gpu_memory": stream_manager.gpu_memory
@@ -3130,6 +3717,21 @@ async def health_check():
         "drm_enabled": True,
         "gpu_memory": stream_manager.gpu_memory
     }
+
+@app.post("/debug/init-mpv-pool")
+async def debug_init_mpv_pool():
+    """Debug endpoint to manually initialize MPV pool"""
+    global mpv_pool
+    try:
+        logging.info("Manual MPV pool initialization requested")
+        result = await stream_manager.mpv_pool.initialize()
+        mpv_pool = stream_manager.mpv_pool  # Set global reference
+        return {"success": result, "message": "MPV pool initialization completed"}
+    except Exception as e:
+        logging.error(f"Manual MPV pool initialization failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"success": False, "error": str(e)}
 
 @app.get("/resolution")
 async def get_current_resolution():
