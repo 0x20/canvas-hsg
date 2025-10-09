@@ -319,7 +319,37 @@ class MPVProcessPool:
         except Exception as e:
             logging.error(f"Failed to start MPV process {process_id}: {e}")
             return False
-    
+
+    async def _restart_process(self, process_id: int) -> bool:
+        """Restart a dead MPV process"""
+        try:
+            # Clean up old process and controller
+            if process_id in self.processes:
+                try:
+                    self.processes[process_id].terminate()
+                except:
+                    pass
+                del self.processes[process_id]
+
+            if process_id in self.controllers:
+                try:
+                    self.controllers[process_id].disconnect()
+                except:
+                    pass
+                del self.controllers[process_id]
+
+            # Remove old socket file
+            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
+            if os.path.exists(socket_path):
+                os.remove(socket_path)
+
+            # Start new process
+            return await self._start_process(process_id)
+
+        except Exception as e:
+            logging.error(f"Failed to restart MPV process {process_id}: {e}")
+            return False
+
     def _get_optimal_mpv_command(self, socket_path: str) -> list:
         """Get optimal mpv command with IPC enabled"""
         return [
@@ -372,10 +402,22 @@ class MPVProcessPool:
             if status["status"] == "idle":
                 controller = self.controllers.get(process_id)
                 if controller:
-                    # Mark as in use
-                    controller.in_use = True
-                    self.process_status[process_id]["status"] = "busy"
-                    return controller
+                    # Check if the process is actually alive
+                    process = self.processes.get(process_id)
+                    if process and process.poll() is None:
+                        # Process is alive, mark as in use
+                        controller.in_use = True
+                        self.process_status[process_id]["status"] = "busy"
+                        return controller
+                    else:
+                        # Process is dead, restart it
+                        logging.warning(f"MPV process {process_id} is dead, restarting")
+                        if await self._restart_process(process_id):
+                            controller = self.controllers.get(process_id)
+                            if controller:
+                                controller.in_use = True
+                                self.process_status[process_id]["status"] = "busy"
+                                return controller
         
         # If no idle processes, return None (all busy)
         return None
@@ -2305,6 +2347,25 @@ class StreamManager:
                 await mpv_pool.release_controller(controller)
             await self.show_background()
             return False
+
+    async def _auto_return_to_background(self, duration: int):
+        """Return to background after specified duration"""
+        await asyncio.sleep(duration)
+        if self.current_protocol == "youtube":
+            await self.stop_playback()
+
+    async def _monitor_youtube_playback(self):
+        """Monitor YouTube playback and return to background when finished"""
+        try:
+            if self.video_controller and self.player_process:
+                # Wait for the process to finish
+                while self.player_process.poll() is None:
+                    await asyncio.sleep(1)
+                if self.current_protocol == "youtube":
+                    await self.show_background()
+        except Exception as e:
+            logging.error(f"Error monitoring YouTube playback: {e}")
+            await self.show_background()
 
     async def _check_display_setup(self) -> Dict[str, bool]:
         """Check what DRM/display methods are available"""
