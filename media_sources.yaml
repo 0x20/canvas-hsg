@@ -1,0 +1,166 @@
+# HSG Canvas Media Sources Configuration
+# Edit this file to add/remove/modify music streams and YouTube channels
+
+music_streams:
+  # SomaFM Stations
+  somafm:
+    - name: "Groove Salad"
+      url: "https://somafm.com/groovesalad.pls"
+      description: "A nicely chilled plate of ambient/downtempo beats and grooves"
+
+    - name: "Drone Zone"
+      url: "https://somafm.com/dronezone.pls"
+      description: "Served best chilled, safe with most medications"
+
+    - name: "Lush"
+      url: "https://somafm.com/lush.pls"
+      description: "Sensuous and mellow vocals, mostly female, with an electronic influence"
+
+    - name: "Digitalis"
+      url: "https://somafm.com/digitalis.pls"
+      description: "Indie electronic and experimental music"
+
+    - name: "DEF CON Radio"
+      url: "https://somafm.com/defcon.pls"
+      description: "Music for Hacking - Music for the DEF CON community"
+
+    - name: "Space Station Soma"
+      url: "https://somafm.com/spacestation.pls"
+      description: "Ambient and mid-tempo electronica"
+
+    - name: "Secret Agent"
+      url: "https://somafm.com/secretagent.pls"
+      description: "The soundtrack for your stylish, mysterious, dangerous life"
+
+    - name: "Indie Pop Rocks!"
+      url: "https://somafm.com/indiepop.pls"
+      description: "New and classic indie pop gems"
+
+    - name: "Beat Blender"
+      url: "https://somafm.com/beatblender.pls"
+      description: "A late night blend of deep-house and downtempo chill"
+
+    - name: "Underground 80s"
+      url: "https://somafm.com/u80s.pls"
+      description: "Early 80s UK Synthpop and a bit of New Wave"
+
+    - name: "The Trip"
+      url: "https://somafm.com/thetrip.pls"
+      description: "Progressive house/trance classic and future, with exotic ethnicadelic"
+
+    - name: "cliqhop idm"
+      url: "https://somafm.com/cliqhop.pls"
+      description: "Blips'n'beeps backed mostly w/beats. Intelligent Dance Music"
+
+    - name: "Deep Space One"
+      url: "https://somafm.com/deepspaceone.pls"
+      description: "Deep ambient electronic, experimental and space music"
+
+  # BBC Radio
+  bbc:
+    - name: "BBC Radio 6 Music (320kbps)"
+      url: "http://a.files.bbci.co.uk/media/live/manifesto/audio/simulcast/hls/uk/sbr_high/ak/bbc_6music.m3u8"
+      description: "Alternative music and indie rock from BBC"
+
+youtube_channels:
+  # 24/7 Live Radio Streams
+  live_radio:
+    - name: "🎧 Lofi Hip Hop Radio - Study/Relax"
+      url: "https://www.youtube.com/watch?v=jfKfPfyJRdk"
+      description: "Continuous lofi hip hop beats for studying and relaxing"
+
+    - name: "🌌 Synthwave Radio - Chill/Game"
+      url: "https://www.youtube.com/watch?v=4xDzrJKXOOY"
+      description: "24/7 synthwave beats to chill and game to"
+
+    - name: "🎷 Jazz Lofi Radio - Chill/Study"
+      url: "https://www.youtube.com/watch?v=HuFYqnbVbzY"
+      description: "Jazz-influenced lofi beats for chilling and studying"
+
+    - name: "💤 Lofi Hip Hop Radio - Sleep/Chill"
+      url: "https://www.youtube.com/watch?v=28KRPhVzCus"
+      description: "Sleepy lofi beats for nighttime relaxation"
+
+    - name: "💤 Sleep Ambient Radio"
+      url: "https://www.youtube.com/watch?v=xORCbIptqcc"
+      description: "Relaxing ambient music to fall asleep to"
+
+    - name: "⛩️ Asian Lofi Radio - Relax/Study"
+      url: "https://www.youtube.com/watch?v=Na0w3Mz46GA"
+      description: "Asian-influenced lofi beats for relaxation and study"
+
+    - name: "🏠 The Good Life Radio - 24/7 Live"
+      url: "https://www.youtube.com/watch?v=36YnV9STBqc"
+      description: "Chill and relaxing music for the good life"
+
+    - name: "🎵 Chillhop Radio - 24/7 Live"
+      url: "https://www.youtube.com/watch?v=5yx6BWlEVcY"
+      description: "Live chillhop and jazz hop beats"
+
+  # Synthwave & Retro
+  synthwave_retro:
+    - name: "🎮 Nostalgic Gamers: 24/7 Chillwave & Retro Games"
+      url: "https://www.youtube.com/watch?v=WNsOxG0AqjA"
+      description: "Chillwave music with retro gaming visuals"
+
+    - name: "🌆 Blade Runner Radio"
+      url: "https://www.youtube.com/watch?v=RrkrdYm3HPQ"
+      description: "Cyberpunk ambient music inspired by Blade Runner"
+
+    - name: "🚗 Back to 1982 - Synthwave Mix"
+      url: "https://www.youtube.com/watch?v=48z-lzkyICo"
+      description: "Synthwave, retrowave, and dreamwave music mix"
+
+    - name: "🏢 It's 1987 - Office Late Night Vibes"
+      url: "https://www.youtube.com/watch?v=AcQ3Di2Gewc"
+      description: "Officewave, vaporwave, chillwave for late night work"
+
+    - name: "📼 VHS 1998 - Synthwave Mix"
+      url: "https://www.youtube.com/watch?v=tLYL_3NcJck"
+      description: "Synthwave, dreamwave, vaporwave, chillsynth mix"
+
+    - name: "🔊 Sound of 1987 - Synthwave Mix"
+      url: "https://www.youtube.com/watch?v=N1oBvpcaFas"
+      description: "Synthwave, dreamwave, vaporwave, chillsynth compilation"
+
+    - name: "🏖️ Summer 1988 Miami Drive (2h)"
+      url: "https://www.youtube.com/watch?v=L4QxU0mTATM"
+      description: "2 hours of Miami-inspired retro synthwave"
+
+  # Ambient & Space
+  ambient_space:
+    - name: "🚀 Private Interstellar Suite in Deep Space"
+      url: "https://www.youtube.com/watch?v=TGysUwc_LEc"
+      description: "Ambient music with deep space sounds - HD Live"
+
+    - name: "🔥 Relaxing Fireplace (12 Hours)"
+      url: "https://www.youtube.com/watch?v=UgHKb_7884o"
+      description: "12 hours of crackling fireplace sounds"
+
+    - name: "🔥 8K Yule Log Fireplace - 8 Hours"
+      url: "https://www.youtube.com/watch?v=UVfex2bCJCQ"
+      description: "High quality 8K fireplace video for 8 hours"
+
+    - name: "🔥 Two Chimney Fires, 3 hours of relaxation"
+      url: "https://www.youtube.com/watch?v=IoNE2dycFkA"
+      description: "3 hours of dual fireplace relaxation"
+
+  # Relaxation & Nature
+  relaxation_nature:
+    - name: "🎮 Nintendo Relaxing - Just Stop Overthinking"
+      url: "https://www.youtube.com/watch?v=rZjBLC8e2Es"
+      description: "Nintendo video game music for relaxation"
+
+    - name: "☔ Rain and Jazz"
+      url: "https://www.youtube.com/watch?v=2_TjZQA2fLs"
+      description: "Peaceful jazz music with rain sounds"
+
+    - name: "🏝️ Tropical Shores - 24/7 Peaceful Music"
+      url: "https://www.youtube.com/watch?v=dXIyMS61B68"
+      description: "Beautiful relaxing peaceful music by Tim Janis"
+
+# Default placeholder URLs for input fields
+defaults:
+  audio_stream_placeholder: "https://api.somafm.com/groovesalad256.pls"
+  youtube_placeholder: "https://www.youtube.com/watch?v=..."
+  background_video_placeholder: "https://www.youtube.com/watch?v=..."

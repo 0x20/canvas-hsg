@@ -24,6 +24,7 @@ playwright==1.40.0
 
 # Optional: Enhanced logging and configuration
 python-json-logger==2.0.7
+PyYAML==6.0.1
 
 # Development and testing dependencies (uncomment if needed)
 # pytest==7.4.3

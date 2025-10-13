@@ -26,6 +26,7 @@ import base64
 import uvicorn
 import requests
 import psutil
+import yaml
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Request, File, UploadFile
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -3772,12 +3773,31 @@ async def get_status():
 async def health_check():
     """Health check endpoint"""
     return {
-        "status": "healthy", 
+        "status": "healthy",
         "timestamp": datetime.now().isoformat(),
         "version": "2.0.0-drm",
         "drm_enabled": True,
         "gpu_memory": stream_manager.gpu_memory
     }
+
+def load_media_sources():
+    """Load media sources from YAML configuration file"""
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'media_sources.yaml')
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                return yaml.safe_load(f)
+        else:
+            logging.warning(f"Media sources config not found at {config_path}")
+            return {"music_streams": {}, "youtube_channels": {}}
+    except Exception as e:
+        logging.error(f"Error loading media sources: {e}")
+        return {"music_streams": {}, "youtube_channels": {}}
+
+@app.get("/media-sources")
+async def get_media_sources():
+    """Get configured media sources for the web interface"""
+    return load_media_sources()
 
 @app.post("/debug/init-mpv-pool")
 async def debug_init_mpv_pool():
