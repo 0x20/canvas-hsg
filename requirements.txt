@@ -17,7 +17,7 @@ Pillow==10.1.0
 qrcode[pil]==7.4.2
 
 # YouTube video downloading and processing
-yt-dlp==2024.12.13
+yt-dlp==2025.09.26
 
 # Web automation for webcast feature
 playwright==1.40.0
