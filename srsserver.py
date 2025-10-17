@@ -750,6 +750,7 @@ class DisplayCapabilityDetector:
             resolution_priority = [
                 (3840, 2160),  # 4K UHD
                 (2560, 1440),  # 1440p
+                (1920, 1200),  # WUXGA (1200p)
                 (1920, 1080),  # 1080p
                 (1680, 1050),  # WSXGA+
                 (1600, 1200),  # UXGA
@@ -2064,37 +2065,42 @@ class StreamManager:
             
             # Headless Pi4 DRM display methods - no X11 dependencies
             methods = [
-                # Method 1: DRM with sudo (fixes permission issues)
+                # Method 1: FBI framebuffer viewer with autoscale (RECOMMENDED)
+                ([
+                    "sudo", "fbi", "-T", "1", "-d", "/dev/fb0", "-noverbose", "-a", image_path
+                ], {}, "FBI framebuffer with autoscale (Recommended)"),
+
+                # Method 2: DRM with sudo (fixes permission issues)
                 ([
                     "sudo", "mpv", "--vo=drm", "--fs", "--quiet", "--loop=inf",
                     "--no-input-default-bindings", "--no-osc", image_path
-                ], {}, "DRM with sudo (Recommended for headless)"),
-                
-                # Method 2: DRM Direct (if permissions are fixed)
+                ], {}, "DRM with sudo"),
+
+                # Method 3: DRM Direct (if permissions are fixed)
                 ([
                     "mpv", "--vo=drm", "--fs", "--quiet", "--loop=inf",
                     "--no-input-default-bindings", "--no-osc", image_path
                 ], {}, "DRM Direct"),
-                
-                # Method 3: DRM with specific mode
+
+                # Method 4: DRM with specific mode
                 ([
                     "mpv", "--vo=drm", "--drm-mode=1920x1080", "--fs", "--quiet", "--loop=inf",
                     "--no-input-default-bindings", "--no-osc", image_path
                 ], {}, "DRM with mode specification"),
-                
-                # Method 4: DRM with sudo and mode
+
+                # Method 5: DRM with sudo and mode
                 ([
                     "sudo", "mpv", "--vo=drm", "--drm-mode=1920x1080", "--fs", "--quiet", "--loop=inf",
                     "--no-input-default-bindings", "--no-osc", image_path
                 ], {}, "DRM + sudo + mode"),
-                
-                # Method 5: Framebuffer fallback (if available)
+
+                # Method 6: Framebuffer fallback (if available)
                 ([
                     "mpv", "--vo=drm", "--drm-device=/dev/dri/card0", "--fs", "--quiet", "--loop=inf",
                     "--no-input-default-bindings", "--no-osc", image_path
                 ], {}, "DRM with device specification"),
-                
-                # Method 6: Last resort - try basic mpv (will likely fail in headless)
+
+                # Method 7: Last resort - try basic mpv (will likely fail in headless)
                 ([
                     "mpv", "--fs", "--quiet", image_path
                 ], {}, "Basic MPV (likely to fail headless)"),

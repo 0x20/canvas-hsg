@@ -97,24 +97,23 @@ class BackgroundManager:
             img.save(str(self.current_background_path))
     
     async def _display_current_background(self) -> None:
-        """Display the current background image using available viewers"""
-        try:
-            if not self.current_background_path.exists():
-                logging.warning("No background image to display")
-                return
-            
-            # Use framebuffer if available
-            if self.framebuffer and self.framebuffer.is_available:
-                success = self.framebuffer.display_image(str(self.current_background_path))
-                if not success:
-                    logging.warning("Framebuffer display failed, trying image viewers")
-                    await self._display_with_image_viewer()
-            else:
-                # Fallback to image viewers
-                await self._display_with_image_viewer()
-                
-        except Exception as e:
-            logging.error(f"Failed to display background: {e}")
+        """Display the current background image using MPV with DRM"""
+        import subprocess
+
+        if not self.current_background_path.exists():
+            raise RuntimeError("No background image to display")
+
+        # Kill any existing display processes
+        subprocess.run(["sudo", "pkill", "fbi"], capture_output=True)
+        subprocess.run(["sudo", "pkill", "-f", "mpv.*current_background"], capture_output=True)
+
+        # Start MPV with DRM (direct rendering, bypasses framebuffer)
+        subprocess.Popen([
+            "sudo", "mpv", "--vo=drm", "--fs", "--quiet", "--loop=inf",
+            "--no-input-default-bindings", "--no-osc", str(self.current_background_path)
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+        logging.info("Background displayed with MPV DRM")
     
     async def _display_with_image_viewer(self) -> None:
         """Display background using image viewer fallback"""
