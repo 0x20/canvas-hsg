@@ -21,6 +21,7 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 - **Stream Republishing**: Accepts various input sources (files, RTSP cameras, HTTP streams) and republishes to SRS RTMP server
 - **Multi-Player Support**: Supports mpv, ffplay, omxplayer, and VLC with optimized configurations for Raspberry Pi
 - **YouTube Integration**: Direct YouTube video playback with duration controls
+- **Spotify Connect**: Cast Spotify Premium audio from phone to Pi speakers via Raspotify
 - **Background Management**: Customizable background images with auto-generation
 - **System Monitoring**: Real-time system stats (CPU, memory, temperature) and stream diagnostics
 
@@ -29,6 +30,7 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 - **SRS Server**: Expected to run on `pixelflut:1935` (RTMP) and `pixelflut:8080` (HTTP-FLV/HLS)
 - **FFmpeg**: Used for stream processing and republishing
 - **Media Players**: mpv (recommended), ffplay, omxplayer, or VLC for local playback
+- **Raspotify**: Spotify Connect client service for casting from Premium accounts
 - **PIL/Pillow**: For background image generation and processing
 
 ## Development Commands
@@ -53,9 +55,11 @@ uvicorn srsserver:app --host 0.0.0.0 --port 8000
 
 ### Key API Endpoints
 - `GET /` - Web interface
-- `POST /streams/{key}/start` - Start stream republishing  
+- `POST /streams/{key}/start` - Start stream republishing
 - `POST /playback/{key}/start` - Start local playback
 - `POST /playback/youtube` - Play YouTube videos
+- `POST /audio/start` - Start audio streaming
+- `GET /audio/spotify/status` - Check Spotify Connect service status
 - `GET /diagnostics` - System diagnostics for troubleshooting
 - `GET /status` - System and streaming status
 
@@ -77,6 +81,47 @@ The application supports multiple display methods:
 - **X11**: Primary method using DISPLAY=:0
 - **DRM**: Direct rendering for headless setups
 - **Multiple image viewers**: feh, eog, gpicview as fallbacks
+
+### Spotify Connect Setup
+The system includes Raspotify for Spotify Premium casting:
+
+**Installation:**
+```bash
+# Raspotify is already installed via official script
+curl -sL https://dtcooper.github.io/raspotify/install.sh | sudo sh
+```
+
+**Configuration:** (`/etc/raspotify/conf`)
+- **Device Name**: "HSG Canvas"
+- **Audio Device**: `sysdefault:CARD=3` (matches AUDIO_DEVICE)
+- **Bitrate**: 320kbps for maximum quality
+- **Initial Volume**: 70%
+- **Features**: Volume normalization enabled, gapless playback
+
+**Usage:**
+1. Ensure Raspotify service is running: `sudo systemctl status raspotify`
+2. Open Spotify app on phone (Premium account required)
+3. Start playing music
+4. Tap "Devices Available" button (speaker icon)
+5. Select "HSG Canvas" from device list
+6. Audio plays through Pi speakers
+
+**Service Management:**
+```bash
+# Check status
+sudo systemctl status raspotify
+
+# Restart service
+sudo systemctl restart raspotify
+
+# View logs
+sudo journalctl -u raspotify -f
+```
+
+**Audio Device Sharing:**
+- Raspotify shares `AUDIO_DEVICE` (CARD=3) with HSG Canvas audio streams
+- Only one audio source can play at a time
+- Raspotify runs independently as a systemd service
 
 ## Development Notes
 

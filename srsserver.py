@@ -955,35 +955,40 @@ class FramebufferManager:
         return (r5 << 11) | (g6 << 5) | b5
     
     def _resize_image_preserve_aspect(self, img: Image.Image, target_width: int, target_height: int) -> Image.Image:
-        """Resize image to target dimensions while preserving aspect ratio"""
+        """Resize image to maximize screen usage, only adding minimal borders where aspect ratio requires it"""
         orig_width, orig_height = img.size
-        
+
         # If image already matches target resolution exactly, return as-is
         if orig_width == target_width and orig_height == target_height:
             return img
-        
-        # Calculate scaling factor to fit within target dimensions
-        width_ratio = target_width / orig_width
-        height_ratio = target_height / orig_height
-        scale_factor = min(width_ratio, height_ratio)
-        
-        # Calculate new dimensions
-        new_width = int(orig_width * scale_factor)
-        new_height = int(orig_height * scale_factor)
-        
-        # If scale factor is 1 and dimensions match, no need for canvas
-        if scale_factor == 1.0 and new_width == target_width and new_height == target_height:
-            return img
-        
-        # Resize image
+
+        # Calculate aspect ratios
+        target_aspect = target_width / target_height
+        img_aspect = orig_width / orig_height
+
+        # Scale to fill maximum space while preserving aspect ratio
+        if img_aspect > target_aspect:
+            # Image is wider - fit to width, add small borders on top/bottom
+            new_width = target_width
+            new_height = int(target_width / img_aspect)
+        else:
+            # Image is taller - fit to height, add small borders on left/right
+            new_height = target_height
+            new_width = int(target_height * img_aspect)
+
+        # Resize image to calculated dimensions
         scaled_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        # Create target canvas and center the scaled image
+
+        # If scaled image matches target exactly, return it
+        if new_width == target_width and new_height == target_height:
+            return scaled_img
+
+        # Create canvas with black borders only where needed
         canvas = Image.new('RGB', (target_width, target_height), (0, 0, 0))
         x_offset = (target_width - new_width) // 2
         y_offset = (target_height - new_height) // 2
         canvas.paste(scaled_img, (x_offset, y_offset))
-        
+
         return canvas
     
     def display_image(self, image_path: str) -> bool:
@@ -3315,6 +3320,90 @@ async def set_audio_volume(request: AudioVolumeRequest):
     else:
         stream_manager.audio_volume = request.volume
         return {"message": f"Audio volume set to {request.volume} (will apply to next stream)"}
+
+@app.get("/audio/spotify/status")
+async def get_spotify_status():
+    """Get Spotify Connect (Raspotify) service status"""
+    try:
+        # Check if Raspotify service is running
+        result = subprocess.run(
+            ["systemctl", "is-active", "raspotify"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        is_running = result.stdout.strip() == "active"
+
+        # Get current volume using amixer for CARD 3
+        volume = 100  # Default
+        try:
+            volume_result = subprocess.run(
+                ["amixer", "-c", "3", "get", "PCM"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            # Parse volume from output (e.g., "[75%]")
+            import re
+            match = re.search(r'\[(\d+)%\]', volume_result.stdout)
+            if match:
+                volume = int(match.group(1))
+        except Exception as vol_error:
+            logging.warning(f"Could not get Spotify volume: {vol_error}")
+
+        return {
+            "service_running": is_running,
+            "device_name": "HSG Canvas",
+            "status": "active" if is_running else "inactive",
+            "volume": volume,
+            "message": "Spotify Connect is available - cast from your phone!" if is_running else "Spotify Connect service is not running"
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "service_running": False,
+            "status": "error",
+            "message": "Timeout checking Raspotify status"
+        }
+    except Exception as e:
+        logging.error(f"Error checking Spotify status: {e}")
+        return {
+            "service_running": False,
+            "status": "error",
+            "message": f"Error: {str(e)}"
+        }
+
+@app.put("/audio/spotify/volume")
+async def set_spotify_volume(request: Request):
+    """Set Spotify Connect (Raspotify) volume using ALSA mixer"""
+    try:
+        data = await request.json()
+        volume = data.get("volume", 70)
+
+        if not 0 <= volume <= 100:
+            raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
+
+        # Set volume using amixer for CARD 3
+        result = subprocess.run(
+            ["amixer", "-c", "3", "set", "PCM", f"{volume}%"],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "volume": volume,
+                "message": f"Spotify volume set to {volume}%"
+            }
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to set volume: {result.stderr}")
+
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=500, detail="Timeout setting volume")
+    except Exception as e:
+        logging.error(f"Error setting Spotify volume: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/display/qrcode")
 async def display_qr_code(request: QRCodeRequest):

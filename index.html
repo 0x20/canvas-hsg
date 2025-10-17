@@ -507,6 +507,36 @@
                 <button onclick="displayQRCode()">Generate & Display QR Code</button>
                 <button onclick="stopPlayback()" class="danger">Stop Display</button>
             </div>
+
+            <!-- Spotify Connect -->
+            <div class="card">
+                <h2>🎧 Spotify Connect</h2>
+                <p style="color: #666; margin-bottom: 15px;">Cast Spotify from your phone to the Pi (Premium account required)</p>
+
+                <div id="spotifyStatus" style="font-size: 0.9em; margin-bottom: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
+                    <div><strong>Device Name:</strong> <span id="spotifyDeviceName">HSG Canvas</span></div>
+                    <div><strong>Status:</strong> <span id="spotifyServiceStatus">Checking...</span></div>
+                </div>
+
+                <div style="background: #e7f3ff; padding: 15px; border-radius: 8px; font-size: 0.9em; margin-bottom: 15px;">
+                    <strong>📱 How to use:</strong>
+                    <ol style="margin: 10px 0 0 20px; padding: 0;">
+                        <li>Open Spotify on your phone (Premium account required)</li>
+                        <li>Start playing music</li>
+                        <li>Tap the "Devices Available" button (speaker icon)</li>
+                        <li>Select "HSG Canvas" from the list</li>
+                        <li>Audio will play through the Pi's speakers!</li>
+                    </ol>
+                </div>
+
+                <div style="border-top: 1px solid #eee; padding-top: 15px;">
+                    <button onclick="refreshSpotifyStatus()" style="background: #1DB954; color: white;">🔄 Refresh Status</button>
+                </div>
+
+                <div style="font-size: 0.8em; color: #666; margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee;">
+                    <strong>💡 Note:</strong> Raspotify service runs independently in the background. It shares the audio device with other HSG Canvas audio streams.
+                </div>
+            </div>
         </div>
 
         <!-- Priority 3: Third tier -->
@@ -1377,8 +1407,87 @@
             }
         }
 
+        // Load media sources from YAML configuration
+        async function loadMediaSources() {
+            try {
+                const mediaSources = await apiCall('GET', '/media-sources');
+
+                // Populate audio stream dropdown
+                const quickStreamSelect = document.getElementById('quickStreamSelect');
+                if (quickStreamSelect && mediaSources.music_streams) {
+                    // Clear existing options except the first one
+                    while (quickStreamSelect.children.length > 1) {
+                        quickStreamSelect.removeChild(quickStreamSelect.lastChild);
+                    }
+
+                    // Add SomaFM stations
+                    if (mediaSources.music_streams.somafm) {
+                        const somaGroup = document.createElement('optgroup');
+                        somaGroup.label = '📻 SomaFM Stations';
+                        mediaSources.music_streams.somafm.forEach(station => {
+                            const option = document.createElement('option');
+                            option.value = station.url;
+                            option.textContent = station.name;
+                            somaGroup.appendChild(option);
+                        });
+                        quickStreamSelect.appendChild(somaGroup);
+                    }
+
+                    // Add BBC Radio
+                    if (mediaSources.music_streams.bbc) {
+                        const bbcGroup = document.createElement('optgroup');
+                        bbcGroup.label = '📡 BBC Radio';
+                        mediaSources.music_streams.bbc.forEach(station => {
+                            const option = document.createElement('option');
+                            option.value = station.url;
+                            option.textContent = station.name;
+                            bbcGroup.appendChild(option);
+                        });
+                        quickStreamSelect.appendChild(bbcGroup);
+                    }
+                }
+
+                // Populate YouTube video dropdown
+                const backgroundVideoPresets = document.getElementById('backgroundVideoPresets');
+                if (backgroundVideoPresets && mediaSources.youtube_channels) {
+                    // Clear existing options except the first one
+                    while (backgroundVideoPresets.children.length > 1) {
+                        backgroundVideoPresets.removeChild(backgroundVideoPresets.lastChild);
+                    }
+
+                    // Add each YouTube category
+                    Object.entries(mediaSources.youtube_channels).forEach(([category, videos]) => {
+                        const categoryName = category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        const group = document.createElement('optgroup');
+
+                        // Set friendly group labels
+                        const groupLabels = {
+                            'Live Radio': '🔴 24/7 Live Radio Streams',
+                            'Synthwave Retro': '🌈 Synthwave & Retro',
+                            'Ambient Space': '🌌 Ambient & Space',
+                            'Relaxation Nature': '🍃 Relaxation & Nature'
+                        };
+                        group.label = groupLabels[categoryName] || `🎵 ${categoryName}`;
+
+                        videos.forEach(video => {
+                            const option = document.createElement('option');
+                            option.value = video.url;
+                            option.textContent = video.name;
+                            group.appendChild(option);
+                        });
+                        backgroundVideoPresets.appendChild(group);
+                    });
+                }
+            } catch (error) {
+                console.error('Failed to load media sources:', error);
+                // Fallback: keep existing hardcoded options
+            }
+        }
+
         // Volume slider update and dropdown initialization
         document.addEventListener('DOMContentLoaded', function() {
+            // Load dynamic media sources
+            loadMediaSources();
             const volumeSlider = document.getElementById('audioVolume');
             const volumeDisplay = document.getElementById('volumeDisplay');
             
@@ -2056,12 +2165,36 @@
             }
         }
 
+        // Spotify Connect Functions
+        async function refreshSpotifyStatus() {
+            try {
+                const response = await fetch('/audio/spotify/status');
+                const status = await response.json();
+
+                const serviceStatus = document.getElementById('spotifyServiceStatus');
+
+                if (status.service_running) {
+                    serviceStatus.textContent = '✅ Active - Ready to cast';
+                    serviceStatus.style.color = '#28a745';
+                } else {
+                    serviceStatus.textContent = '❌ Service not running';
+                    serviceStatus.style.color = '#dc3545';
+                }
+
+            } catch (error) {
+                console.error('Failed to refresh Spotify status:', error);
+                document.getElementById('spotifyServiceStatus').textContent = '❌ Error checking status';
+                document.getElementById('spotifyServiceStatus').style.color = '#dc3545';
+            }
+        }
+
         // Auto-refresh every 10 seconds
         setInterval(refreshStatus, 10000);
         setInterval(updateScreenStreamUI, 5000); // Update screen stream UI more frequently
         setInterval(refreshBackgroundStatus, 15000); // Refresh background status
         setInterval(refreshCECStatus, 20000); // Refresh CEC status every 20 seconds
-        
+        setInterval(refreshSpotifyStatus, 30000); // Refresh Spotify status every 30 seconds
+
         // Initial load
         loadResolution();
         refreshStatus();
@@ -2069,6 +2202,7 @@
         refreshBackgroundStatus();
         refreshCECStatus();
         refreshWebcastStatus();
+        refreshSpotifyStatus();
     </script>
 </body>
 </html>
