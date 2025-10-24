@@ -224,37 +224,46 @@ class MPVController:
         return await self.send_command(["quit"])
 
 class MPVProcessPool:
-    """Manages a fixed pool of 2 mpv processes with IPC control"""
-    
-    def __init__(self):
-        self.pool_size = 2
+    """Generic base class for managing a pool of mpv processes with IPC control"""
+
+    def __init__(self, pool_name: str = "mpv", pool_size: int = 2, socket_dir: str = "/tmp"):
+        """
+        Initialize MPV process pool
+
+        Args:
+            pool_name: Name of the pool (used for logging and socket naming)
+            pool_size: Number of processes in the pool
+            socket_dir: Directory for IPC sockets
+        """
+        self.pool_name = pool_name
+        self.pool_size = pool_size
         self.processes = {}  # process_id -> subprocess.Popen
         self.controllers = {}  # process_id -> MPVController
         self.process_status = {}  # process_id -> {"status": "idle/busy", "content_type": str, "stream_key": str}
-        self.socket_dir = "/tmp"
+        self.socket_dir = socket_dir
         
     async def initialize(self) -> bool:
-        """Initialize the pool with 2 mpv processes"""
+        """Initialize the pool with configured number of mpv processes"""
         try:
-            logging.info("Starting MPV process pool initialization...")
+            logging.info(f"Starting {self.pool_name} pool initialization ({self.pool_size} processes)...")
             # Ensure socket directory exists
             os.makedirs(self.socket_dir, exist_ok=True)
             logging.info(f"Created socket directory: {self.socket_dir}")
-            
+
             for process_id in range(1, self.pool_size + 1):
-                logging.info(f"Starting MPV process {process_id}...")
+                logging.info(f"Starting {self.pool_name} process {process_id}...")
                 success = await self._start_process(process_id)
                 if not success:
-                    logging.error(f"Failed to start mpv process {process_id}")
+                    logging.error(f"Failed to start {self.pool_name} process {process_id}")
                     await self.cleanup()
                     return False
-                logging.info(f"Successfully started MPV process {process_id}")
-                    
-            logging.info(f"MPV process pool initialized with {self.pool_size} processes")
+                logging.info(f"Successfully started {self.pool_name} process {process_id}")
+
+            logging.info(f"{self.pool_name} pool initialized with {self.pool_size} processes")
             return True
-            
+
         except Exception as e:
-            logging.error(f"Failed to initialize MPV process pool: {e}")
+            logging.error(f"Failed to initialize {self.pool_name} pool: {e}")
             import traceback
             traceback.print_exc()
             await self.cleanup()
@@ -263,22 +272,22 @@ class MPVProcessPool:
     async def _start_process(self, process_id: int) -> bool:
         """Start a single mpv process with IPC"""
         try:
-            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
-            
+            socket_path = f"{self.socket_dir}/{self.pool_name}-pool-{process_id}"
+
             # Remove existing socket if it exists
             if os.path.exists(socket_path):
                 os.remove(socket_path)
-            
-            # Get optimal mpv command
-            cmd = self._get_optimal_mpv_command(socket_path)
-            
+
+            # Get mpv command from subclass implementation
+            cmd = self._get_mpv_command(socket_path)
+
             # Start mpv process
             env = os.environ.copy()
             env.update({
                 'DRM_DEVICE': '/dev/dri/card0',
                 'DRM_CONNECTOR': 'HDMI-A-1'
             })
-            
+
             process = subprocess.Popen(
                 cmd,
                 env=env,
@@ -286,7 +295,7 @@ class MPVProcessPool:
                 stderr=subprocess.PIPE,
                 preexec_fn=os.setsid
             )
-            
+
             # Wait for socket to be created
             await self._wait_for_socket(socket_path)
             
@@ -340,7 +349,7 @@ class MPVProcessPool:
                 del self.controllers[process_id]
 
             # Remove old socket file
-            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
+            socket_path = f"{self.socket_dir}/{self.pool_name}-pool-{process_id}"
             if os.path.exists(socket_path):
                 os.remove(socket_path)
 
@@ -348,22 +357,12 @@ class MPVProcessPool:
             return await self._start_process(process_id)
 
         except Exception as e:
-            logging.error(f"Failed to restart MPV process {process_id}: {e}")
+            logging.error(f"Failed to restart {self.pool_name} process {process_id}: {e}")
             return False
 
-    def _get_optimal_mpv_command(self, socket_path: str) -> list:
-        """Get optimal mpv command with IPC enabled"""
-        return [
-            "mpv", 
-            "--vo=null",  # Use null video output for pool initialization
-            f"--audio-device={AUDIO_DEVICE}",  # Use proper audio device
-            "--quiet",
-            "--no-input-default-bindings", 
-            "--no-osc",
-            f"--input-ipc-server={socket_path}",
-            "--idle=yes",  # Keep process alive when no content
-            "--no-terminal"  # Disable terminal output
-        ]
+    def _get_mpv_command(self, socket_path: str) -> list:
+        """Get mpv command with IPC enabled. Override in subclasses for specific configurations."""
+        raise NotImplementedError("Subclasses must implement _get_mpv_command()")
     
     async def _wait_for_socket(self, socket_path: str, timeout: float = 10.0) -> bool:
         """Wait for mpv to create the IPC socket"""
@@ -391,14 +390,21 @@ class MPVProcessPool:
         # If no idle processes, return None (all busy)
         return None
     
-    async def get_available_controller(self) -> Optional['MPVController']:
-        """Get an available MPVController, prefer idle processes"""
+    async def get_available_controller(self, retry_with_health_check: bool = True) -> Optional['MPVController']:
+        """Get an available MPVController with automatic recovery
+
+        Args:
+            retry_with_health_check: If True, will trigger a health check and retry if no controller available
+
+        Returns:
+            MPVController if available, None otherwise
+        """
         # Check if pool is initialized, if not initialize it
         if not self.processes:
             logging.warning("MPV pool not initialized, attempting lazy initialization")
             return None
-            
-        # First, look for idle processes
+
+        # First pass: look for idle processes
         for process_id, status in self.process_status.items():
             if status["status"] == "idle":
                 controller = self.controllers.get(process_id)
@@ -419,8 +425,25 @@ class MPVProcessPool:
                                 controller.in_use = True
                                 self.process_status[process_id]["status"] = "busy"
                                 return controller
-        
-        # If no idle processes, return None (all busy)
+
+        # No idle processes found - if retry is enabled, run health check and try again
+        if retry_with_health_check:
+            logging.warning("No available MPV controllers, running health check and retrying...")
+            health_report = await self.health_check()
+
+            # If we restarted any processes, try again
+            if health_report["restarted"] > 0:
+                logging.info(f"Health check restarted {health_report['restarted']} processes, retrying allocation...")
+
+                # Wait a moment for processes to stabilize
+                await asyncio.sleep(1)
+
+                # Retry (but don't recurse - pass False to avoid infinite loop)
+                return await self.get_available_controller(retry_with_health_check=False)
+
+        # If no idle processes after all attempts, return None (all busy or failed)
+        logging.error(f"No MPV controllers available. Status: {len([s for s in self.process_status.values() if s['status'] == 'busy'])} busy, "
+                     f"{len([s for s in self.process_status.values() if s['status'] == 'idle'])} idle")
         return None
     
     async def release_controller(self, controller: 'MPVController'):
@@ -504,15 +527,131 @@ class MPVProcessPool:
         
         # Clean up socket files
         for process_id in range(1, self.pool_size + 1):
-            socket_path = f"{self.socket_dir}/mpv-pool-{process_id}"
+            socket_path = f"{self.socket_dir}/{self.pool_name}-pool-{process_id}"
             if os.path.exists(socket_path):
                 os.remove(socket_path)
-        
+
         self.processes.clear()
         self.controllers.clear()
         self.process_status.clear()
-        
-        logging.info("MPV process pool cleaned up")
+
+        logging.info(f"{self.pool_name} pool cleaned up")
+
+    async def health_check(self) -> dict:
+        """Check health of all MPV processes and restart dead ones"""
+        health_report = {
+            "checked_at": datetime.now().isoformat(),
+            "total_processes": self.pool_size,
+            "healthy": 0,
+            "restarted": 0,
+            "failed": 0,
+            "processes": {}
+        }
+
+        for process_id in range(1, self.pool_size + 1):
+            process = self.processes.get(process_id)
+            controller = self.controllers.get(process_id)
+
+            # Check if process exists and is alive
+            if not process or process.poll() is not None:
+                # Process is dead, attempt restart
+                logging.warning(f"MPV process {process_id} is dead, attempting restart...")
+                try:
+                    success = await self._restart_process(process_id)
+                    if success:
+                        health_report["restarted"] += 1
+                        health_report["processes"][process_id] = "restarted"
+                        logging.info(f"Successfully restarted MPV process {process_id}")
+                    else:
+                        health_report["failed"] += 1
+                        health_report["processes"][process_id] = "restart_failed"
+                        logging.error(f"Failed to restart MPV process {process_id}")
+                except Exception as e:
+                    health_report["failed"] += 1
+                    health_report["processes"][process_id] = f"error: {str(e)}"
+                    logging.error(f"Error restarting MPV process {process_id}: {e}")
+
+            # Check if controller is connected
+            elif controller and not controller.connected:
+                # Try to reconnect
+                logging.warning(f"MPV controller {process_id} disconnected, attempting reconnect...")
+                try:
+                    connected = await controller.connect()
+                    if connected:
+                        health_report["healthy"] += 1
+                        health_report["processes"][process_id] = "reconnected"
+                        logging.info(f"Reconnected to MPV process {process_id}")
+                    else:
+                        # Reconnect failed, restart the process
+                        logging.warning(f"Reconnect failed for process {process_id}, restarting...")
+                        success = await self._restart_process(process_id)
+                        if success:
+                            health_report["restarted"] += 1
+                            health_report["processes"][process_id] = "restarted_after_reconnect_fail"
+                        else:
+                            health_report["failed"] += 1
+                            health_report["processes"][process_id] = "restart_failed_after_reconnect_fail"
+                except Exception as e:
+                    health_report["failed"] += 1
+                    health_report["processes"][process_id] = f"reconnect_error: {str(e)}"
+                    logging.error(f"Error reconnecting to MPV process {process_id}: {e}")
+
+            else:
+                # Process is healthy
+                health_report["healthy"] += 1
+                health_report["processes"][process_id] = "healthy"
+
+        # Log summary
+        if health_report["restarted"] > 0 or health_report["failed"] > 0:
+            logging.info(f"{self.pool_name} Pool Health Check: {health_report['healthy']} healthy, "
+                        f"{health_report['restarted']} restarted, {health_report['failed']} failed")
+
+        return health_report
+
+class AudioMPVPool(MPVProcessPool):
+    """MPV pool specialized for audio streaming"""
+
+    def __init__(self, pool_size: int = 2, socket_dir: str = "/tmp"):
+        super().__init__(pool_name="audio-mpv", pool_size=pool_size, socket_dir=socket_dir)
+
+    def _get_mpv_command(self, socket_path: str) -> list:
+        """Get mpv command configured for audio-only playback"""
+        return [
+            "mpv",
+            "--vo=null",  # No video output - audio only
+            f"--audio-device={AUDIO_DEVICE}",
+            "--quiet",
+            "--no-input-default-bindings",
+            "--no-osc",
+            f"--input-ipc-server={socket_path}",
+            "--idle=yes",
+            "--no-terminal",
+            "--really-quiet"
+        ]
+
+class VideoMPVPool(MPVProcessPool):
+    """MPV pool specialized for video playback with DRM/KMS"""
+
+    def __init__(self, pool_size: int = 1, socket_dir: str = "/tmp"):
+        super().__init__(pool_name="video-mpv", pool_size=pool_size, socket_dir=socket_dir)
+
+    def _get_mpv_command(self, socket_path: str) -> list:
+        """Get mpv command configured for video playback with DRM"""
+        return [
+            "mpv",
+            "--vo=drm",  # DRM video output
+            "--drm-device=/dev/dri/card0",
+            "--drm-connector=HDMI-A-1",
+            f"--audio-device={AUDIO_DEVICE}",
+            "--hwdec=v4l2m2m",  # Hardware decoding
+            "--quiet",
+            "--no-input-default-bindings",
+            "--no-osc",
+            f"--input-ipc-server={socket_path}",
+            "--idle=yes",
+            "--no-terminal",
+            "--really-quiet"
+        ]
 
 # IPC-based playback statistics (replaced stdout parsing)
 
@@ -1282,19 +1421,28 @@ class StreamManager:
     
     def __init__(self):
         self.active_streams: Dict[str, Dict[str, Any]] = {}
-        
-        # MPV Process Pool - replaces all direct process management
-        self.mpv_pool: MPVProcessPool = MPVProcessPool()
+
+        # MPV Process Pools - specialized for audio and video
+        self.audio_pool: AudioMPVPool = AudioMPVPool(pool_size=2)
+        self.video_pool: VideoMPVPool = VideoMPVPool(pool_size=1)
+
+        # Keep reference to audio_pool as mpv_pool for backward compatibility
+        self.mpv_pool = self.audio_pool
+
         self.current_process_id: Optional[int] = None
         self.current_stream: Optional[str] = None
         self.current_protocol: Optional[str] = None
         self.current_player: Optional[str] = None
-        
-        # Audio streaming support (may also use pool for audio+video simultaneously)
+
+        # Controllers for current audio and video playback
+        self.audio_controller: Optional[MPVController] = None
+        self.video_controller: Optional[MPVController] = None
+
+        # Audio streaming support
         self.audio_process_id: Optional[int] = None
         self.current_audio_stream: Optional[str] = None
         self.audio_volume: int = 80
-        
+
         # Legacy process references for compatibility
         self.audio_process: Optional[subprocess.Popen] = None
         self.player_process: Optional[subprocess.Popen] = None
@@ -1333,26 +1481,35 @@ class StreamManager:
         self.cec_manager = HDMICECManager()
     
     async def initialize(self) -> bool:
-        """Initialize the StreamManager including the MPV process pool"""
+        """Initialize the StreamManager including both MPV process pools"""
         try:
-            # Initialize the MPV process pool
-            pool_initialized = await self.mpv_pool.initialize()
-            if not pool_initialized:
-                logging.error("Failed to initialize MPV process pool")
+            # Initialize audio pool
+            audio_pool_initialized = await self.audio_pool.initialize()
+            if not audio_pool_initialized:
+                logging.error("Failed to initialize audio MPV process pool")
                 return False
-            
-            logging.info("StreamManager initialized successfully with MPV process pool")
+
+            # Initialize video pool
+            video_pool_initialized = await self.video_pool.initialize()
+            if not video_pool_initialized:
+                logging.error("Failed to initialize video MPV process pool")
+                # Cleanup audio pool if video pool fails
+                await self.audio_pool.cleanup()
+                return False
+
+            logging.info("StreamManager initialized successfully with audio and video MPV pools")
             return True
-            
+
         except Exception as e:
             logging.error(f"Failed to initialize StreamManager: {e}")
             return False
-    
+
     async def cleanup(self):
-        """Clean up all resources including MPV process pool"""
+        """Clean up all resources including both MPV process pools"""
         try:
-            # Clean up MPV process pool
-            await self.mpv_pool.cleanup()
+            # Clean up both MPV process pools
+            await self.audio_pool.cleanup()
+            await self.video_pool.cleanup()
             
             # Stop any background processes
             if self.screen_stream_process:
@@ -1940,29 +2097,52 @@ class StreamManager:
     async def stop_playback(self) -> bool:
         """Stop current playback and return to background with seamless transition"""
         try:
+            old_protocol = self.current_protocol
+
+            # Release video controller if in use
+            if self.video_controller:
+                try:
+                    await self.video_controller.send_command(["stop"])
+                    await self.video_pool.release_controller(self.video_controller)
+                    self.video_controller = None
+                    logging.info("Released video controller back to pool")
+                except Exception as e:
+                    logging.error(f"Error releasing video controller: {e}")
+
+            # Handle legacy process ID (for pool-based playback)
             if self.current_process_id is not None:
-                old_protocol = self.current_protocol
-                
-                # Show background for seamless transition 
-                if old_protocol != "background":
-                    await self.show_background()
-                    
-                    # If using framebuffer, no delay needed - it's instant
-                    # If using fallback, minimal delay for startup
-                    if not self.framebuffer.is_available:
-                        await asyncio.sleep(0.1)  # Reduced from 0.2s
-                
                 # Release the process back to the pool
                 await self.mpv_pool.release_process(self.current_process_id)
-                
-                # Clear current playback info
                 self.current_process_id = None
-                self.current_stream = None
-                self.current_protocol = None
-                self.current_player = None
-                
-                logging.info("Stopped playback with seamless background transition")
-                
+
+            # Handle legacy player_process (for non-pool playback)
+            if self.player_process and self.player_process.poll() is None:
+                try:
+                    self.player_process.terminate()
+                    self.player_process.wait(timeout=2)
+                except:
+                    try:
+                        self.player_process.kill()
+                    except:
+                        pass
+                self.player_process = None
+
+            # Show background for seamless transition
+            if old_protocol and old_protocol != "background":
+                await self.show_background()
+
+                # If using framebuffer, no delay needed - it's instant
+                # If using fallback, minimal delay for startup
+                if not self.framebuffer.is_available:
+                    await asyncio.sleep(0.1)
+
+            # Clear current playback info
+            self.current_stream = None
+            self.current_protocol = None
+            self.current_player = None
+
+            logging.info("Stopped playback with seamless background transition")
+
             return True
         except Exception as e:
             logging.error(f"Failed to stop playback: {e}")
@@ -2266,38 +2446,34 @@ class StreamManager:
             return False
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
-        """Play YouTube video using IPC-controlled mpv process from pool"""
-        global mpv_pool
+        """Play YouTube video using video pool with IPC control"""
         try:
             # Stop any existing playback to free resources
-            if self.player_process:
+            if self.player_process or self.video_controller:
                 await self.stop_playback()
 
-            # Stop any existing audio stream if we need video
-            if self.audio_process:
+            # Keep audio stream running if muted (background video mode)
+            if not mute and self.audio_process:
                 await self.stop_audio_stream()
 
             # Get optimal display configuration
             optimal_connector, optimal_device = self.get_optimal_connector_and_device()
             width, height, refresh = self.display_detector.get_resolution_for_content_type("youtube")
 
-            # Choose YouTube quality optimized for Pi hardware decoding - prefer H.264 over VP9
-            # Use best available format with H.264 codec, fallback to best available
+            # Choose YouTube quality optimized for Pi hardware decoding
             youtube_quality = "bestvideo[vcodec^=avc1][height<=720]+bestaudio/best[height<=720]"
 
-            # Get an available mpv controller from the pool
-            controller = await mpv_pool.get_available_controller()
+            # Get controller from video pool
+            controller = await self.video_pool.get_available_controller()
             if not controller:
-                logging.error(f"No available mpv processes in pool for YouTube: {youtube_url}")
+                logging.error(f"No available video mpv processes in pool for YouTube: {youtube_url}")
                 return False
 
-            logging.info(f"Starting YouTube video using pool: {youtube_url}")
+            logging.info(f"Starting YouTube video using video pool: {youtube_url}")
 
-            # Configure for video playback with DRM
-            await controller.send_command(["set", "vo", "drm"])
-            await controller.send_command(["set", "drm-device", optimal_device])
+            # Configure playback settings via IPC
             await controller.send_command(["set", "drm-connector", optimal_connector])
-            await controller.send_command(["set", "hwdec", "v4l2m2m"])
+            await controller.send_command(["set", "drm-device", optimal_device])
             await controller.send_command(["set", "fullscreen", "yes"])
             await controller.send_command(["set", "ytdl-format", youtube_quality])
 
@@ -2305,7 +2481,6 @@ class StreamManager:
                 await controller.send_command(["set", "audio", "no"])
             else:
                 await controller.send_command(["set", "audio", "yes"])
-                await controller.send_command(["set", "audio-device", AUDIO_DEVICE])
 
             if duration:
                 await controller.send_command(["set", "end", str(duration)])
@@ -2315,48 +2490,47 @@ class StreamManager:
             if result.get("error") and result.get("error") != "success":
                 error_msg = result.get("error", "Unknown loadfile error")
                 logging.error(f"Failed to load YouTube video {youtube_url}: {error_msg}")
-                await mpv_pool.release_controller(controller)
+                await self.video_pool.release_controller(controller)
                 return False
-            
-            # Give mpv a moment to configure
+
+            # Give mpv a moment to start
             await asyncio.sleep(2)
-            
+
             # Verify playback started
             pause_response = await controller.get_property("pause")
             is_paused = pause_response.get("data", True) if pause_response else True
-
-            if pause_response and pause_response.get("error") and pause_response.get("error") != "success":
-                error_msg = pause_response.get("error", "Unknown pause property error")
-                logging.error(f"Failed to check YouTube playback status for {youtube_url}: {error_msg}")
 
             if not is_paused:
                 # Set current status
                 self.current_stream = f"youtube:{youtube_url}"
                 self.current_protocol = "youtube"
+                self.current_player = "mpv_video_pool"
                 self.video_controller = controller
-                self.player_process = mpv_pool.processes[controller.process_id]  # For compatibility
+                self.player_process = self.video_pool.processes[controller.process_id]  # For compatibility
 
-                logging.info(f"YouTube video started successfully using pool: {youtube_url}")
-                logging.info(f"Using mpv process ID: {controller.process_id}, muted: {mute}")
+                logging.info(f"YouTube video started successfully using video pool: {youtube_url}")
+                logging.info(f"Using video process ID: {controller.process_id}, muted: {mute}")
 
                 # Auto-return to background after duration if specified
                 if duration:
                     asyncio.create_task(self._auto_return_to_background(duration))
                 else:
-                    # Monitor playback if no specific duration
+                    # Monitor playback
                     asyncio.create_task(self._monitor_youtube_playback())
 
                 return True
             else:
                 logging.error(f"YouTube video failed to start: {youtube_url}")
-                await mpv_pool.release_controller(controller)
+                await self.video_pool.release_controller(controller)
                 await self.show_background()
                 return False
 
         except Exception as e:
             logging.error(f"YouTube playback failed: {e}")
+            import traceback
+            traceback.print_exc()
             if 'controller' in locals():
-                await mpv_pool.release_controller(controller)
+                await self.video_pool.release_controller(controller)
             await self.show_background()
             return False
 
@@ -2369,11 +2543,14 @@ class StreamManager:
     async def _monitor_youtube_playback(self):
         """Monitor YouTube playback and return to background when finished"""
         try:
-            if self.video_controller and self.player_process:
+            if self.player_process:
                 # Wait for the process to finish
                 while self.player_process.poll() is None:
                     await asyncio.sleep(1)
+
+                logging.info("YouTube playback finished, returning to background")
                 if self.current_protocol == "youtube":
+                    await self.stop_playback()
                     await self.show_background()
         except Exception as e:
             logging.error(f"Error monitoring YouTube playback: {e}")
@@ -2979,13 +3156,54 @@ mpv_pool = None
 # Global webcast manager instance
 webcast_manager = WebcastManager()
 
+# Background task for MPV pool health monitoring
+mpv_health_check_task = None
+
+async def mpv_pool_health_monitor():
+    """Background task that periodically checks and restarts both audio and video MPV pools"""
+    logging.info("MPV Pool Health Monitor started (monitoring audio and video pools)")
+
+    while True:
+        try:
+            await asyncio.sleep(30)  # Check every 30 seconds
+
+            # Check audio pool
+            if stream_manager.audio_pool and len(stream_manager.audio_pool.processes) > 0:
+                audio_health = await stream_manager.audio_pool.health_check()
+
+                # Only log if there were issues
+                if audio_health["restarted"] > 0 or audio_health["failed"] > 0:
+                    logging.warning(f"Audio Pool Health: {audio_health['healthy']} healthy, "
+                                  f"{audio_health['restarted']} restarted, "
+                                  f"{audio_health['failed']} failed")
+
+            # Check video pool
+            if stream_manager.video_pool and len(stream_manager.video_pool.processes) > 0:
+                video_health = await stream_manager.video_pool.health_check()
+
+                # Only log if there were issues
+                if video_health["restarted"] > 0 or video_health["failed"] > 0:
+                    logging.warning(f"Video Pool Health: {video_health['healthy']} healthy, "
+                                  f"{video_health['restarted']} restarted, "
+                                  f"{video_health['failed']} failed")
+
+        except asyncio.CancelledError:
+            logging.info("MPV Pool Health Monitor stopped")
+            break
+        except Exception as e:
+            logging.error(f"Error in MPV pool health monitor: {e}")
+            # Continue monitoring even if there's an error
+            await asyncio.sleep(5)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manage application lifecycle (startup and shutdown)"""
+    global mpv_health_check_task
+
     # Startup
     print("LIFESPAN FUNCTION CALLED - DEBUG")
     logging.info("Starting HSG Canvas application...")
-    
+
     # Initialize StreamManager with MPV process pool
     pool_ready = await stream_manager.initialize()
     if not pool_ready:
@@ -2994,26 +3212,39 @@ async def lifespan(app: FastAPI):
         # Set global reference to mpv_pool for audio streaming
         global mpv_pool
         mpv_pool = stream_manager.mpv_pool
-    
+
+        # Start background health monitoring task
+        mpv_health_check_task = asyncio.create_task(mpv_pool_health_monitor())
+        logging.info("Started MPV pool health monitoring background task")
+
     # Create static directory if it doesn't exist
     os.makedirs("static", exist_ok=True)
     await stream_manager.create_default_background()
     await asyncio.sleep(2)
     await stream_manager.show_background()
-    
+
     # Log DRM capabilities at startup
     capabilities = await stream_manager._check_display_setup()
     logging.info(f"DRM Capabilities: {capabilities}")
-    
+
     yield  # Application runs here
-    
+
     # Shutdown
     logging.info("Shutting down HSG Canvas application...")
+
+    # Cancel health monitoring task
+    if mpv_health_check_task:
+        mpv_health_check_task.cancel()
+        try:
+            await mpv_health_check_task
+        except asyncio.CancelledError:
+            pass
+
     await stream_manager.stop_playback()
     for stream_key in list(stream_manager.active_streams.keys()):
         await stream_manager.stop_stream(stream_key)
     await webcast_manager.stop_webcast()
-    
+
     # Clean up StreamManager and MPV process pool
     await stream_manager.cleanup()
 
@@ -3893,6 +4124,38 @@ def load_media_sources():
 async def get_media_sources():
     """Get configured media sources for the web interface"""
     return load_media_sources()
+
+@app.get("/debug/mpv-pool-status")
+async def debug_mpv_pool_status():
+    """Debug endpoint to check MPV pool status"""
+    global mpv_pool
+    try:
+        pool_status = {
+            "initialized": len(stream_manager.mpv_pool.processes) > 0,
+            "pool_size": stream_manager.mpv_pool.pool_size,
+            "total_processes": len(stream_manager.mpv_pool.processes),
+            "processes": {}
+        }
+
+        for process_id, status in stream_manager.mpv_pool.process_status.items():
+            process = stream_manager.mpv_pool.processes.get(process_id)
+            controller = stream_manager.mpv_pool.controllers.get(process_id)
+
+            pool_status["processes"][process_id] = {
+                "status": status["status"],
+                "content_type": status.get("content_type"),
+                "stream_key": status.get("stream_key"),
+                "process_alive": process.poll() is None if process else False,
+                "controller_connected": controller.connected if controller else False,
+                "controller_in_use": controller.in_use if controller else False
+            }
+
+        return pool_status
+    except Exception as e:
+        logging.error(f"Failed to get MPV pool status: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"error": str(e)}
 
 @app.post("/debug/init-mpv-pool")
 async def debug_init_mpv_pool():
