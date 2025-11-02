@@ -43,7 +43,7 @@ from api.routes_system import setup_system_routes
 from api.routes_webcast import setup_webcast_routes
 
 # Config
-from config import AUDIO_POOL_SIZE, VIDEO_POOL_SIZE
+from config import AUDIO_POOL_SIZE, VIDEO_POOL_SIZE, DEFAULT_PORT, PRODUCTION_PORT
 
 # Logging setup
 logging.basicConfig(
@@ -101,14 +101,18 @@ async def lifespan(app: FastAPI):
         video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
         await video_pool.initialize()
 
-        # Initialize background manager
+        # Initialize background manager with video pool
         logging.info("Initializing background manager...")
-        background_manager = BackgroundManager(display_detector, framebuffer_manager)
+        background_manager = BackgroundManager(display_detector, framebuffer_manager, video_pool)
+
+        # Start default background display
+        logging.info("Starting default background display...")
+        await background_manager.start_static_mode()
 
         # Initialize managers
         logging.info("Initializing managers...")
         audio_manager = AudioManager(audio_pool)
-        playback_manager = PlaybackManager(video_pool, display_detector, background_manager)
+        playback_manager = PlaybackManager(video_pool, display_detector, background_manager, audio_manager)
         image_manager = ImageManager(display_detector)
         stream_manager = StreamManager()
         screen_stream_manager = ScreenStreamManager(display_detector)
@@ -228,11 +232,29 @@ if os.path.exists("static"):
 
 
 if __name__ == "__main__":
+    import argparse
     import uvicorn
+
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='HSG Canvas - Media streaming server')
+    parser.add_argument('--production', action='store_true',
+                       help='Run in production mode (port 80)')
+    parser.add_argument('--port', type=int, default=None,
+                       help='Custom port (overrides --production)')
+    args = parser.parse_args()
+
+    # Determine port
+    if args.port:
+        port = args.port
+    elif args.production:
+        port = PRODUCTION_PORT
+    else:
+        port = DEFAULT_PORT
+
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
-        port=8000,
+        port=port,
         log_level="info",
         reload=False  # Set to True for development
     )

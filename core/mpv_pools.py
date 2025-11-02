@@ -437,6 +437,7 @@ class VideoMPVPool(MPVProcessPool):
             "--vo=drm",  # DRM video output
             "--drm-device=/dev/dri/card0",
             "--drm-connector=HDMI-A-1",
+            "--fs",  # Fullscreen - critical for proper scaling!
             f"--audio-device={AUDIO_DEVICE}",
             "--hwdec=v4l2m2m",  # Hardware decoding
             "--quiet",

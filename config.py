@@ -27,6 +27,10 @@ VIDEO_POOL_SIZE = 1
 # Health Monitor Configuration
 HEALTH_CHECK_INTERVAL = 30  # seconds
 
+# Server Configuration
+DEFAULT_PORT = 8000
+PRODUCTION_PORT = 80
+
 # Explicit player command matrix for all resolutions
 OPTIMAL_PLAYER_COMMANDS = {
     # 4K UHD Commands - Optimized for smooth playback

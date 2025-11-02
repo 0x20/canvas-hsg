@@ -11,8 +11,10 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 
 ### Core Components
 
-- **StreamManager Class** (`srsserver.py:76-570`): Central orchestrator managing streaming processes, media playback, and background display
-- **FastAPI Web Server** (`srsserver.py:571-869`): REST API and web interface serving endpoints
+- **Main Application** (`main.py`): Entry point and FastAPI application setup with lifespan management
+- **MPV Pools** (`core/mpv_pools.py`): Audio and video MPV process pool management with IPC
+- **Managers** (`managers/`): Specialized managers for audio, playback, streams, display, etc.
+- **API Routes** (`api/`): RESTful API endpoints organized by functionality
 - **Web Interface** (`index.html`): Full-featured control panel for stream management
 - **Static Assets** (`static/` directory): CSS/JS resources for the web interface
 
@@ -41,16 +43,23 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 pip3 install -r requirements.txt
 
 # Run the server
-python3 srsserver.py
+python3 main.py
+
+# Or use the start script (includes AUDIO_DEVICE setup)
+./start.sh
 ```
 
 ### Server Operation
 ```bash
 # Start server (defaults to 0.0.0.0:8000)
-python3 srsserver.py
+python3 main.py
 
 # Alternative with uvicorn directly
-uvicorn srsserver:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000
+
+# With systemd
+sudo systemctl start hsg-canvas
+sudo systemctl enable hsg-canvas  # Auto-start on boot
 ```
 
 ### Key API Endpoints
@@ -73,8 +82,10 @@ SRS_HLS_URL = "http://pixelflut:8080/live"
 SRS_API_URL = "http://pixelflut:1985/api/v1"
 ```
 
-### Player Commands
-The system includes optimized configurations for each supported player in `PLAYER_COMMANDS` dict (`srsserver.py:34-56`). The "optimized" mode is recommended for Raspberry Pi performance.
+### MPV Configuration
+The system uses dedicated MPV process pools with IPC control:
+- **Audio Pool** (`core/mpv_pools.py:AudioMPVPool`): For audio-only streaming
+- **Video Pool** (`core/mpv_pools.py:VideoMPVPool`): For video playback with DRM/KMS and hardware decoding
 
 ### Display Setup
 The application supports multiple display methods:
@@ -143,11 +154,42 @@ sudo journalctl -u raspotify -f
 ### File Structure
 ```
 /home/hsg/srs_server/
-├── srsserver.py          # Main FastAPI application
-├── index.html           # Web interface
-├── requirements.txt     # Python dependencies
-├── static/             # Static assets (CSS/JS)
-└── /tmp/stream_images/ # Runtime image storage
+├── main.py                      # Entry point - FastAPI application
+├── config.py                    # Configuration constants
+├── background_modes.py          # Background manager
+├── webcast_manager.py           # Webcast functionality
+├── start.sh                     # Startup script
+│
+├── core/                        # MPV management
+│   ├── mpv_controller.py       # IPC controller for single mpv process
+│   ├── mpv_pools.py            # Audio/Video MPV pools
+│   └── health_monitor.py       # Auto-recovery for pools
+│
+├── managers/                    # Business logic
+│   ├── audio_manager.py        # Audio streaming
+│   ├── playback_manager.py     # Video/YouTube playback
+│   ├── image_manager.py        # Image/QR display
+│   ├── stream_manager.py       # Stream republishing
+│   ├── screen_stream_manager.py # Screen capture
+│   ├── display_detector.py     # Display detection
+│   ├── framebuffer_manager.py  # Framebuffer control
+│   └── hdmi_cec.py            # HDMI-CEC control
+│
+├── api/                         # API routes
+│   ├── routes_audio.py         # Audio endpoints
+│   ├── routes_playback.py      # Playback endpoints
+│   ├── routes_streams.py       # Stream endpoints
+│   ├── routes_screen.py        # Screen endpoints
+│   ├── routes_display.py       # Display endpoints
+│   ├── routes_background.py    # Background endpoints
+│   ├── routes_cec.py           # CEC endpoints
+│   ├── routes_system.py        # System endpoints
+│   └── routes_webcast.py       # Webcast endpoints
+│
+├── index.html                   # Web interface
+├── requirements.txt             # Python dependencies
+├── static/                      # Static assets (CSS/JS)
+└── /tmp/stream_images/          # Runtime image storage
 ```
 
 ## Testing & Diagnostics

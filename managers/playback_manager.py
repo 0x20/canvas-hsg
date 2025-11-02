@@ -14,7 +14,7 @@ from core.mpv_controller import MPVController
 class PlaybackManager:
     """Manages video playback using the video MPV pool"""
 
-    def __init__(self, video_pool: VideoMPVPool, display_detector, background_manager=None):
+    def __init__(self, video_pool: VideoMPVPool, display_detector, background_manager=None, audio_manager=None):
         """
         Initialize Playback Manager
 
@@ -22,10 +22,12 @@ class PlaybackManager:
             video_pool: VideoMPVPool instance for video playback
             display_detector: DisplayDetector for resolution detection
             background_manager: Optional BackgroundManager for display control
+            audio_manager: Optional AudioManager for stopping audio streams
         """
         self.video_pool = video_pool
         self.display_detector = display_detector
         self.background_manager = background_manager
+        self.audio_manager = audio_manager
 
         # Current playback state
         self.video_controller: Optional[MPVController] = None
@@ -58,6 +60,10 @@ class PlaybackManager:
             # Stop any existing playback
             if self.video_controller:
                 await self.stop_playback()
+
+            # Stop audio stream if YouTube is playing with audio enabled
+            if not mute and self.audio_manager:
+                await self.audio_manager.stop_audio_stream()
 
             # Get optimal display configuration
             optimal_connector, optimal_device = self.get_optimal_connector_and_device()
@@ -96,14 +102,45 @@ class PlaybackManager:
                 await self.video_pool.release_controller(controller)
                 return False
 
-            # Give mpv a moment to start
-            await asyncio.sleep(2)
+            # Wait for YouTube to fetch metadata and start streaming
+            # YouTube videos need more time to initialize than local files
+            await asyncio.sleep(3)
 
-            # Verify playback started
+            # Verify playback started with multiple checks
+            # Check 1: Process is still alive
+            process = self.video_pool.processes.get(controller.process_id)
+            if not process or process.poll() is not None:
+                error_output = ""
+                if process:
+                    # Try to get stderr output for debugging
+                    try:
+                        _, stderr = process.communicate(timeout=0.1)
+                        if stderr:
+                            error_output = f" - mpv error: {stderr.decode('utf-8', errors='ignore').strip()[:200]}"
+                    except:
+                        pass
+
+                logging.error(f"YouTube playback process died during startup: {youtube_url}{error_output}")
+                await self.video_pool.release_controller(controller)
+                return False
+
+            # Check 2: Video has filename/title (indicates metadata loaded)
+            filename_response = await controller.get_property("filename")
+            has_file = filename_response and filename_response.get("data")
+
+            # Check 3: Not in idle state
+            idle_response = await controller.get_property("idle-active")
+            is_idle = idle_response.get("data", True) if idle_response else True
+
+            # Check 4: Pause state (video should not be paused on start)
             pause_response = await controller.get_property("pause")
             is_paused = pause_response.get("data", True) if pause_response else True
 
-            if not is_paused:
+            playback_started = has_file and not is_idle and not is_paused
+
+            if playback_started:
+                # Video pool automatically stopped background image - seamless!
+
                 # Set current status
                 self.current_stream = f"youtube:{youtube_url}"
                 self.current_protocol = "youtube"
@@ -121,7 +158,11 @@ class PlaybackManager:
 
                 return True
             else:
-                logging.error(f"YouTube video failed to start: {youtube_url}")
+                # Log detailed failure reason
+                logging.error(
+                    f"YouTube video failed to start: {youtube_url} "
+                    f"(has_file={has_file}, is_idle={is_idle}, is_paused={is_paused})"
+                )
                 await self.video_pool.release_controller(controller)
                 if self.background_manager:
                     await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=False)
@@ -183,8 +224,11 @@ class PlaybackManager:
                 process = self.video_pool.processes.get(process_id)
 
                 if process:
-                    while process.poll() is None:
+                    # Check process validity in loop condition to handle cleanup/race conditions
+                    while process and process.poll() is None:
                         await asyncio.sleep(1)
+                        # Re-fetch process in case pool was modified
+                        process = self.video_pool.processes.get(process_id)
 
                     logging.info("YouTube playback finished, returning to background")
                     if self.current_protocol == "youtube":

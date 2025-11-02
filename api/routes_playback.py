@@ -75,6 +75,26 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         else:
             raise HTTPException(status_code=500, detail="Failed to stop playback")
 
+    @router.post("/playback/youtube/volume")
+    async def set_youtube_volume(request: dict):
+        """Set volume for YouTube playback"""
+        volume = request.get('volume', 80)
+        if not playback_manager.video_controller:
+            raise HTTPException(status_code=404, detail="No active YouTube playback")
+
+        controller = playback_manager.video_controller
+        if not controller.connected:
+            raise HTTPException(status_code=500, detail="Playback controller not available")
+
+        # Clamp volume to valid range
+        volume = max(0, min(130, volume))
+
+        result = await controller.set_property("volume", volume)
+        if result.get('error') == 'success':
+            return {"message": f"YouTube volume set to {volume}%", "volume": volume}
+        else:
+            raise HTTPException(status_code=500, detail=f"Failed to set volume: {result}")
+
     @router.post("/playback/{stream_key}/volume")
     async def set_volume(stream_key: str, volume: int):
         """Set volume for current playback"""

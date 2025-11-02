@@ -547,10 +547,15 @@
                 <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
                 <br>
                 <label style="display: inline-block; margin: 15px 0;">
-                    <input type="checkbox" id="youtubeMute" style="width: auto; margin-right: 5px;">
+                    <input type="checkbox" id="youtubeMute" style="width: auto; margin-right: 5px;" onchange="toggleYoutubeVolumeSlider()">
                     Mute video (keep audio stream playing)
                 </label>
                 <br>
+                <div id="youtubeVolumeControl" style="margin: 15px 0;">
+                    <label>Video Volume: <span id="youtubeVolumeDisplay">80</span>%</label>
+                    <input type="range" id="youtubeVolume" min="0" max="130" value="80" style="width: 200px;" disabled>
+                    <small id="youtubeVolumeHint" style="display: block; color: #888; margin-top: 5px;">Play a video to adjust volume</small>
+                </div>
                 <button onclick="playYoutube()">▶ PLAY VIDEO</button>
                 <button onclick="stopPlayback()" class="danger">⏹ STOP</button>
             </div>
@@ -1044,6 +1049,16 @@
                 await apiCall('DELETE', '/playback/stop');
                 showStatus('Playback stopped successfully', 'success');
                 refreshStatus();
+
+                // Disable volume slider when playback stops
+                const volumeSlider = document.getElementById('youtubeVolume');
+                const volumeHint = document.getElementById('youtubeVolumeHint');
+                if (volumeSlider) {
+                    volumeSlider.disabled = true;
+                }
+                if (volumeHint) {
+                    volumeHint.style.display = 'block';
+                }
             } catch (error) {
                 showStatus(`Failed to stop playback: ${error.message}`, 'error');
             } finally {
@@ -1137,6 +1152,18 @@
 
                 showStatus(`YouTube video started successfully`, 'success');
                 refreshStatus();
+
+                // Enable volume slider if video is not muted
+                if (!mute) {
+                    const volumeSlider = document.getElementById('youtubeVolume');
+                    const volumeHint = document.getElementById('youtubeVolumeHint');
+                    if (volumeSlider) {
+                        volumeSlider.disabled = false;
+                    }
+                    if (volumeHint) {
+                        volumeHint.style.display = 'none';
+                    }
+                }
 
                 urlInput.style.borderColor = '#28a745';
                 setTimeout(() => { urlInput.style.borderColor = ''; }, 3000);
@@ -1951,7 +1978,38 @@
                     }
                 });
             }
+
+            // YouTube volume slider
+            const youtubeVolumeSlider = document.getElementById('youtubeVolume');
+            const youtubeVolumeDisplay = document.getElementById('youtubeVolumeDisplay');
+
+            if (youtubeVolumeSlider && youtubeVolumeDisplay) {
+                youtubeVolumeSlider.addEventListener('input', function() {
+                    youtubeVolumeDisplay.textContent = this.value;
+                });
+
+                youtubeVolumeSlider.addEventListener('change', async function() {
+                    try {
+                        await apiCall('POST', '/playback/youtube/volume', { volume: parseInt(this.value) });
+                    } catch (error) {
+                        console.error('Failed to set YouTube volume:', error);
+                    }
+                });
+            }
+
+            // Toggle YouTube volume slider based on mute checkbox
+            toggleYoutubeVolumeSlider();
         });
+
+        // Toggle YouTube volume slider visibility
+        function toggleYoutubeVolumeSlider() {
+            const muteCheckbox = document.getElementById('youtubeMute');
+            const volumeControl = document.getElementById('youtubeVolumeControl');
+
+            if (muteCheckbox && volumeControl) {
+                volumeControl.style.display = muteCheckbox.checked ? 'none' : 'block';
+            }
+        }
 
         // Auto-refresh intervals
         setInterval(refreshStatus, 10000);

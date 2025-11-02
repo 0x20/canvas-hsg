@@ -150,7 +150,7 @@ class MPVController:
 
     async def set_property(self, property_name: str, value) -> dict:
         """Set a property value"""
-        return await self.send_command(["set", property_name, value])
+        return await self.send_command(["set_property", property_name, value])
 
     async def get_property(self, property_name: str) -> dict:
         """Get a property value"""

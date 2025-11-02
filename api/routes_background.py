@@ -90,10 +90,10 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
         """Get current background mode and status"""
         try:
             # Return background manager status
-            mode = "static" if background_manager.current_process else "none"
+            mode = "static" if background_manager.is_running else "none"
             return {
                 "mode": mode,
-                "active": background_manager.current_process is not None
+                "active": background_manager.is_running
             }
         except Exception as e:
             logging.error(f"Failed to get background status: {e}")

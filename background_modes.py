@@ -14,11 +14,12 @@ from PIL import Image
 
 class BackgroundManager:
     """Manages static background image display"""
-    
-    def __init__(self, display_detector, framebuffer_manager):
+
+    def __init__(self, display_detector, framebuffer_manager, video_pool=None):
         self.display_detector = display_detector
         self.framebuffer = framebuffer_manager
-        
+        self.video_pool = video_pool
+
         # Current state
         self.is_running = False
         
@@ -97,52 +98,20 @@ class BackgroundManager:
             img.save(str(self.current_background_path))
     
     async def _display_current_background(self) -> None:
-        """Display the current background image using MPV with DRM"""
-        import subprocess
-
+        """Display the current background image using framebuffer"""
         if not self.current_background_path.exists():
             raise RuntimeError("No background image to display")
 
-        # Kill any existing display processes
-        subprocess.run(["sudo", "pkill", "fbi"], capture_output=True)
-        subprocess.run(["sudo", "pkill", "-f", "mpv.*current_background"], capture_output=True)
+        # Use framebuffer for pixel-perfect fullscreen display
+        if self.framebuffer and self.framebuffer.is_available:
+            success = self.framebuffer.display_image(str(self.current_background_path))
+            if success:
+                logging.info("Background displayed via framebuffer (fullscreen)")
+                return
+            else:
+                logging.warning("Framebuffer display failed")
+                raise RuntimeError("Failed to display background on framebuffer")
 
-        # Start MPV with DRM (direct rendering, bypasses framebuffer)
-        subprocess.Popen([
-            "sudo", "mpv", "--vo=drm", "--fs", "--quiet", "--loop=inf",
-            "--no-input-default-bindings", "--no-osc", str(self.current_background_path)
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        logging.info("Background displayed with MPV DRM")
-    
-    async def _display_with_image_viewer(self) -> None:
-        """Display background using image viewer fallback"""
-        viewers = ["feh", "eog", "gpicview"]
-        
-        for viewer in viewers:
-            try:
-                import subprocess
-                # Check if viewer is available
-                result = await asyncio.create_subprocess_exec(
-                    "which", viewer,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                await result.wait()
-                
-                if result.returncode == 0:
-                    # Start viewer
-                    cmd = [viewer, "--fullscreen", "--auto-zoom", str(self.current_background_path)]
-                    process = await asyncio.create_subprocess_exec(*cmd)
-                    logging.info(f"Started background display with {viewer}")
-                    return
-                    
-            except Exception as e:
-                logging.warning(f"Failed to start {viewer}: {e}")
-                continue
-        
-        logging.error("No suitable image viewer found")
-    
     def set_background_image(self, image_path: str) -> bool:
         """Set the static background image path"""
         try:
@@ -214,9 +183,10 @@ class BackgroundManager:
             return Image.new('RGB', (target_width, target_height), (0, 0, 0))
     
     async def stop(self) -> None:
-        """Stop background display"""
+        """Stop background display (video pool handles this automatically)"""
+        # No need to do anything - video pool will switch content when needed
         self.is_running = False
-        logging.info("Background manager stopped")
+        logging.info("Background manager stopped (video pool will handle content switch)")
     
     def is_active(self) -> bool:
         """Check if background display is active"""
