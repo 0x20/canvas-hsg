@@ -77,7 +77,7 @@ class MPVProcessPool:
             # Start mpv process
             env = os.environ.copy()
             env.update({
-                'DRM_DEVICE': '/dev/dri/card0',
+                'DRM_DEVICE': '/dev/dri/card1',  # FIXED: Display is on card1
                 'DRM_CONNECTOR': 'HDMI-A-1'
             })
 
@@ -435,8 +435,9 @@ class VideoMPVPool(MPVProcessPool):
         return [
             "mpv",
             "--vo=drm",  # DRM video output
-            "--drm-device=/dev/dri/card0",
+            "--drm-device=/dev/dri/card1",  # FIXED: Display is on card1, not card0!
             "--drm-connector=HDMI-A-1",
+            "--drm-mode=1920x1200",  # Force native display resolution!
             "--fs",  # Fullscreen - critical for proper scaling!
             f"--audio-device={AUDIO_DEVICE}",
             "--hwdec=v4l2m2m",  # Hardware decoding

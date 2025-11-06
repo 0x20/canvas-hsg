@@ -36,17 +36,21 @@ class BackgroundManager:
         self.temp_dir.mkdir(exist_ok=True)
         self.current_background_path = self.temp_dir / "current_background.png"
     
-    async def start_static_mode(self) -> bool:
-        """Start static background display"""
+    async def start_static_mode(self, force_redisplay: bool = False) -> bool:
+        """Start static background display
+
+        Args:
+            force_redisplay: If True, redisplay even if already running
+        """
         try:
-            if self.is_running:
+            if self.is_running and not force_redisplay:
                 return True
-            
+
             logging.info("Starting static background mode")
             await self._start_static_mode()
             self.is_running = True
             return True
-            
+
         except Exception as e:
             logging.error(f"Failed to start static background mode: {e}")
             return False
@@ -98,19 +102,30 @@ class BackgroundManager:
             img.save(str(self.current_background_path))
     
     async def _display_current_background(self) -> None:
-        """Display the current background image using framebuffer"""
+        """Display the current background image using video pool mpv (seamless!)"""
         if not self.current_background_path.exists():
             raise RuntimeError("No background image to display")
 
-        # Use framebuffer for pixel-perfect fullscreen display
-        if self.framebuffer and self.framebuffer.is_available:
-            success = self.framebuffer.display_image(str(self.current_background_path))
-            if success:
-                logging.info("Background displayed via framebuffer (fullscreen)")
-                return
-            else:
-                logging.warning("Framebuffer display failed")
-                raise RuntimeError("Failed to display background on framebuffer")
+        # Use video pool to display background - seamless content switching!
+        if not self.video_pool or not self.video_pool.processes:
+            raise RuntimeError("Video pool not available for background display")
+
+        # Get idle controller from video pool
+        controller = await self.video_pool.get_available_controller()
+        if not controller:
+            raise RuntimeError("No available video pool controller for background")
+
+        # Configure fullscreen display settings - CRITICAL for true fullscreen!
+        await controller.send_command(["set", "fullscreen", "yes"])
+        await controller.send_command(["set", "loop-file", "inf"])
+
+        # Load background image - will display fullscreen
+        await controller.send_command(["loadfile", str(self.current_background_path)])
+
+        # Release controller back to pool (it keeps playing the background)
+        await self.video_pool.release_controller(controller)
+
+        logging.info("Background displayed using video pool (seamless content switching)")
 
     def set_background_image(self, image_path: str) -> bool:
         """Set the static background image path"""

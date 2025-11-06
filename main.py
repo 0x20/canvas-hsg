@@ -113,7 +113,7 @@ async def lifespan(app: FastAPI):
         logging.info("Initializing managers...")
         audio_manager = AudioManager(audio_pool)
         playback_manager = PlaybackManager(video_pool, display_detector, background_manager, audio_manager)
-        image_manager = ImageManager(display_detector)
+        image_manager = ImageManager(display_detector, framebuffer_manager, video_pool)
         stream_manager = StreamManager()
         screen_stream_manager = ScreenStreamManager(display_detector)
 
@@ -131,7 +131,7 @@ async def lifespan(app: FastAPI):
         app.include_router(setup_playback_routes(playback_manager))
         app.include_router(setup_stream_routes(stream_manager))
         app.include_router(setup_screen_routes(screen_stream_manager))
-        app.include_router(setup_display_routes(image_manager))
+        app.include_router(setup_display_routes(image_manager, background_manager))
         app.include_router(setup_background_routes(background_manager))
         app.include_router(setup_cec_routes(cec_manager))
         app.include_router(setup_system_routes(audio_pool, video_pool, display_detector))

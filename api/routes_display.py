@@ -17,12 +17,13 @@ if TYPE_CHECKING:
 router = APIRouter()
 
 
-def setup_display_routes(image_manager: 'ImageManager') -> APIRouter:
+def setup_display_routes(image_manager: 'ImageManager', background_manager=None) -> APIRouter:
     """
     Setup display routes with dependency injection
 
     Args:
         image_manager: ImageManager instance for image/QR display
+        background_manager: BackgroundManager for auto-return to background
 
     Returns:
         Configured APIRouter
@@ -31,8 +32,7 @@ def setup_display_routes(image_manager: 'ImageManager') -> APIRouter:
     @router.post("/display/qrcode")
     async def display_qr_code(request: QRCodeRequest):
         """Generate and display a QR code with text overlay"""
-        # Note: stop_all_visual_content() will be called by unified manager in main.py
-        success = await image_manager.display_qr_code(request.content, request.duration)
+        success = await image_manager.display_qr_code(request.content, request.duration, background_manager)
         if success:
             duration_text = f" for {request.duration}s" if request.duration else " (forever)"
             return {"message": f"Displaying QR code for '{request.content}'{duration_text}"}
@@ -53,7 +53,7 @@ def setup_display_routes(image_manager: 'ImageManager') -> APIRouter:
             with open(image_path, "wb") as f:
                 f.write(image_data)
 
-            success = await image_manager.display_image(str(image_path), duration)
+            success = await image_manager.display_image(str(image_path), duration, background_manager)
 
             if success:
                 return {"message": f"Displaying image for {duration} seconds", "path": str(image_path)}
@@ -66,7 +66,7 @@ def setup_display_routes(image_manager: 'ImageManager') -> APIRouter:
     @router.post("/display/image/base64")
     async def display_image_base64(request: ImageDisplayRequest):
         """Display a base64 encoded image"""
-        success = await image_manager.save_and_display_image(request.image_data, request.duration)
+        success = await image_manager.save_and_display_image(request.image_data, request.duration, background_manager)
         if success:
             return {"message": f"Displaying image for {request.duration} seconds"}
         else:

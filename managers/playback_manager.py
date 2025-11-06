@@ -81,8 +81,8 @@ class PlaybackManager:
             logging.info(f"Starting YouTube video using video pool: {youtube_url}")
 
             # Configure playback settings via IPC
-            await controller.send_command(["set", "drm-connector", optimal_connector])
-            await controller.send_command(["set", "drm-device", optimal_device])
+            # NOTE: DRM device/connector are already set at mpv launch time and cannot be changed at runtime.
+            # However, we still need to set fullscreen and other properties before loadfile.
             await controller.send_command(["set", "fullscreen", "yes"])
             await controller.send_command(["set", "ytdl-format", youtube_quality])
 
@@ -95,48 +95,75 @@ class PlaybackManager:
                 await controller.send_command(["set", "end", str(duration)])
 
             # Load the YouTube video
+            logging.info(f"Sending loadfile command for: {youtube_url}")
             result = await controller.send_command(["loadfile", youtube_url])
+            logging.info(f"Loadfile result: {result}")
+
             if result.get("error") and result.get("error") != "success":
                 error_msg = result.get("error", "Unknown loadfile error")
                 logging.error(f"Failed to load YouTube video {youtube_url}: {error_msg}")
                 await self.video_pool.release_controller(controller)
                 return False
 
-            # Wait for YouTube to fetch metadata and start streaming
-            # YouTube videos need more time to initialize than local files
-            await asyncio.sleep(3)
+            # Poll for playback to start instead of fixed wait time
+            # YouTube needs time for: yt-dlp metadata fetch, stream selection, buffering, decoding
+            max_wait_time = 15  # Maximum seconds to wait for playback to start
+            poll_interval = 0.5  # Check every 0.5 seconds
+            elapsed_time = 0
+            playback_started = False
 
-            # Verify playback started with multiple checks
-            # Check 1: Process is still alive
-            process = self.video_pool.processes.get(controller.process_id)
-            if not process or process.poll() is not None:
-                error_output = ""
-                if process:
-                    # Try to get stderr output for debugging
-                    try:
-                        _, stderr = process.communicate(timeout=0.1)
-                        if stderr:
-                            error_output = f" - mpv error: {stderr.decode('utf-8', errors='ignore').strip()[:200]}"
-                    except:
-                        pass
+            logging.info(f"Waiting for YouTube video to start (max {max_wait_time}s): {youtube_url}")
 
-                logging.error(f"YouTube playback process died during startup: {youtube_url}{error_output}")
-                await self.video_pool.release_controller(controller)
-                return False
+            while elapsed_time < max_wait_time:
+                await asyncio.sleep(poll_interval)
+                elapsed_time += poll_interval
 
-            # Check 2: Video has filename/title (indicates metadata loaded)
-            filename_response = await controller.get_property("filename")
-            has_file = filename_response and filename_response.get("data")
+                # Check 1: Process is still alive
+                process = self.video_pool.processes.get(controller.process_id)
+                if not process or process.poll() is not None:
+                    error_output = ""
+                    if process:
+                        # Try to get stderr output for debugging
+                        try:
+                            _, stderr = process.communicate(timeout=0.1)
+                            if stderr:
+                                error_output = f" - mpv error: {stderr.decode('utf-8', errors='ignore').strip()[:200]}"
+                        except:
+                            pass
 
-            # Check 3: Not in idle state
-            idle_response = await controller.get_property("idle-active")
-            is_idle = idle_response.get("data", True) if idle_response else True
+                    logging.error(f"YouTube playback process died during startup: {youtube_url}{error_output}")
+                    await self.video_pool.release_controller(controller)
+                    return False
 
-            # Check 4: Pause state (video should not be paused on start)
-            pause_response = await controller.get_property("pause")
-            is_paused = pause_response.get("data", True) if pause_response else True
+                # Check 2: Video has filename/title (indicates metadata loaded)
+                filename_response = await controller.get_property("filename")
+                has_file = filename_response and filename_response.get("data")
 
-            playback_started = has_file and not is_idle and not is_paused
+                # Check 3: Not in idle state
+                idle_response = await controller.get_property("idle-active")
+                is_idle = idle_response.get("data", True) if idle_response else True
+
+                # Check 4: Pause state (video should not be paused on start)
+                pause_response = await controller.get_property("pause")
+                is_paused = pause_response.get("data", True) if pause_response else True
+
+                # Check 5: Playback time is progressing (frames actually rendering)
+                time_pos_response = await controller.get_property("time-pos")
+                time_pos = time_pos_response.get("data") if time_pos_response else None
+                has_progressed = time_pos is not None and time_pos > 0.1  # At least 0.1s of video played
+
+                # Check if playback has actually started AND frames are rendering
+                if has_file and not is_idle and not is_paused and has_progressed:
+                    playback_started = True
+                    logging.info(f"YouTube video playback confirmed with frames rendering after {elapsed_time:.1f}s (time-pos: {time_pos:.2f}s)")
+
+                    # Give it a bit more time to stabilize display pipeline
+                    await asyncio.sleep(0.5)
+                    break
+
+                # Log detailed state for debugging if we have file but not playing yet
+                if has_file and elapsed_time > 2:
+                    logging.debug(f"YouTube startup at {elapsed_time:.1f}s: has_file={has_file}, is_idle={is_idle}, is_paused={is_paused}, time_pos={time_pos}")
 
             if playback_started:
                 # Video pool automatically stopped background image - seamless!
@@ -158,10 +185,19 @@ class PlaybackManager:
 
                 return True
             else:
-                # Log detailed failure reason
+                # Log detailed failure reason with timeout info
+                # Get final state for debugging
+                final_filename = await controller.get_property("filename")
+                final_idle = await controller.get_property("idle-active")
+                final_pause = await controller.get_property("pause")
+
+                has_file_final = final_filename and final_filename.get("data")
+                is_idle_final = final_idle.get("data", True) if final_idle else True
+                is_paused_final = final_pause.get("data", True) if final_pause else True
+
                 logging.error(
-                    f"YouTube video failed to start: {youtube_url} "
-                    f"(has_file={has_file}, is_idle={is_idle}, is_paused={is_paused})"
+                    f"YouTube video failed to start after {elapsed_time:.1f}s timeout: {youtube_url} "
+                    f"(has_file={has_file_final}, is_idle={is_idle_final}, is_paused={is_paused_final})"
                 )
                 await self.video_pool.release_controller(controller)
                 if self.background_manager:
