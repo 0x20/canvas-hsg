@@ -10,8 +10,8 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
-from core.mpv_pools import AudioMPVPool
-from core.mpv_controller import MPVController
+from managers.mpv_pools import AudioMPVPool
+from managers.mpv_controller import MPVController
 from config import AUDIO_DEVICE
 
 

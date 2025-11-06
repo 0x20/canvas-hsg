@@ -7,8 +7,8 @@ import asyncio
 import logging
 from typing import Optional
 
-from core.mpv_pools import VideoMPVPool
-from core.mpv_controller import MPVController
+from managers.mpv_pools import VideoMPVPool
+from managers.mpv_controller import MPVController
 
 
 class PlaybackManager:

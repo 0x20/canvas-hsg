@@ -13,34 +13,32 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-# Core components
-from core.mpv_pools import AudioMPVPool, VideoMPVPool
-from core.health_monitor import mpv_pool_health_monitor
-
 # Managers
+from managers.mpv_pools import AudioMPVPool, VideoMPVPool
+from managers.health_monitor import mpv_pool_health_monitor
 from managers.audio_manager import AudioManager
 from managers.playback_manager import PlaybackManager
 from managers.image_manager import ImageManager
 from managers.stream_manager import StreamManager
 from managers.screen_stream_manager import ScreenStreamManager
-
-# System components
 from managers.display_detector import DisplayCapabilityDetector
 from managers.framebuffer_manager import FramebufferManager
 from managers.hdmi_cec import HDMICECManager
-from background_modes import BackgroundManager
-from webcast_manager import WebcastManager
+from managers.background_modes import BackgroundManager
+from managers.webcast_manager import WebcastManager
 
 # API routes
-from api.routes_audio import setup_audio_routes
-from api.routes_playback import setup_playback_routes
-from api.routes_streams import setup_stream_routes
-from api.routes_screen import setup_screen_routes
-from api.routes_display import setup_display_routes
-from api.routes_background import setup_background_routes
-from api.routes_cec import setup_cec_routes
-from api.routes_system import setup_system_routes
-from api.routes_webcast import setup_webcast_routes
+from routes import (
+    setup_audio_routes,
+    setup_playback_routes,
+    setup_stream_routes,
+    setup_screen_routes,
+    setup_display_routes,
+    setup_background_routes,
+    setup_cec_routes,
+    setup_system_routes,
+    setup_webcast_routes
+)
 
 # Config
 from config import AUDIO_POOL_SIZE, VIDEO_POOL_SIZE, DEFAULT_PORT, PRODUCTION_PORT
