@@ -13,7 +13,8 @@ SRS_HLS_URL = f"http://{HOST}:8080/live"
 SRS_API_URL = f"http://{HOST}:1985/api/v1"
 
 # Audio Configuration
-AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "alsa/sysdefault:CARD=3")
+# Use pulse (PipeWire) instead of direct ALSA to avoid conflicts with Raspotify
+AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "pulse")
 
 # Paths
 DEFAULT_BACKGROUND_PATH = "/home/hsg/srs_server/canvas_background.png"

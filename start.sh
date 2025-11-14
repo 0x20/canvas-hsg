@@ -10,8 +10,8 @@ rm -f /tmp/audio-mpv-pool-* /tmp/video-mpv-pool-* 2>/dev/null || true
 # Brief pause to ensure cleanup completes
 sleep 0.5
 
-# Set audio device to use DAC on card 3 by default
-export AUDIO_DEVICE="alsa/sysdefault:CARD=3"
+# Set audio device to use PulseAudio/PipeWire (avoids conflicts with Raspotify)
+export AUDIO_DEVICE="pulse"
 
 # Start the application
 # Note: When run via systemd, we're already the correct user, so no sudo needed
