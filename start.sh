@@ -14,4 +14,11 @@ sleep 0.5
 export AUDIO_DEVICE="alsa/sysdefault:CARD=3"
 
 # Start the application
-sudo -E .venv/bin/python main.py --production
+# Note: When run via systemd, we're already the correct user, so no sudo needed
+if [ -n "$INVOCATION_ID" ]; then
+    # Running under systemd
+    exec .venv/bin/python main.py --production
+else
+    # Running manually, use sudo
+    sudo -E .venv/bin/python main.py --production
+fi

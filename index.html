@@ -527,6 +527,67 @@
             color: #fff;
             padding: 5px;
         }
+
+        /* Audio Toggle Switch */
+        .audio-toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 80px;
+            height: 40px;
+        }
+
+        .audio-toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, rgba(114, 9, 183, 0.3) 0%, rgba(20, 20, 40, 0.8) 100%);
+            transition: 0.4s;
+            border-radius: 34px;
+            border: 2px solid var(--neon-purple);
+            box-shadow: 0 0 10px rgba(114, 9, 183, 0.3);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 28px;
+            width: 28px;
+            left: 4px;
+            bottom: 4px;
+            background: linear-gradient(135deg, var(--neon-purple) 0%, #7209b7 100%);
+            transition: 0.4s;
+            border-radius: 50%;
+            box-shadow: 0 0 15px rgba(114, 9, 183, 0.5);
+        }
+
+        input:checked + .toggle-slider {
+            background: linear-gradient(135deg, rgba(0, 255, 255, 0.3) 0%, rgba(20, 40, 60, 0.8) 100%);
+            border-color: var(--neon-cyan);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
+        }
+
+        input:checked + .toggle-slider:before {
+            transform: translateX(40px);
+            background: linear-gradient(135deg, var(--neon-cyan) 0%, #00d9ff 100%);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
+        }
+
+        .toggle-slider:hover {
+            box-shadow: 0 0 20px rgba(114, 9, 183, 0.6);
+        }
+
+        input:checked + .toggle-slider:hover {
+            box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
+        }
     </style>
 </head>
 <body>
@@ -539,25 +600,61 @@
 
         <!-- Hero Section: YouTube & Audio (Primary Focus) -->
         <div class="hero">
-            <!-- YouTube Playback -->
+            <!-- Unified Video Playback -->
             <div class="card">
-                <h2>📺 YOUTUBE PLAYBACK</h2>
-                <p>Stream YouTube videos directly to your display</p>
-                <input type="url" id="youtubeUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; max-width: 400px;">
-                <input type="number" id="youtubeDuration" placeholder="Duration (seconds, optional)" min="1" max="7200">
-                <br>
-                <label style="display: inline-block; margin: 15px 0;">
-                    <input type="checkbox" id="youtubeMute" style="width: auto; margin-right: 5px;" onchange="toggleYoutubeVolumeSlider()">
-                    Mute video (keep audio stream playing)
-                </label>
-                <br>
-                <div id="youtubeVolumeControl" style="margin: 15px 0;">
-                    <label>Video Volume: <span id="youtubeVolumeDisplay">80</span>%</label>
-                    <input type="range" id="youtubeVolume" min="0" max="130" value="80" style="width: 200px;" disabled>
-                    <small id="youtubeVolumeHint" style="display: block; color: #888; margin-top: 5px;">Play a video to adjust volume</small>
+                <h2>📺 VIDEO PLAYBACK</h2>
+                <p>Stream YouTube videos with or without audio</p>
+
+                <!-- Preset Selection -->
+                <div style="margin-bottom: 10px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Quick select (auto-starts):</label>
+                    <select id="videoPresets" style="width: 100%; max-width: 400px;" onchange="onVideoPresetChange()">
+                        <option value="">Choose preset...</option>
+                        <optgroup label="24/7 Live Streams">
+                            <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
+                            <option value="https://www.youtube.com/watch?v=36YnV9STBqc">The Good Life Radio</option>
+                            <option value="https://www.youtube.com/watch?v=5yx6BWlEVcY">Chillhop Radio</option>
+                        </optgroup>
+                        <optgroup label="Nature & Relaxation">
+                            <option value="https://www.youtube.com/watch?v=UgHKb_7884o">Relaxing Fireplace (12h)</option>
+                            <option value="https://www.youtube.com/watch?v=UVfex2bCJCQ">8K Yule Log (8h)</option>
+                        </optgroup>
+                    </select>
                 </div>
-                <button onclick="playYoutube()">▶ PLAY VIDEO</button>
-                <button onclick="stopPlayback()" class="danger">⏹ STOP</button>
+
+                <!-- URL Input (Always Visible) -->
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Or enter any URL:</label>
+                    <input type="url" id="customVideoUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; max-width: 400px;">
+                </div>
+
+                <!-- Audio Toggle and Duration (Same Line) -->
+                <div style="margin: 20px 0; padding: 15px; background: rgba(114, 9, 183, 0.1); border-radius: 8px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+                        <!-- Audio Toggle -->
+                        <div style="display: flex; align-items: center; gap: 15px;">
+                            <span style="font-weight: bold; font-size: 1rem; color: #888;">MUTED</span>
+                            <label class="audio-toggle-switch">
+                                <input type="checkbox" id="videoAudioEnabled">
+                                <span class="toggle-slider"></span>
+                            </label>
+                            <span style="font-weight: bold; font-size: 1rem;">AUDIO</span>
+                        </div>
+
+                        <!-- Duration Input -->
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <label style="font-weight: bold; white-space: nowrap;">Duration (s):</label>
+                            <input type="number" id="videoDuration" placeholder="blank = continuous" min="1" max="7200" style="width: 150px;">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Controls -->
+                <div style="margin-top: 15px;">
+                    <button onclick="playVideo()" style="font-size: 1.1rem; padding: 12px 24px;">▶ PLAY VIDEO</button>
+                    <button onclick="stopVideo()" class="danger" style="font-size: 1.1rem; padding: 12px 24px;">⏹ STOP</button>
+                </div>
+                <div id="videoStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
             </div>
 
             <!-- Audio Streaming -->
@@ -587,38 +684,6 @@
                 <button onclick="startAudioStream()">▶ START AUDIO</button>
                 <button onclick="stopAudioStream()" class="danger">⏹ STOP</button>
                 <div id="audioStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
-
-                <!-- Background Video Selection -->
-                <div style="margin-top: 20px; border-top: 1px solid rgba(114, 9, 183, 0.3); padding-top: 20px;">
-                    <h3 style="font-family: 'Orbitron', sans-serif; color: var(--neon-pink); font-size: 1.2rem; margin-bottom: 15px;">🎬 BACKGROUND VIDEO</h3>
-                    <p style="font-size: 0.9rem; margin-bottom: 15px;">Long-running YouTube videos for visuals while audio plays</p>
-
-                    <select id="backgroundVideoPresets" style="width: 100%; max-width: 400px; margin-bottom: 10px;" onchange="onBackgroundVideoPresetChange()">
-                        <option value="">Select background video...</option>
-                        <optgroup label="24/7 Live Streams">
-                            <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
-                            <option value="https://www.youtube.com/watch?v=36YnV9STBqc">The Good Life Radio</option>
-                            <option value="https://www.youtube.com/watch?v=5yx6BWlEVcY">Chillhop Radio</option>
-                        </optgroup>
-                        <optgroup label="Nature & Relaxation">
-                            <option value="https://www.youtube.com/watch?v=UgHKb_7884o">Relaxing Fireplace (12h)</option>
-                            <option value="https://www.youtube.com/watch?v=UVfex2bCJCQ">8K Yule Log (8h)</option>
-                        </optgroup>
-                        <optgroup label="Custom">
-                            <option value="custom">Enter custom URL...</option>
-                        </optgroup>
-                    </select>
-
-                    <div id="customUrlSection" style="display: none; margin-bottom: 10px;">
-                        <input type="url" id="backgroundVideoUrl" placeholder="YouTube URL..." style="width: 100%; max-width: 400px;">
-                    </div>
-
-                    <div style="margin-top: 10px;">
-                        <button onclick="startBackgroundVideoFromSelection()">▶ START VIDEO</button>
-                        <button onclick="stopBackgroundVideo()" class="danger">⏹ STOP</button>
-                    </div>
-                    <div id="backgroundVideoStatus" style="margin-top: 10px; font-size: 14px; color: var(--neon-cyan);"></div>
-                </div>
             </div>
         </div>
 
@@ -866,33 +931,6 @@
                     </div>
                 </div>
 
-                <!-- Background Video Selection -->
-                <div class="card">
-                    <h2>🎬 BACKGROUND VIDEO</h2>
-                    <p>Long-running YouTube videos for visuals</p>
-                    <select id="backgroundVideoPresets" style="width: 100%; max-width: 400px;" onchange="onBackgroundVideoPresetChange()">
-                        <option value="">Select background video...</option>
-                        <optgroup label="24/7 Live Streams">
-                            <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
-                            <option value="https://www.youtube.com/watch?v=36YnV9STBqc">The Good Life Radio</option>
-                            <option value="https://www.youtube.com/watch?v=5yx6BWlEVcY">Chillhop Radio</option>
-                        </optgroup>
-                        <optgroup label="Nature & Relaxation">
-                            <option value="https://www.youtube.com/watch?v=UgHKb_7884o">Relaxing Fireplace (12h)</option>
-                            <option value="https://www.youtube.com/watch?v=UVfex2bCJCQ">8K Yule Log (8h)</option>
-                        </optgroup>
-                        <optgroup label="Custom">
-                            <option value="custom">Enter custom URL...</option>
-                        </optgroup>
-                    </select>
-                    <div id="customUrlSection" style="display: none; margin: 15px 0;">
-                        <input type="url" id="backgroundVideoUrl" placeholder="YouTube URL..." style="width: 100%; max-width: 400px;">
-                    </div>
-                    <br>
-                    <button onclick="startBackgroundVideoFromSelection()">▶ START VIDEO</button>
-                    <button onclick="stopBackgroundVideo()" class="danger">⏹ STOP</button>
-                    <div id="backgroundVideoStatus" style="margin-top: 10px; color: var(--neon-cyan);"></div>
-                </div>
             </div>
         </div>
     </div>
@@ -1049,16 +1087,6 @@
                 await apiCall('DELETE', '/playback/stop');
                 showStatus('Playback stopped successfully', 'success');
                 refreshStatus();
-
-                // Disable volume slider when playback stops
-                const volumeSlider = document.getElementById('youtubeVolume');
-                const volumeHint = document.getElementById('youtubeVolumeHint');
-                if (volumeSlider) {
-                    volumeSlider.disabled = true;
-                }
-                if (volumeHint) {
-                    volumeHint.style.display = 'block';
-                }
             } catch (error) {
                 showStatus(`Failed to stop playback: ${error.message}`, 'error');
             } finally {
@@ -1117,65 +1145,99 @@
             }
         }
 
-        async function playYoutube() {
-            const playButton = event ? event.target : document.querySelector('button[onclick="playYoutube()"]');
-            const youtubeCard = playButton.closest('.card');
-            const urlInput = document.getElementById('youtubeUrl');
+        // Unified Video Playback Functions
+        function onVideoPresetChange() {
+            const dropdown = document.getElementById('videoPresets');
+            const customUrlInput = document.getElementById('customVideoUrl');
 
-            clearValidationErrors(youtubeCard);
+            // If a preset is selected, auto-fill URL and start playback
+            if (dropdown.value && dropdown.value.startsWith('http')) {
+                customUrlInput.value = dropdown.value;
+                playVideo();
 
-            const youtubeUrl = urlInput.value.trim();
-            const duration = document.getElementById('youtubeDuration').value;
-            const mute = document.getElementById('youtubeMute').checked;
+                // Reset dropdown to allow re-selection
+                dropdown.value = "";
+            }
+        }
+
+        async function playVideo() {
+            const playButton = event ? event.target : document.querySelector('button[onclick="playVideo()"]');
+            const videoCard = playButton ? playButton.closest('.card') : null;
+            const statusDiv = document.getElementById('videoStatus');
 
             try {
-                setButtonLoading(playButton, true);
-                const muteText = mute ? ' (muted)' : '';
+                if (playButton) setButtonLoading(playButton, true);
 
-                if (!youtubeUrl || !youtubeUrl.trim()) {
-                    showValidationError(youtubeCard, 'Please enter a YouTube URL');
+                // Get video URL from URL input (always visible)
+                const customUrlInput = document.getElementById('customVideoUrl');
+                const videoUrl = customUrlInput.value.trim();
+
+                // Validate URL
+                if (!videoUrl) {
+                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a valid URL</span>';
                     return;
                 }
 
                 const urlRegex = /^https?:\/\/[^\s]+$/;
-                if (!urlRegex.test(youtubeUrl)) {
-                    showValidationError(youtubeCard, 'Please enter a valid URL starting with http:// or https://');
+                if (!urlRegex.test(videoUrl)) {
+                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a valid URL starting with http:// or https://</span>';
                     return;
                 }
 
-                showStatus(`Starting YouTube video${muteText}...`, 'success');
+                // Get video title from dropdown if it matches, otherwise use "Custom Video"
+                const dropdown = document.getElementById('videoPresets');
+                let videoTitle = 'Custom Video';
+                if (dropdown.value === videoUrl) {
+                    videoTitle = dropdown.options[dropdown.selectedIndex].text;
+                }
 
-                const data = { youtube_url: youtubeUrl, mute: mute };
+                // Get settings
+                const audioEnabled = document.getElementById('videoAudioEnabled').checked;
+                const duration = document.getElementById('videoDuration').value;
+
+                statusDiv.innerHTML = `<span>Starting video playback...</span>`;
+
+                // Build request data
+                const data = {
+                    youtube_url: videoUrl,
+                    mute: !audioEnabled  // Invert because API expects "mute"
+                };
                 if (duration) data.duration = parseInt(duration);
 
                 await apiCall('POST', '/playback/youtube', data);
 
-                showStatus(`YouTube video started successfully`, 'success');
+                const audioText = audioEnabled ? ' with audio' : ' (muted)';
+                statusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Playing: ${videoTitle}${audioText}</span>`;
+                showStatus('Video started successfully', 'success');
                 refreshStatus();
 
-                // Enable volume slider if video is not muted
-                if (!mute) {
-                    const volumeSlider = document.getElementById('youtubeVolume');
-                    const volumeHint = document.getElementById('youtubeVolumeHint');
-                    if (volumeSlider) {
-                        volumeSlider.disabled = false;
-                    }
-                    if (volumeHint) {
-                        volumeHint.style.display = 'none';
-                    }
-                }
+            } catch (error) {
+                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to start: ${error.message}</span>`;
+                showStatus(`Video playback failed: ${error.message}`, 'error');
+            } finally {
+                if (playButton) setButtonLoading(playButton, false);
+            }
+        }
 
-                urlInput.style.borderColor = '#28a745';
-                setTimeout(() => { urlInput.style.borderColor = ''; }, 3000);
+        async function stopVideo() {
+            const stopButton = event ? event.target : document.querySelector('button[onclick="stopVideo()"]');
+            const statusDiv = document.getElementById('videoStatus');
+
+            try {
+                setButtonLoading(stopButton, true);
+                statusDiv.innerHTML = '<span>Stopping video...</span>';
+
+                await apiCall('DELETE', '/playback/stop');
+
+                statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Video stopped</span>';
+                showStatus('Video stopped', 'success');
+                refreshStatus();
 
             } catch (error) {
-                showValidationError(youtubeCard, `Failed to play YouTube video: ${error.message}`);
-                showStatus(`YouTube playback failed: ${error.message}`, 'error');
-
-                urlInput.style.borderColor = '#dc3545';
-                setTimeout(() => { urlInput.style.borderColor = ''; }, 3000);
+                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to stop: ${error.message}</span>`;
+                showStatus(`Failed to stop video: ${error.message}`, 'error');
             } finally {
-                setButtonLoading(playButton, false);
+                setButtonLoading(stopButton, false);
             }
         }
 
@@ -1310,102 +1372,6 @@
             }
         }
 
-        // Background video functions
-        function onBackgroundVideoPresetChange() {
-            const dropdown = document.getElementById('backgroundVideoPresets');
-            const customUrlSection = document.getElementById('customUrlSection');
-            const statusDiv = document.getElementById('backgroundVideoStatus');
-
-            if (dropdown.value === 'custom') {
-                customUrlSection.style.display = 'block';
-                statusDiv.innerHTML = '<span>Enter a custom YouTube URL below</span>';
-            } else if (dropdown.value === '') {
-                customUrlSection.style.display = 'none';
-                statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Please select a video option</span>';
-            } else if (dropdown.value.startsWith('http')) {
-                customUrlSection.style.display = 'none';
-                const videoTitle = dropdown.options[dropdown.selectedIndex].text;
-                statusDiv.innerHTML = `<span>Selected: ${videoTitle}</span>`;
-            }
-        }
-
-        async function startBackgroundVideoFromSelection() {
-            const startButton = event ? event.target : document.querySelector('button[onclick="startBackgroundVideoFromSelection()"]');
-            const dropdown = document.getElementById('backgroundVideoPresets');
-            const urlInput = document.getElementById('backgroundVideoUrl');
-            const statusDiv = document.getElementById('backgroundVideoStatus');
-
-            let videoUrl = '';
-            let videoTitle = '';
-
-            if (dropdown.value === 'custom') {
-                videoUrl = urlInput.value.trim();
-                videoTitle = 'Custom Video';
-            } else if (dropdown.value && dropdown.value.startsWith('http')) {
-                videoUrl = dropdown.value;
-                videoTitle = dropdown.options[dropdown.selectedIndex].text;
-            } else if (dropdown.value === '') {
-                statusDiv.innerHTML = '<span style="color: #dc3545;">Please select a background video from the dropdown</span>';
-                return;
-            }
-
-            try {
-                setButtonLoading(startButton, true);
-
-                if (!videoUrl || !videoUrl.trim()) {
-                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a video URL</span>';
-                    return;
-                }
-
-                const urlRegex = /^https?:\/\/[^\s]+$/;
-                if (!urlRegex.test(videoUrl)) {
-                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a valid URL</span>';
-                    return;
-                }
-
-                statusDiv.innerHTML = '<span>Starting background video...</span>';
-
-                const data = {
-                    youtube_url: videoUrl,
-                    mute: true
-                };
-
-                await apiCall('POST', '/playback/youtube', data);
-
-                statusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">🎬 Playing: ${videoTitle}</span>`;
-                showStatus('Background video started', 'success');
-                refreshStatus();
-
-            } catch (error) {
-                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to start: ${error.message}</span>`;
-                showStatus(`Background video failed: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(startButton, false);
-            }
-        }
-
-        async function stopBackgroundVideo() {
-            const stopButton = event ? event.target : document.querySelector('button[onclick="stopBackgroundVideo()"]');
-
-            try {
-                setButtonLoading(stopButton, true);
-                const statusDiv = document.getElementById('backgroundVideoStatus');
-                statusDiv.innerHTML = '<span>Stopping background video...</span>';
-
-                await apiCall('DELETE', '/playback/stop');
-
-                statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Background video stopped</span>';
-                showStatus('Background video stopped', 'success');
-                refreshStatus();
-
-            } catch (error) {
-                const statusDiv = document.getElementById('backgroundVideoStatus');
-                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to stop: ${error.message}</span>`;
-                showStatus(`Failed to stop background video: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(stopButton, false);
-            }
-        }
 
         // Background management
         async function setBackground() {
@@ -1934,11 +1900,15 @@
                     }
                 }
 
-                const backgroundVideoPresets = document.getElementById('backgroundVideoPresets');
-                if (backgroundVideoPresets && mediaSources.youtube_channels) {
-                    while (backgroundVideoPresets.children.length > 1) {
-                        backgroundVideoPresets.removeChild(backgroundVideoPresets.lastChild);
-                    }
+                // Load video presets into the unified video playback dropdown
+                const videoPresets = document.getElementById('videoPresets');
+                if (videoPresets && mediaSources.youtube_channels) {
+                    // Remove existing dynamic options (keep the first "Select a video..." option and custom option)
+                    const staticOptions = Array.from(videoPresets.options).slice(0, 2);
+                    const customOption = videoPresets.querySelector('option[value="custom"]');
+
+                    videoPresets.innerHTML = '';
+                    staticOptions.forEach(opt => videoPresets.appendChild(opt));
 
                     Object.entries(mediaSources.youtube_channels).forEach(([category, videos]) => {
                         const group = document.createElement('optgroup');
@@ -1950,8 +1920,16 @@
                             option.textContent = video.name;
                             group.appendChild(option);
                         });
-                        backgroundVideoPresets.appendChild(group);
+                        videoPresets.appendChild(group);
                     });
+
+                    // Re-add custom option at the end
+                    if (customOption) {
+                        const customGroup = document.createElement('optgroup');
+                        customGroup.label = 'Custom';
+                        customGroup.appendChild(customOption.cloneNode(true));
+                        videoPresets.appendChild(customGroup);
+                    }
                 }
             } catch (error) {
                 console.error('Failed to load media sources:', error);
@@ -1979,37 +1957,7 @@
                 });
             }
 
-            // YouTube volume slider
-            const youtubeVolumeSlider = document.getElementById('youtubeVolume');
-            const youtubeVolumeDisplay = document.getElementById('youtubeVolumeDisplay');
-
-            if (youtubeVolumeSlider && youtubeVolumeDisplay) {
-                youtubeVolumeSlider.addEventListener('input', function() {
-                    youtubeVolumeDisplay.textContent = this.value;
-                });
-
-                youtubeVolumeSlider.addEventListener('change', async function() {
-                    try {
-                        await apiCall('POST', '/playback/youtube/volume', { volume: parseInt(this.value) });
-                    } catch (error) {
-                        console.error('Failed to set YouTube volume:', error);
-                    }
-                });
-            }
-
-            // Toggle YouTube volume slider based on mute checkbox
-            toggleYoutubeVolumeSlider();
         });
-
-        // Toggle YouTube volume slider visibility
-        function toggleYoutubeVolumeSlider() {
-            const muteCheckbox = document.getElementById('youtubeMute');
-            const volumeControl = document.getElementById('youtubeVolumeControl');
-
-            if (muteCheckbox && volumeControl) {
-                volumeControl.style.display = muteCheckbox.checked ? 'none' : 'block';
-            }
-        }
 
         // Auto-refresh intervals
         setInterval(refreshStatus, 10000);

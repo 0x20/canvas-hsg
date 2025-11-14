@@ -152,6 +152,45 @@ class PlaybackManager:
                 time_pos = time_pos_response.get("data") if time_pos_response else None
                 has_progressed = time_pos is not None and time_pos > 0.1  # At least 0.1s of video played
 
+                # Check 6: Detect yt-dlp/loading errors early (after 5 seconds of being idle)
+                if elapsed_time >= 5.0 and is_idle and not has_file:
+                    # Still idle after 5 seconds - likely a yt-dlp error (private video, unavailable, etc.)
+                    # Try to read stderr to get a meaningful error message
+                    error_msg = None
+                    if process and process.stderr:
+                        try:
+                            # Non-blocking read of stderr
+                            import select
+                            import os
+                            # Set stderr to non-blocking
+                            fd = process.stderr.fileno()
+                            fl = os.fcntl(fd, os.fcntl.F_GETFL)
+                            os.fcntl(fd, os.fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+                            stderr_data = process.stderr.read()
+                            if stderr_data:
+                                stderr_text = stderr_data.decode('utf-8', errors='ignore')
+                                # Look for common error patterns
+                                if 'Private video' in stderr_text or 'Sign in' in stderr_text:
+                                    error_msg = "Video is private or requires authentication"
+                                elif 'Video unavailable' in stderr_text:
+                                    error_msg = "Video is unavailable"
+                                elif 'ERROR:' in stderr_text:
+                                    # Extract first error line
+                                    for line in stderr_text.split('\n'):
+                                        if 'ERROR:' in line:
+                                            error_msg = line.strip()[:150]
+                                            break
+                        except Exception as e:
+                            logging.debug(f"Could not read stderr: {e}")
+
+                    if error_msg:
+                        logging.error(f"YouTube video failed to load: {error_msg}")
+                        await self.video_pool.release_controller(controller)
+                        if self.background_manager:
+                            await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=False)
+                        raise RuntimeError(error_msg)
+
                 # Check if playback has actually started AND frames are rendering
                 if has_file and not is_idle and not is_paused and has_progressed:
                     playback_started = True

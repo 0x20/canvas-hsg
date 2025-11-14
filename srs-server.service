@@ -1,0 +1,24 @@
+[Unit]
+Description=SRS (Simple Realtime Server) Docker Container
+After=docker.service network.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=hsg
+Group=hsg
+Restart=always
+RestartSec=10
+ExecStartPre=-/usr/bin/docker stop srs-server
+ExecStartPre=-/usr/bin/docker rm srs-server
+ExecStart=/usr/bin/docker run --rm --name srs-server \
+  -p 1935:1935 \
+  -p 1985:1985 \
+  -p 8080:8080 \
+  ossrs/srs:4 ./objs/srs -c conf/docker.conf
+ExecStop=/usr/bin/docker stop srs-server
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

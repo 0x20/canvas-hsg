@@ -1,7 +1,7 @@
 [Unit]
-Description=HSG Canvas SRS Server
-After=network.target
-Wants=network-online.target
+Description=HSG Canvas - Media Streaming and Playback Manager
+After=network.target srs-server.service
+Wants=network-online.target srs-server.service
 
 [Service]
 Type=simple
@@ -16,12 +16,10 @@ StandardError=journal
 Environment=DISPLAY=:0
 Environment=HOME=/home/hsg
 
-# Security settings
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ReadWritePaths=/home/hsg/srs_server /tmp
-ProtectHome=true
+# Security settings (relaxed for media playback access)
+# Allow binding to privileged ports (like 80) without running as root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+PrivateTmp=false
 
 [Install]
 WantedBy=multi-user.target
