@@ -26,6 +26,8 @@ from managers.framebuffer_manager import FramebufferManager
 from managers.hdmi_cec import HDMICECManager
 from managers.background_modes import BackgroundManager
 from managers.webcast_manager import WebcastManager
+from managers.chromecast_manager import ChromecastManager
+from managers.cast_receiver_manager import CastReceiverManager
 
 # API routes
 from routes import (
@@ -37,7 +39,9 @@ from routes import (
     setup_background_routes,
     setup_cec_routes,
     setup_system_routes,
-    setup_webcast_routes
+    setup_webcast_routes,
+    setup_chromecast_routes,
+    setup_cast_receiver_routes
 )
 
 # Config
@@ -59,6 +63,8 @@ stream_manager: StreamManager = None
 screen_stream_manager: ScreenStreamManager = None
 background_manager: BackgroundManager = None
 webcast_manager_instance: WebcastManager = None
+chromecast_manager: ChromecastManager = None
+cast_receiver_manager: CastReceiverManager = None
 display_detector = None
 framebuffer_manager = None
 cec_manager = None
@@ -73,8 +79,8 @@ async def lifespan(app: FastAPI):
     """
     global audio_pool, video_pool, audio_manager, playback_manager, image_manager
     global stream_manager, screen_stream_manager, background_manager
-    global webcast_manager_instance, display_detector, framebuffer_manager, cec_manager
-    global health_task
+    global webcast_manager_instance, chromecast_manager, cast_receiver_manager
+    global display_detector, framebuffer_manager, cec_manager, health_task
 
     # STARTUP
     logging.info("Starting HSG Canvas application...")
@@ -123,6 +129,18 @@ async def lifespan(app: FastAPI):
         logging.info("Initializing webcast manager...")
         webcast_manager_instance = WebcastManager()
 
+        # Initialize chromecast manager
+        logging.info("Initializing Chromecast manager...")
+        chromecast_manager = ChromecastManager(audio_manager, playback_manager)
+
+        # Initialize cast receiver manager (disabled - native phone apps require full Cast protocol)
+        logging.info("Initializing Cast Receiver manager...")
+        cast_receiver_manager = CastReceiverManager(playback_manager, audio_manager)
+
+        # Cast receiver auto-start disabled (doesn't work with native phone apps)
+        # logging.info("Starting Cast receiver for device discovery...")
+        # await cast_receiver_manager.start_receiver()
+
         # Setup routers with managers
         logging.info("Setting up API routes...")
         app.include_router(setup_audio_routes(audio_manager))
@@ -134,6 +152,8 @@ async def lifespan(app: FastAPI):
         app.include_router(setup_cec_routes(cec_manager))
         app.include_router(setup_system_routes(audio_pool, video_pool, display_detector))
         app.include_router(setup_webcast_routes(webcast_manager_instance))
+        app.include_router(setup_chromecast_routes(chromecast_manager))
+        app.include_router(setup_cast_receiver_routes(cast_receiver_manager))
 
         # Start health monitor for MPV pools
         logging.info("Starting MPV pool health monitor...")
@@ -170,6 +190,14 @@ async def lifespan(app: FastAPI):
         # Stop webcast
         if webcast_manager_instance:
             await webcast_manager_instance.stop_webcast()
+
+        # Stop Chromecast
+        if chromecast_manager:
+            await chromecast_manager.cleanup()
+
+        # Stop Cast Receiver
+        if cast_receiver_manager:
+            await cast_receiver_manager.cleanup()
 
         # Cleanup managers
         if audio_manager:

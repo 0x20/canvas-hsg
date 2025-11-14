@@ -23,6 +23,7 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 - **Stream Republishing**: Accepts various input sources (files, RTSP cameras, HTTP streams) and republishes to SRS RTMP server
 - **Multi-Player Support**: Supports mpv, ffplay, omxplayer, and VLC with optimized configurations for Raspberry Pi
 - **YouTube Integration**: Direct YouTube video playback with duration controls
+- **Chromecast Support**: Cast audio and video to Chromecast devices on the network with automatic playback management
 - **Spotify Connect**: Cast Spotify Premium audio from phone to Pi speakers via Raspotify
 - **Background Management**: Customizable background images with auto-generation
 - **System Monitoring**: Real-time system stats (CPU, memory, temperature) and stream diagnostics
@@ -32,6 +33,8 @@ There is an SRS running alongside our python app, the idea is that our app is ru
 - **SRS Server**: Expected to run on `pixelflut:1935` (RTMP) and `pixelflut:8080` (HTTP-FLV/HLS)
 - **FFmpeg**: Used for stream processing and republishing
 - **Media Players**: mpv (recommended), ffplay, omxplayer, or VLC for local playback
+- **PyChromecast**: Python library for discovering and controlling Chromecast devices (sender)
+- **netifaces**: Python library for network interface detection (receiver)
 - **Raspotify**: Spotify Connect client service for casting from Premium accounts
 - **PIL/Pillow**: For background image generation and processing
 
@@ -69,6 +72,13 @@ sudo systemctl enable hsg-canvas  # Auto-start on boot
 - `POST /playback/youtube` - Play YouTube videos
 - `POST /audio/start` - Start audio streaming
 - `GET /audio/spotify/status` - Check Spotify Connect service status
+- `GET /chromecast/discover` - Discover Chromecast devices on network
+- `POST /chromecast/start` - Cast media to Chromecast device (sender)
+- `POST /chromecast/stop` - Stop current Chromecast session (sender)
+- `GET /chromecast/status` - Get Chromecast casting status (sender)
+- `POST /cast-receiver/receive` - Receive cast from phone/tablet
+- `GET /cast-receiver/status` - Get cast receiver status
+- `GET /dd.xml` - DIAL device description for discovery
 - `GET /diagnostics` - System diagnostics for troubleshooting
 - `GET /status` - System and streaming status
 
@@ -134,6 +144,102 @@ sudo journalctl -u raspotify -f
 - Only one audio source can play at a time
 - Raspotify runs independently as a systemd service
 
+### Chromecast Setup (Sender & Receiver)
+The system includes both Chromecast sender and receiver functionality:
+
+#### Casting TO Other Devices (Sender)
+PyChromecast library for casting media to Chromecast devices on the network:
+
+**Features:**
+- Automatic device discovery on local network
+- Cast audio and video URLs to any Chromecast device
+- Automatic media type detection (audio vs video)
+- Smart playback management: stops local playback when casting starts
+  - Video casting: stops both audio and video playback
+  - Audio casting: stops only video playback (audio continues on Pi)
+- Volume control and playback management (play/pause/stop)
+
+**Usage:**
+1. Ensure Chromecast device is on the same network as the Raspberry Pi
+2. Use the web interface to discover devices
+3. Enter a media URL (direct MP3/MP4 URL or streaming URL)
+4. Select a Chromecast device (or use the first available)
+5. Click "START CAST" to begin casting
+
+**Supported Media:**
+- Audio formats: MP3, M4A, AAC, OGG, FLAC, WAV
+- Video formats: MP4, WebM, MKV, AVI, MOV
+- Streaming URLs: Radio streams, video streams
+
+**API Examples:**
+```bash
+# Discover Chromecast devices
+curl http://localhost:8000/chromecast/discover
+
+# Cast media to Chromecast
+curl -X POST http://localhost:8000/chromecast/start \
+  -H "Content-Type: application/json" \
+  -d '{"media_url": "http://example.com/song.mp3", "device_name": "Living Room TV"}'
+
+# Check casting status
+curl http://localhost:8000/chromecast/status
+
+# Stop casting
+curl -X POST http://localhost:8000/chromecast/stop
+```
+
+**Notes:**
+- Media URLs must be publicly accessible (Chromecast fetches directly from URL)
+- Local file playback is automatically stopped when casting begins
+- Casting quality depends on network bandwidth and Chromecast model
+
+#### Receiving Casts FROM Phones/Tablets (Receiver)
+DIAL/SSDP server for appearing as a cast target in casting apps:
+
+**Features:**
+- Auto-starts on server launch (port 1900 for SSDP multicast)
+- Makes Canvas discoverable as "HSG Canvas" in cast menus
+- Receives YouTube URLs, audio streams, and video URLs from phones
+- Automatic media type detection and playback routing
+- Session management with playback status tracking
+
+**How It Works:**
+1. Canvas runs an SSDP responder listening for M-SEARCH requests
+2. Responds with DIAL device description XML at `/dd.xml`
+3. When a cast is initiated, media URL is sent to `/cast-receiver/receive`
+4. Canvas automatically plays the media using appropriate manager (YouTube → PlaybackManager, Audio → AudioManager)
+
+**Usage from Phone/Tablet:**
+1. Open a cast-enabled app (YouTube, Chrome, streaming apps)
+2. Tap the cast icon
+3. Look for "HSG Canvas" in available devices
+4. Select it to cast media directly to the Canvas display/speakers
+
+**API Endpoints:**
+```bash
+# Get receiver status
+curl http://localhost:8000/cast-receiver/status
+
+# Manually send a cast (simulates phone casting)
+curl -X POST http://localhost:8000/cast-receiver/receive \
+  -H "Content-Type: application/json" \
+  -d '{"media_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Test Video"}'
+
+# Stop current cast session
+curl -X POST http://localhost:8000/cast-receiver/stop-session
+```
+
+**Technical Details:**
+- Uses SSDP multicast (239.255.255.250:1900) for device discovery
+- DIAL protocol for app launching/control
+- Receiver runs automatically on server startup
+- Compatible with standard Chromecast sender apps (YouTube, Chrome, etc.)
+
+**Supported Content:**
+- YouTube videos (direct integration with PlaybackManager)
+- Direct audio URLs (MP3, M4A, streaming radio)
+- Direct video URLs (MP4, WebM - limited support)
+
 ## Development Notes
 
 ### Stream Processing
@@ -171,20 +277,27 @@ sudo journalctl -u raspotify -f
 │   ├── image_manager.py        # Image/QR display
 │   ├── stream_manager.py       # Stream republishing
 │   ├── screen_stream_manager.py # Screen capture
+│   ├── chromecast_manager.py   # Chromecast casting (sender)
+│   ├── cast_receiver_manager.py # Cast receiver (receive from phones)
 │   ├── display_detector.py     # Display detection
 │   ├── framebuffer_manager.py  # Framebuffer control
 │   └── hdmi_cec.py            # HDMI-CEC control
 │
-├── api/                         # API routes
-│   ├── routes_audio.py         # Audio endpoints
-│   ├── routes_playback.py      # Playback endpoints
-│   ├── routes_streams.py       # Stream endpoints
-│   ├── routes_screen.py        # Screen endpoints
-│   ├── routes_display.py       # Display endpoints
-│   ├── routes_background.py    # Background endpoints
-│   ├── routes_cec.py           # CEC endpoints
-│   ├── routes_system.py        # System endpoints
-│   └── routes_webcast.py       # Webcast endpoints
+├── routes.py                    # Unified API routes
+│   │                            # - Audio endpoints
+│   │                            # - Playback endpoints
+│   │                            # - Stream endpoints
+│   │                            # - Screen endpoints
+│   │                            # - Display endpoints
+│   │                            # - Background endpoints
+│   │                            # - CEC endpoints
+│   │                            # - System endpoints
+│   │                            # - Webcast endpoints
+│   │                            # - Chromecast endpoints (sender)
+│   │                            # - Cast Receiver endpoints (receiver)
+│
+├── models/                      # Request/response models
+│   └── request_models.py       # Pydantic models for API validation
 │
 ├── index.html                   # Web interface
 ├── requirements.txt             # Python dependencies

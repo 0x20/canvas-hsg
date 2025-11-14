@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi.responses import Response
 
 from models.request_models import (
     AudioStreamRequest,
@@ -21,7 +22,10 @@ from models.request_models import (
     YoutubePlayRequest,
     PlaybackStartRequest,
     QRCodeRequest,
-    ImageDisplayRequest
+    ImageDisplayRequest,
+    ChromecastStartRequest,
+    ChromecastVolumeRequest,
+    CastReceiveRequest
 )
 
 if TYPE_CHECKING:
@@ -30,6 +34,8 @@ if TYPE_CHECKING:
     from managers.stream_manager import StreamManager
     from managers.screen_stream_manager import ScreenStreamManager
     from managers.image_manager import ImageManager
+    from managers.chromecast_manager import ChromecastManager
+    from managers.cast_receiver_manager import CastReceiverManager
     from background_modes import BackgroundManager
     from webcast_manager import WebcastManager, WebcastConfig
     from core.mpv_pools import AudioMPVPool, VideoMPVPool
@@ -1099,6 +1105,228 @@ def setup_webcast_routes(webcast_manager: 'WebcastManager') -> APIRouter:
             return result
         except Exception as e:
             logging.error(f"Failed to jump webcast: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router
+
+
+# =============================================================================
+# CHROMECAST ROUTES
+# =============================================================================
+
+def setup_chromecast_routes(chromecast_manager: 'ChromecastManager') -> APIRouter:
+    """
+    Setup Chromecast routes with dependency injection
+
+    Args:
+        chromecast_manager: ChromecastManager instance for casting
+
+    Returns:
+        Configured APIRouter
+    """
+    router = APIRouter()
+
+    @router.get("/chromecast/discover")
+    async def discover_chromecasts():
+        """Discover Chromecast devices on the network"""
+        try:
+            devices = await chromecast_manager.discover_devices()
+            return {
+                "devices": devices,
+                "count": len(devices)
+            }
+        except Exception as e:
+            logging.error(f"Failed to discover Chromecast devices: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/chromecast/start")
+    async def start_chromecast(request: ChromecastStartRequest):
+        """Start casting media to a Chromecast device"""
+        try:
+            success = await chromecast_manager.start_cast(
+                media_url=request.media_url,
+                device_name=request.device_name,
+                content_type=request.content_type,
+                title=request.title
+            )
+            if success:
+                return {
+                    "message": f"Started casting to {chromecast_manager.current_cast.name}",
+                    "media_type": chromecast_manager.current_media_type
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to start casting")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(f"Failed to start casting: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/chromecast/stop")
+    async def stop_chromecast():
+        """Stop the current cast"""
+        try:
+            success = await chromecast_manager.stop_cast()
+            if success:
+                return {"message": "Cast stopped"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to stop cast")
+        except Exception as e:
+            logging.error(f"Failed to stop cast: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/chromecast/pause")
+    async def pause_chromecast():
+        """Pause the current cast"""
+        try:
+            success = await chromecast_manager.pause_cast()
+            if success:
+                return {"message": "Cast paused"}
+            else:
+                raise HTTPException(status_code=404, detail="No active cast to pause")
+        except Exception as e:
+            logging.error(f"Failed to pause cast: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/chromecast/play")
+    async def play_chromecast():
+        """Resume/play the current cast"""
+        try:
+            success = await chromecast_manager.play_cast()
+            if success:
+                return {"message": "Cast resumed"}
+            else:
+                raise HTTPException(status_code=404, detail="No active cast to play")
+        except Exception as e:
+            logging.error(f"Failed to play cast: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.put("/chromecast/volume")
+    async def set_chromecast_volume(request: ChromecastVolumeRequest):
+        """Set Chromecast volume (0.0-1.0)"""
+        try:
+            if not 0.0 <= request.volume <= 1.0:
+                raise HTTPException(status_code=400, detail="Volume must be between 0.0 and 1.0")
+
+            success = await chromecast_manager.set_volume(request.volume)
+            if success:
+                return {"message": f"Chromecast volume set to {request.volume}"}
+            else:
+                raise HTTPException(status_code=404, detail="No active Chromecast")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(f"Failed to set Chromecast volume: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/chromecast/status")
+    async def get_chromecast_status():
+        """Get current casting status"""
+        try:
+            return chromecast_manager.get_cast_status()
+        except Exception as e:
+            logging.error(f"Failed to get cast status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router
+
+
+# =============================================================================
+# CAST RECEIVER ROUTES (for receiving casts FROM phones/tablets)
+# =============================================================================
+
+def setup_cast_receiver_routes(cast_receiver: 'CastReceiverManager') -> APIRouter:
+    """
+    Setup Cast Receiver routes with dependency injection
+
+    Args:
+        cast_receiver: CastReceiverManager instance for receiving casts
+
+    Returns:
+        Configured APIRouter
+    """
+    router = APIRouter()
+
+    @router.get("/dd.xml")
+    async def get_device_description():
+        """DIAL device description XML for discovery"""
+        try:
+            xml_content = cast_receiver.get_device_description_xml()
+            return Response(content=xml_content, media_type="application/xml")
+        except Exception as e:
+            logging.error(f"Failed to get device description: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/cast-receiver/start")
+    async def start_receiver():
+        """Start the cast receiver (makes Canvas discoverable)"""
+        try:
+            success = await cast_receiver.start_receiver()
+            if success:
+                return {
+                    "message": "Cast receiver started",
+                    "device_name": cast_receiver.device_name,
+                    "local_ip": cast_receiver.local_ip
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to start cast receiver")
+        except Exception as e:
+            logging.error(f"Failed to start cast receiver: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/cast-receiver/stop")
+    async def stop_receiver():
+        """Stop the cast receiver"""
+        try:
+            success = await cast_receiver.stop_receiver()
+            if success:
+                return {"message": "Cast receiver stopped"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to stop cast receiver")
+        except Exception as e:
+            logging.error(f"Failed to stop cast receiver: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/cast-receiver/receive")
+    async def receive_cast(request: CastReceiveRequest):
+        """Receive a cast from a phone/tablet"""
+        try:
+            success = await cast_receiver.receive_cast(
+                media_url=request.media_url,
+                content_type=request.content_type,
+                title=request.title
+            )
+            if success:
+                return {
+                    "message": "Cast received and playing",
+                    "session_id": cast_receiver.session_id
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to play cast")
+        except Exception as e:
+            logging.error(f"Failed to receive cast: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/cast-receiver/stop-session")
+    async def stop_cast_session():
+        """Stop the current cast session"""
+        try:
+            success = await cast_receiver.stop_session()
+            if success:
+                return {"message": "Cast session stopped"}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to stop session")
+        except Exception as e:
+            logging.error(f"Failed to stop cast session: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/cast-receiver/status")
+    async def get_receiver_status():
+        """Get cast receiver status"""
+        try:
+            return cast_receiver.get_receiver_status()
+        except Exception as e:
+            logging.error(f"Failed to get receiver status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     return router

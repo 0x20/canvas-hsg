@@ -105,6 +105,10 @@ class PlaybackManager:
                 await self.video_pool.release_controller(controller)
                 return False
 
+            # CRITICAL: Explicitly unpause to start playback in idle mode
+            # MPV in idle mode doesn't auto-play after loadfile - we must explicitly unpause
+            await controller.send_command(["set_property", "pause", False])
+
             # Poll for playback to start instead of fixed wait time
             # YouTube needs time for: yt-dlp metadata fetch, stream selection, buffering, decoding
             max_wait_time = 15  # Maximum seconds to wait for playback to start

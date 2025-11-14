@@ -22,6 +22,12 @@ yt-dlp==2025.09.26
 # Web automation for webcast feature
 playwright==1.40.0
 
+# Chromecast support
+PyChromecast==13.1.0
+
+# Cast receiver support (DIAL/SSDP discovery)
+netifaces==0.11.0
+
 # Optional: Enhanced logging and configuration
 python-json-logger==2.0.7
 PyYAML==6.0.1

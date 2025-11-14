@@ -60,34 +60,42 @@
             z-index: 1;
         }
 
-        /* Header with neon glow */
+        /* Header */
         .header {
             text-align: center;
             margin-bottom: 25px;
-            padding: 25px 20px;
-            background: linear-gradient(135deg, rgba(114, 9, 183, 0.2) 0%, rgba(255, 0, 110, 0.2) 100%);
-            border-radius: 20px;
-            border: 2px solid var(--neon-purple);
-            box-shadow: 0 0 30px rgba(114, 9, 183, 0.5), inset 0 0 30px rgba(114, 9, 183, 0.1);
+            padding: 25px 20px 5px 20px;
         }
 
         .header h1 {
             font-family: 'Orbitron', sans-serif;
             font-size: 2.5rem;
             font-weight: 900;
-            background: linear-gradient(90deg, var(--neon-cyan), var(--neon-pink), var(--neon-purple));
+            background: linear-gradient(90deg,
+                var(--neon-purple) 0%,
+                var(--neon-purple) 30%,
+                var(--neon-pink) 45%,
+                #ff3399 50%,
+                var(--neon-pink) 55%,
+                var(--neon-purple) 70%,
+                var(--neon-purple) 100%);
+            background-size: 200% 100%;
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
             background-clip: text;
-            text-shadow: 0 0 30px rgba(0, 245, 255, 0.5);
             margin-bottom: 8px;
             letter-spacing: 3px;
+            animation: knightRider 30s ease-in-out infinite;
+        }
+
+        @keyframes knightRider {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .header p {
             color: var(--neon-cyan);
             font-size: 0.95rem;
-            text-shadow: 0 0 10px rgba(0, 245, 255, 0.7);
         }
 
         /* Toggle button for advanced features */
@@ -108,14 +116,11 @@
             transition: all 0.3s ease;
             text-transform: uppercase;
             letter-spacing: 2px;
-            box-shadow: 0 4px 20px rgba(114, 9, 183, 0.4);
         }
 
         .toggle-btn:hover {
-            background: linear-gradient(135deg, var(--neon-purple), var(--neon-pink));
-            box-shadow: 0 6px 30px rgba(255, 0, 110, 0.6);
-            transform: translateY(-2px);
-            color: #fff;
+            border-color: var(--neon-cyan);
+            transform: none;
         }
 
         .toggle-btn.active {
@@ -150,41 +155,24 @@
             background: var(--dark-card);
             padding: 20px;
             border-radius: 15px;
-            border: 2px solid transparent;
-            background-clip: padding-box;
+            border: 2px solid var(--neon-purple);
             position: relative;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-            transition: all 0.3s ease;
-        }
-
-        .card::before {
-            content: '';
-            position: absolute;
-            top: -2px;
-            left: -2px;
-            right: -2px;
-            bottom: -2px;
-            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-pink), var(--neon-purple));
-            border-radius: 15px;
-            z-index: -1;
-            opacity: 0.5;
+            transition: border-color 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            min-height: 400px;
         }
 
         .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 15px 50px rgba(255, 0, 110, 0.3);
+            border-color: rgba(255, 0, 110, 0.6);
         }
 
-        .card::after {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(0, 245, 255, 0.05), rgba(255, 0, 110, 0.05));
-            border-radius: 15px;
-            pointer-events: none;
+        .card > div[style*="justify-content: space-between"] {
+            margin-top: auto;
+        }
+
+        .card > button:first-of-type {
+            margin-top: auto;
         }
 
         h2 {
@@ -192,7 +180,6 @@
             color: var(--neon-cyan);
             margin-bottom: 15px;
             font-size: 1.8rem;
-            text-shadow: 0 0 15px rgba(0, 245, 255, 0.7);
             letter-spacing: 2px;
         }
 
@@ -226,15 +213,13 @@
         }
 
         .tab-btn:hover {
-            background: rgba(114, 9, 183, 0.3);
-            box-shadow: 0 0 20px rgba(114, 9, 183, 0.5);
-            transform: translateY(-2px);
+            border-color: var(--neon-cyan);
+            transform: none;
         }
 
         .tab-btn.active {
             background: linear-gradient(135deg, var(--neon-pink), var(--neon-purple));
             border-color: var(--neon-pink);
-            box-shadow: 0 0 30px rgba(255, 0, 110, 0.6);
             color: #fff;
         }
 
@@ -250,8 +235,8 @@
         button {
             background: linear-gradient(135deg, var(--neon-purple), var(--neon-pink));
             color: #fff;
-            border: none;
-            padding: 14px 28px;
+            border: 2px solid var(--neon-pink);
+            padding: 10px 20px;
             margin: 5px;
             border-radius: 25px;
             cursor: pointer;
@@ -259,23 +244,23 @@
             font-family: 'Rajdhani', sans-serif;
             font-size: 1rem;
             transition: all 0.3s ease;
-            box-shadow: 0 4px 20px rgba(255, 0, 110, 0.4);
             text-transform: uppercase;
             letter-spacing: 1px;
         }
 
         button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 6px 30px rgba(255, 0, 110, 0.6);
+            border-color: var(--neon-cyan);
+            transform: none;
         }
 
         button.danger {
             background: linear-gradient(135deg, #dc3545, #c82333);
-            box-shadow: 0 4px 20px rgba(220, 53, 69, 0.4);
+            border-color: #dc3545;
         }
 
         button.danger:hover {
-            box-shadow: 0 6px 30px rgba(220, 53, 69, 0.6);
+            border-color: #ff6b6b;
+            transform: none;
         }
 
         button:disabled {
@@ -330,7 +315,6 @@
         input:focus, select:focus {
             outline: none;
             border-color: var(--neon-cyan);
-            box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
         }
 
         input[type="range"] {
@@ -350,14 +334,12 @@
             background: rgba(40, 167, 69, 0.2);
             color: #28a745;
             border-color: #28a745;
-            box-shadow: 0 0 20px rgba(40, 167, 69, 0.3);
         }
 
         .status.error {
             background: rgba(220, 53, 69, 0.2);
             color: #dc3545;
             border-color: #dc3545;
-            box-shadow: 0 0 20px rgba(220, 53, 69, 0.3);
         }
 
         .validation-error {
@@ -384,7 +366,6 @@
             padding: 20px;
             border-radius: 10px;
             text-align: center;
-            box-shadow: 0 0 15px rgba(0, 245, 255, 0.2);
         }
 
         .stat-item strong {
@@ -420,7 +401,6 @@
             background: var(--neon-cyan);
             margin-right: 8px;
             animation: pulse 2s infinite;
-            box-shadow: 0 0 10px var(--neon-cyan);
         }
 
         @keyframes pulse {
@@ -476,7 +456,7 @@
 
         /* Scrollbar styling */
         ::-webkit-scrollbar {
-            width: 10px;
+            width: 6px;
         }
 
         ::-webkit-scrollbar-track {
@@ -505,14 +485,14 @@
         }
 
         .mode-button:hover {
-            background: rgba(114, 9, 183, 0.3);
-            box-shadow: 0 0 20px rgba(114, 9, 183, 0.5);
+            border-color: var(--neon-cyan);
+            transform: none;
         }
 
         .mode-button.active {
             background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
             color: #fff;
-            box-shadow: 0 0 25px rgba(0, 245, 255, 0.6);
+            border-color: var(--neon-cyan);
         }
 
         /* Quick selection styling */
@@ -553,7 +533,6 @@
             transition: 0.4s;
             border-radius: 34px;
             border: 2px solid var(--neon-purple);
-            box-shadow: 0 0 10px rgba(114, 9, 183, 0.3);
         }
 
         .toggle-slider:before {
@@ -566,28 +545,18 @@
             background: linear-gradient(135deg, var(--neon-purple) 0%, #7209b7 100%);
             transition: 0.4s;
             border-radius: 50%;
-            box-shadow: 0 0 15px rgba(114, 9, 183, 0.5);
         }
 
         input:checked + .toggle-slider {
             background: linear-gradient(135deg, rgba(0, 255, 255, 0.3) 0%, rgba(20, 40, 60, 0.8) 100%);
             border-color: var(--neon-cyan);
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.4);
         }
 
         input:checked + .toggle-slider:before {
             transform: translateX(40px);
             background: linear-gradient(135deg, var(--neon-cyan) 0%, #00d9ff 100%);
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.6);
         }
 
-        .toggle-slider:hover {
-            box-shadow: 0 0 20px rgba(114, 9, 183, 0.6);
-        }
-
-        input:checked + .toggle-slider:hover {
-            box-shadow: 0 0 25px rgba(0, 255, 255, 0.6);
-        }
     </style>
 </head>
 <body>
@@ -650,7 +619,7 @@
                 </div>
 
                 <!-- Controls -->
-                <div style="margin-top: 15px;">
+                <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
                     <button onclick="playVideo()" style="font-size: 1.1rem; padding: 12px 24px;">▶ PLAY VIDEO</button>
                     <button onclick="stopVideo()" class="danger" style="font-size: 1.1rem; padding: 12px 24px;">⏹ STOP</button>
                 </div>
@@ -678,12 +647,63 @@
 
                 <input type="url" id="audioStreamUrl" placeholder="Or enter custom URL..." style="width: 100%; max-width: 400px;">
                 <br>
-                <label>Volume: <span id="volumeDisplay">80</span>%</label>
-                <input type="range" id="audioVolume" min="0" max="100" value="80" style="width: 200px;">
-                <br>
-                <button onclick="startAudioStream()">▶ START AUDIO</button>
-                <button onclick="stopAudioStream()" class="danger">⏹ STOP</button>
+                <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
+                    <input type="range" id="audioVolume" min="0" max="100" value="80" style="width: 200px;">
+                    <label style="margin: 0;">Volume: <span id="volumeDisplay">80</span>%</label>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <button onclick="startAudioStream()">▶ START AUDIO</button>
+                    <button onclick="stopAudioStream()" class="danger">⏹ STOP</button>
+                </div>
                 <div id="audioStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
+            </div>
+
+            <!-- Chromecast -->
+            <div class="card">
+                <h2>📺 CHROMECAST</h2>
+                <p>Cast media to Chromecast devices on your network</p>
+
+                <!-- Device Discovery -->
+                <div style="margin-bottom: 15px;">
+                    <button onclick="discoverChromecasts()">DISCOVER</button>
+                    <select id="chromecastDevice" style="width: 100%; max-width: 400px; margin-top: 10px; display: none;">
+                        <option value="">Select a device...</option>
+                    </select>
+                </div>
+
+                <input type="url" id="chromecastUrl" placeholder="Enter media URL to cast..." style="width: 100%; max-width: 400px;">
+                <br>
+                <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
+                    <input type="range" id="chromecastVolume" min="0" max="100" value="50" oninput="updateChromecastVolumeDisplay()" style="width: 200px;">
+                    <label style="margin: 0;">Volume: <span id="chromecastVolumeDisplay">50</span>%</label>
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <button onclick="startChromecast()">▶ START CAST</button>
+                        <button onclick="pauseChromecast()">⏸ PAUSE</button>
+                    </div>
+                    <button onclick="stopChromecast()" class="danger">⏹ STOP</button>
+                </div>
+                <div id="chromecastStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
+            </div>
+
+            <!-- Cast Receiver -->
+            <div class="card">
+                <h2>📱 RECEIVE CASTS</h2>
+                <p>Cast FROM your phone/tablet TO this Canvas</p>
+
+                <div id="castReceiverStatus" style="margin: 15px 0; padding: 15px; background: rgba(0, 245, 255, 0.1); border-radius: 8px;">
+                    <span style="text-shadow: 0 0 10px var(--neon-cyan);">⏳ Checking receiver status...</span>
+                </div>
+
+                <p style="font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-top: 10px;">
+                    📌 To cast to this Canvas:<br>
+                    1. Open a cast-enabled app on your phone<br>
+                    2. Look for "HSG Canvas" in the cast menu<br>
+                    3. Select it to start casting<br>
+                    <br>
+                    Supported: YouTube, audio streams, video URLs
+                </p>
             </div>
         </div>
 
@@ -730,8 +750,10 @@
                         <option value="hls">HLS</option>
                     </select>
                     <br>
-                    <button onclick="startPlayback()">START PLAYBACK</button>
-                    <button onclick="stopPlayback()" class="danger">STOP</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button onclick="startPlayback()">START PLAYBACK</button>
+                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                    </div>
                 </div>
 
                 <!-- Start Stream -->
@@ -780,8 +802,10 @@
                     <input type="file" id="imageFile" accept="image/*" style="width: 100%;">
                     <input type="number" id="imageDuration" placeholder="Duration (seconds)" value="10" min="1" max="300">
                     <br>
-                    <button onclick="displayImage()">DISPLAY IMAGE</button>
-                    <button onclick="stopPlayback()" class="danger">STOP</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button onclick="displayImage()">DISPLAY IMAGE</button>
+                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                    </div>
                 </div>
 
                 <!-- QR Code -->
@@ -791,8 +815,10 @@
                     <input type="text" id="qrContent" placeholder="URL or text..." style="width: 100%; max-width: 300px;">
                     <input type="number" id="qrDuration" placeholder="Duration (seconds)" min="1" max="300">
                     <br>
-                    <button onclick="displayQRCode()">GENERATE QR CODE</button>
-                    <button onclick="stopPlayback()" class="danger">STOP</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button onclick="displayQRCode()">GENERATE QR CODE</button>
+                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                    </div>
                 </div>
 
                 <!-- Background Control -->
@@ -924,8 +950,10 @@
                         <option value="800x600">800x600 (4:3)</option>
                     </select>
                     <br>
-                    <button id="webcastStartBtn" onclick="startWebcast()">▶ START</button>
-                    <button id="webcastStopBtn" onclick="stopWebcast()" class="danger">⏹ STOP</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <button id="webcastStartBtn" onclick="startWebcast()">▶ START</button>
+                        <button id="webcastStopBtn" onclick="stopWebcast()" class="danger">⏹ STOP</button>
+                    </div>
                     <div id="webcastStatus" style="margin-top: 10px;">
                         <div><strong>Status:</strong> <span id="webcastState">Stopped</span></div>
                     </div>
@@ -1372,6 +1400,197 @@
             }
         }
 
+        // Chromecast functions
+        async function discoverChromecasts() {
+            const discoverButton = event ? event.target : document.querySelector('button[onclick="discoverChromecasts()"]');
+
+            setButtonLoading(discoverButton, true);
+            showStatus('Discovering Chromecast devices...', 'success');
+
+            try {
+                const result = await apiCall('GET', '/chromecast/discover');
+                const deviceSelect = document.getElementById('chromecastDevice');
+
+                // Show the dropdown (it starts hidden)
+                deviceSelect.style.display = 'block';
+
+                // Clear existing options except the first one
+                deviceSelect.innerHTML = '<option value="">Select a device...</option>';
+
+                // Add discovered devices
+                if (result.devices && result.devices.length > 0) {
+                    result.devices.forEach(device => {
+                        const option = document.createElement('option');
+                        option.value = device.name;
+                        option.textContent = `${device.name} (${device.model})`;
+                        deviceSelect.appendChild(option);
+                    });
+
+                    showStatus(`Found ${result.count} Chromecast device(s)`, 'success');
+                } else {
+                    showStatus('No Chromecast devices found on network', 'error');
+                }
+            } catch (error) {
+                showStatus(`Failed to discover Chromecast devices: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(discoverButton, false);
+            }
+        }
+
+        async function startChromecast() {
+            const startButton = event ? event.target : document.querySelector('button[onclick="startChromecast()"]');
+            const chromecastCard = startButton.closest('.card');
+
+            clearValidationErrors(chromecastCard);
+
+            const mediaUrl = document.getElementById('chromecastUrl').value.trim();
+            const deviceName = document.getElementById('chromecastDevice').value;
+
+            if (!mediaUrl) {
+                showValidationError(chromecastCard, 'Please enter a media URL to cast');
+                return;
+            }
+
+            setButtonLoading(startButton, true);
+            showStatus('Starting Chromecast...', 'success');
+
+            try {
+                const data = {
+                    media_url: mediaUrl
+                };
+
+                if (deviceName) {
+                    data.device_name = deviceName;
+                }
+
+                const result = await apiCall('POST', '/chromecast/start', data);
+                showStatus(`Started casting to Chromecast (${result.media_type})`, 'success');
+                updateChromecastStatus();
+            } catch (error) {
+                showValidationError(chromecastCard, `Failed to start casting: ${error.message}`);
+                showStatus(`Chromecast failed: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(startButton, false);
+            }
+        }
+
+        async function pauseChromecast() {
+            const pauseButton = event ? event.target : document.querySelector('button[onclick="pauseChromecast()"]');
+
+            setButtonLoading(pauseButton, true);
+
+            try {
+                await apiCall('POST', '/chromecast/pause');
+                showStatus('Chromecast paused', 'success');
+                updateChromecastStatus();
+            } catch (error) {
+                showStatus(`Failed to pause Chromecast: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(pauseButton, false);
+            }
+        }
+
+        async function stopChromecast() {
+            const stopButton = event ? event.target : document.querySelector('button[onclick="stopChromecast()"]');
+
+            setButtonLoading(stopButton, true);
+            showStatus('Stopping Chromecast...', 'success');
+
+            try {
+                await apiCall('POST', '/chromecast/stop');
+                showStatus('Chromecast stopped', 'success');
+                updateChromecastStatus();
+            } catch (error) {
+                showStatus(`Failed to stop Chromecast: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(stopButton, false);
+            }
+        }
+
+        function updateChromecastVolumeDisplay() {
+            const volume = document.getElementById('chromecastVolume').value;
+            document.getElementById('chromecastVolumeDisplay').textContent = volume;
+
+            // Update volume on Chromecast if casting
+            if (document.getElementById('chromecastStatus').innerHTML.includes('Casting')) {
+                setChromecastVolume();
+            }
+        }
+
+        async function setChromecastVolume() {
+            const volume = document.getElementById('chromecastVolume').value;
+
+            try {
+                await apiCall('PUT', '/chromecast/volume', {
+                    volume: parseFloat(volume) / 100
+                });
+            } catch (error) {
+                console.error('Failed to set Chromecast volume:', error);
+            }
+        }
+
+        async function updateChromecastStatus() {
+            try {
+                const status = await apiCall('GET', '/chromecast/status');
+                const statusDiv = document.getElementById('chromecastStatus');
+
+                if (status.is_casting) {
+                    let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Casting to: ${status.device_name}</span><br>`;
+                    statusHtml += `<span style="font-size: 12px;">Type: ${status.media_type}</span><br>`;
+
+                    if (status.player_state) {
+                        statusHtml += `<span style="font-size: 12px;">State: ${status.player_state}</span><br>`;
+                    }
+
+                    if (status.duration && status.current_time !== undefined) {
+                        const currentMin = Math.floor(status.current_time / 60);
+                        const currentSec = Math.floor(status.current_time % 60);
+                        const durationMin = Math.floor(status.duration / 60);
+                        const durationSec = Math.floor(status.duration % 60);
+                        statusHtml += `<span style="font-size: 12px;">Time: ${currentMin}:${currentSec.toString().padStart(2, '0')} / ${durationMin}:${durationSec.toString().padStart(2, '0')}</span>`;
+                    }
+
+                    statusDiv.innerHTML = statusHtml;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Not casting</span>';
+                    if (status.available_devices > 0) {
+                        statusDiv.innerHTML += `<br><span style="font-size: 12px;">${status.available_devices} device(s) available</span>`;
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to update Chromecast status:', error);
+            }
+        }
+
+        // Cast Receiver status update
+        async function updateCastReceiverStatus() {
+            try {
+                const status = await apiCall('GET', '/cast-receiver/status');
+                const statusDiv = document.getElementById('castReceiverStatus');
+
+                if (status.is_running) {
+                    let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">✅ Receiver Active</span><br>`;
+                    statusHtml += `<span style="font-size: 12px;">Device Name: ${status.device_name}</span><br>`;
+                    statusHtml += `<span style="font-size: 12px;">IP: ${status.local_ip}:${status.dial_port}</span>`;
+
+                    if (status.has_session && status.session) {
+                        statusHtml += '<br><br><div style="border-top: 1px solid rgba(0,245,255,0.3); padding-top: 10px; margin-top: 10px;">';
+                        statusHtml += `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Currently Playing:</span><br>`;
+                        statusHtml += `<span style="font-size: 12px;">${status.session.title || 'Media'}</span><br>`;
+                        statusHtml += `<span style="font-size: 12px;">Type: ${status.session.media_type}</span>`;
+                        statusHtml += '</div>';
+                    }
+
+                    statusDiv.innerHTML = statusHtml;
+                } else {
+                    statusDiv.innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Receiver Inactive</span>';
+                }
+            } catch (error) {
+                console.error('Failed to update cast receiver status:', error);
+                document.getElementById('castReceiverStatus').innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Status check failed</span>';
+            }
+        }
+
 
         // Background management
         async function setBackground() {
@@ -1637,6 +1856,8 @@
 
                 showStatus('Status refreshed', 'success');
                 updateAudioStatus();
+                updateChromecastStatus();
+                updateCastReceiverStatus();
 
             } catch (error) {
                 showStatus('Failed to refresh status', 'error');

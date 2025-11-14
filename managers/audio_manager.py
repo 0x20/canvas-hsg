@@ -107,11 +107,15 @@ class AudioManager:
                 await self.audio_pool.release_controller(controller)
                 return False
 
-            # Give it a moment to start and then set volume
-            await asyncio.sleep(1)
+            # Give it a moment to load
+            await asyncio.sleep(0.5)
 
-            # Set volume after file is loaded to ensure it takes effect
+            # Set volume before starting playback
             await controller.send_command(["set", "volume", str(self.audio_volume)])
+
+            # CRITICAL: Explicitly unpause to start playback in idle mode
+            # MPV in idle mode doesn't auto-play after loadfile - we must explicitly unpause
+            await controller.send_command(["set_property", "pause", False])
 
             # Verify playback started
             pause_response = await controller.get_property("pause")

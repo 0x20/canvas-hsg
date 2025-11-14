@@ -41,3 +41,20 @@ class AudioStreamRequest(BaseModel):
 
 class AudioVolumeRequest(BaseModel):
     volume: int  # 0-100
+
+
+class ChromecastStartRequest(BaseModel):
+    media_url: str
+    device_name: Optional[str] = None  # Use first available if None
+    content_type: Optional[str] = None  # Auto-detected if None
+    title: Optional[str] = None  # Display title
+
+
+class ChromecastVolumeRequest(BaseModel):
+    volume: float  # 0.0-1.0
+
+
+class CastReceiveRequest(BaseModel):
+    media_url: str
+    content_type: Optional[str] = None
+    title: Optional[str] = None
