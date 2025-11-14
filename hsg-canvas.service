@@ -15,6 +15,7 @@ StandardOutput=journal
 StandardError=journal
 Environment=DISPLAY=:0
 Environment=HOME=/home/hsg
+Environment=XDG_RUNTIME_DIR=/run/user/1000
 
 # Security settings (relaxed for media playback access)
 # Allow binding to privileged ports (like 80) without running as root

@@ -187,10 +187,13 @@ sudo -u $ACTUAL_USER bash << 'USEREOF'
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
+# Upgrade yt-dlp to latest version (critical for YouTube playback with anti-bot measures)
+pip install --upgrade yt-dlp
 deactivate
 USEREOF
 
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
+echo -e "${GREEN}✓ yt-dlp upgraded to latest version${NC}"
 echo ""
 
 # ============================================

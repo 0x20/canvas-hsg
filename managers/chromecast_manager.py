@@ -7,11 +7,13 @@ Integrates with audio and playback managers to stop local playback when casting 
 import asyncio
 import logging
 import time
+import re
 from typing import Optional, Dict, Any, List
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import pychromecast
 from pychromecast.controllers.media import MediaController
+from pychromecast.quick_play import quick_play
 
 
 class ChromecastManager:
@@ -160,13 +162,38 @@ class ChromecastManager:
         # Default to video for unknown types
         return 'video'
 
+    def _extract_youtube_id(self, youtube_url: str) -> Optional[str]:
+        """
+        Extract YouTube video ID from various YouTube URL formats
+
+        Args:
+            youtube_url: YouTube video URL
+
+        Returns:
+            YouTube video ID or None if extraction fails
+        """
+        # Handle youtu.be/VIDEO_ID format
+        if 'youtu.be/' in youtube_url:
+            match = re.search(r'youtu\.be/([a-zA-Z0-9_-]+)', youtube_url)
+            if match:
+                return match.group(1)
+
+        # Handle youtube.com/watch?v=VIDEO_ID format
+        if 'youtube.com/watch' in youtube_url:
+            parsed = urlparse(youtube_url)
+            params = parse_qs(parsed.query)
+            if 'v' in params:
+                return params['v'][0]
+
+        return None
+
     async def start_cast(self, media_url: str, device_name: Optional[str] = None,
                          content_type: Optional[str] = None, title: Optional[str] = None) -> bool:
         """
         Start casting media to a Chromecast device
 
         Args:
-            media_url: URL of the media to cast
+            media_url: URL of the media to cast (YouTube URLs supported natively)
             device_name: Name of the Chromecast device (uses first found if None)
             content_type: MIME type of content (auto-detected if None)
             title: Display title for the media
@@ -175,6 +202,9 @@ class ChromecastManager:
             True if casting started successfully
         """
         try:
+            # Check if this is a YouTube URL
+            is_youtube = 'youtube.com/watch' in media_url or 'youtu.be/' in media_url
+
             # Ensure we have discovered devices
             if not self.chromecasts:
                 await self.discover_devices()
@@ -260,18 +290,37 @@ class ChromecastManager:
             if not title:
                 title = f"HSG Canvas - {media_type.title()} Stream"
 
-            # Start casting
-            logging.info(f"Starting cast: {media_url} ({content_type}) on {cast.name}")
-            await loop.run_in_executor(
-                None,
-                lambda: mc.play_media(media_url, content_type, title=title)
-            )
+            # Start casting - use YouTube app for YouTube URLs, media controller for others
+            if is_youtube:
+                # Extract YouTube video ID
+                video_id = self._extract_youtube_id(media_url)
+                if not video_id:
+                    logging.error(f"Failed to extract YouTube video ID from: {media_url}")
+                    return False
 
-            # Wait a moment for cast to start
-            await asyncio.sleep(2)
+                logging.info(f"Starting YouTube cast: video_id={video_id} on {cast.name}")
 
-            # Block until media is loaded
-            await loop.run_in_executor(None, mc.block_until_active)
+                # Use quick_play for native YouTube support
+                await loop.run_in_executor(
+                    None,
+                    lambda: quick_play(cast, "youtube", {"media_id": video_id})
+                )
+
+                # Wait a moment for YouTube app to load
+                await asyncio.sleep(3)
+            else:
+                # Regular media - use media controller
+                logging.info(f"Starting media cast: {media_url} ({content_type}) on {cast.name}")
+                await loop.run_in_executor(
+                    None,
+                    lambda: mc.play_media(media_url, content_type, title=title)
+                )
+
+                # Wait a moment for cast to start
+                await asyncio.sleep(2)
+
+                # Block until media is loaded
+                await loop.run_in_executor(None, mc.block_until_active)
 
             # Store current state
             self.current_cast = cast
