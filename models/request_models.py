@@ -27,6 +27,7 @@ class YoutubePlayRequest(BaseModel):
     youtube_url: str
     duration: Optional[int] = None  # None = play full video
     mute: Optional[bool] = False  # True = no audio output
+    youtube_quality: Optional[str] = None  # Video quality preference (e.g., '1080p', '720p')
 
 
 class QRCodeRequest(BaseModel):

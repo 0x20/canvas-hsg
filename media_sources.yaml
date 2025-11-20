@@ -133,6 +133,14 @@ youtube_channels:
       url: "https://www.youtube.com/watch?v=TGysUwc_LEc"
       description: "Ambient music with deep space sounds - HD Live"
 
+    - name: "🛰️ NASA Live - Earth from ISS (24/7)"
+      url: "https://www.youtube.com/watch?v=xRPjKQtRXR8"
+      description: "Live views of Earth from the International Space Station"
+
+    - name: "🌊 Underwater 4K - BBC Earth (24/7 Live)"
+      url: "https://www.youtube.com/watch?v=YfJ1jX-xF_4"
+      description: "Night underwater nature footage in 4K - ethereal and ambient"
+
     - name: "🔥 Relaxing Fireplace (12 Hours)"
       url: "https://www.youtube.com/watch?v=UgHKb_7884o"
       description: "12 hours of crackling fireplace sounds"
@@ -158,6 +166,24 @@ youtube_channels:
     - name: "🏝️ Tropical Shores - 24/7 Peaceful Music"
       url: "https://www.youtube.com/watch?v=dXIyMS61B68"
       description: "Beautiful relaxing peaceful music by Tim Janis"
+
+    - name: "🌊 Ocean Ambience 4K - Maldives Beach (24/7 Live)"
+      url: "https://www.youtube.com/watch?v=_BMi3usEwi8"
+      description: "Live tropical beach and ocean waves sounds from the Maldives"
+
+    - name: "🦌 Wildlife Forest - Live Nature Camera (24/7)"
+      url: "https://www.youtube.com/watch?v=F0GOOP82094"
+      description: "Live forest scenes with animals - by Morten Hilmer"
+
+  # Industrial & Automation (Hackerspace Vibes)
+  industrial_automation:
+    - name: "🤖 Night Factory - Robots Assembling Switchboards (24/7)"
+      url: "https://www.youtube.com/watch?v=Sp8O2H2dwlY"
+      description: "Automation at night factory - robots building electrical switchboards"
+
+    - name: "🏭 Factory Tours - Process Automation & How It's Made (24/7)"
+      url: "https://www.youtube.com/watch?v=asvBxhDTRxs"
+      description: "Live factory tours showing assembly lines and production automation"
 
 # Default placeholder URLs for input fields
 defaults:

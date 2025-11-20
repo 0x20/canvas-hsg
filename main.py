@@ -28,6 +28,7 @@ from managers.background_modes import BackgroundManager
 from managers.webcast_manager import WebcastManager
 from managers.chromecast_manager import ChromecastManager
 from managers.cast_receiver_manager import CastReceiverManager
+from managers.output_target_manager import OutputTargetManager
 
 # API routes
 from routes import (
@@ -41,7 +42,8 @@ from routes import (
     setup_system_routes,
     setup_webcast_routes,
     setup_chromecast_routes,
-    setup_cast_receiver_routes
+    setup_cast_receiver_routes,
+    setup_output_target_routes
 )
 
 # Config
@@ -65,6 +67,7 @@ background_manager: BackgroundManager = None
 webcast_manager_instance: WebcastManager = None
 chromecast_manager: ChromecastManager = None
 cast_receiver_manager: CastReceiverManager = None
+output_target_manager: OutputTargetManager = None
 display_detector = None
 framebuffer_manager = None
 cec_manager = None
@@ -80,7 +83,7 @@ async def lifespan(app: FastAPI):
     global audio_pool, video_pool, audio_manager, playback_manager, image_manager
     global stream_manager, screen_stream_manager, background_manager
     global webcast_manager_instance, chromecast_manager, cast_receiver_manager
-    global display_detector, framebuffer_manager, cec_manager, health_task
+    global output_target_manager, display_detector, framebuffer_manager, cec_manager, health_task
 
     # STARTUP
     logging.info("Starting HSG Canvas application...")
@@ -141,6 +144,14 @@ async def lifespan(app: FastAPI):
         # logging.info("Starting Cast receiver for device discovery...")
         # await cast_receiver_manager.start_receiver()
 
+        # Initialize output target manager (unified target management)
+        logging.info("Initializing Output Target manager...")
+        output_target_manager = OutputTargetManager(audio_manager, playback_manager, chromecast_manager)
+
+        # Chromecast discovery now uses subprocess isolation - ZERO file descriptor leaks
+        logging.info("Discovering Chromecast devices...")
+        await output_target_manager.discover_chromecast_targets()
+
         # Setup routers with managers
         logging.info("Setting up API routes...")
         app.include_router(setup_audio_routes(audio_manager))
@@ -154,6 +165,7 @@ async def lifespan(app: FastAPI):
         app.include_router(setup_webcast_routes(webcast_manager_instance))
         app.include_router(setup_chromecast_routes(chromecast_manager))
         app.include_router(setup_cast_receiver_routes(cast_receiver_manager))
+        app.include_router(setup_output_target_routes(output_target_manager))
 
         # Start health monitor for MPV pools
         logging.info("Starting MPV pool health monitor...")
@@ -198,6 +210,10 @@ async def lifespan(app: FastAPI):
         # Stop Cast Receiver
         if cast_receiver_manager:
             await cast_receiver_manager.cleanup()
+
+        # Stop Output Target Manager
+        if output_target_manager:
+            await output_target_manager.cleanup()
 
         # Cleanup managers
         if audio_manager:

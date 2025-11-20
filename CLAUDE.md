@@ -151,13 +151,14 @@ The system includes both Chromecast sender and receiver functionality:
 PyChromecast library for casting media to Chromecast devices on the network:
 
 **Features:**
-- Automatic device discovery on local network
+- Automatic device discovery on local network via subprocess isolation (zero FD leaks)
 - Cast audio and video URLs to any Chromecast device
 - Automatic media type detection (audio vs video)
 - Smart playback management: stops local playback when casting starts
   - Video casting: stops both audio and video playback
   - Audio casting: stops only video playback (audio continues on Pi)
 - Volume control and playback management (play/pause/stop)
+- 24-hour discovery cache to minimize network overhead
 
 **Usage:**
 1. Ensure Chromecast device is on the same network as the Raspberry Pi
@@ -188,10 +189,14 @@ curl http://localhost:8000/chromecast/status
 curl -X POST http://localhost:8000/chromecast/stop
 ```
 
-**Notes:**
+**Technical Notes:**
 - Media URLs must be publicly accessible (Chromecast fetches directly from URL)
 - Local file playback is automatically stopped when casting begins
 - Casting quality depends on network bandwidth and Chromecast model
+- **File Descriptor Leak Fix**: Discovery runs in isolated subprocess to prevent FD leaks from pychromecast/zeroconf
+  - Previous approach leaked ~5 FDs per discovery cycle
+  - Subprocess approach achieves zero leaks by isolating zeroconf multicast sockets
+  - Device info is cached for 24 hours, minimizing subprocess spawning overhead
 
 #### Receiving Casts FROM Phones/Tablets (Receiver)
 DIAL/SSDP server for appearing as a cast target in casting apps:

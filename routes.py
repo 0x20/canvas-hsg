@@ -1330,3 +1330,156 @@ def setup_cast_receiver_routes(cast_receiver: 'CastReceiverManager') -> APIRoute
             raise HTTPException(status_code=500, detail=str(e))
 
     return router
+
+
+# =============================================================================
+# OUTPUT TARGET ROUTES (unified target management)
+# =============================================================================
+
+def setup_output_target_routes(output_target_manager: 'OutputTargetManager') -> APIRouter:
+    """
+    Setup Output Target routes with dependency injection
+
+    Args:
+        output_target_manager: OutputTargetManager instance
+
+    Returns:
+        Configured APIRouter
+    """
+    from managers.output_target_manager import OutputTargetManager
+    router = APIRouter()
+
+    @router.get("/targets")
+    async def get_all_targets():
+        """Get list of all available output targets (HDMI, Audio Hat, Chromecasts)"""
+        try:
+            return {
+                "targets": output_target_manager.get_all_targets(),
+                "defaults": {
+                    "video": output_target_manager.default_video_target,
+                    "audio": output_target_manager.default_audio_target
+                },
+                "active": {
+                    "video": output_target_manager.active_video_target,
+                    "audio": output_target_manager.active_audio_target
+                }
+            }
+        except Exception as e:
+            logging.error(f"Failed to get targets: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/targets/refresh")
+    async def refresh_targets():
+        """Refresh Chromecast discovery"""
+        try:
+            count = await output_target_manager.discover_chromecast_targets()
+            return {
+                "message": f"Discovered {count} Chromecast device(s)",
+                "chromecasts_found": count,
+                "total_targets": len(output_target_manager.targets)
+            }
+        except Exception as e:
+            logging.error(f"Failed to refresh targets: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/targets/status")
+    async def get_target_status():
+        """Get current output target status"""
+        try:
+            return output_target_manager.get_status()
+        except Exception as e:
+            logging.error(f"Failed to get target status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/targets/{target_id}")
+    async def get_target_info(target_id: str):
+        """Get information about a specific target"""
+        try:
+            target = output_target_manager.get_target(target_id)
+            if not target:
+                raise HTTPException(status_code=404, detail=f"Target {target_id} not found")
+            return target.to_dict()
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(f"Failed to get target info: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/targets/play/video")
+    async def play_video_on_target(request: YoutubePlayRequest, target: Optional[str] = None):
+        """
+        Play video on specified target (or default)
+
+        Query params:
+            target: Target ID (e.g., 'local-video', 'chromecast-12345')
+        """
+        try:
+            success = await output_target_manager.play_video(
+                video_url=request.youtube_url,
+                target_id=target,
+                duration=request.duration,
+                mute=request.mute
+            )
+            if success:
+                target_name = target or output_target_manager.default_video_target
+                return {
+                    "message": f"Video playback started on {target_name}",
+                    "target": target_name,
+                    "url": request.youtube_url
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to start video playback")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(f"Failed to play video: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/targets/play/audio")
+    async def play_audio_on_target(request: AudioStreamRequest, target: Optional[str] = None):
+        """
+        Play audio on specified target (or default)
+
+        Query params:
+            target: Target ID (e.g., 'local-audio', 'chromecast-12345')
+        """
+        try:
+            success = await output_target_manager.play_audio(
+                audio_url=request.stream_url,
+                target_id=target,
+                volume=request.volume
+            )
+            if success:
+                target_name = target or output_target_manager.default_audio_target
+                return {
+                    "message": f"Audio playback started on {target_name}",
+                    "target": target_name,
+                    "url": request.stream_url
+                }
+            else:
+                raise HTTPException(status_code=500, detail="Failed to start audio playback")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logging.error(f"Failed to play audio: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/targets/stop")
+    async def stop_playback_on_targets(media_type: str = "all"):
+        """
+        Stop playback on active targets
+
+        Query params:
+            media_type: 'video', 'audio', or 'all' (default: 'all')
+        """
+        try:
+            await output_target_manager.stop_playback(media_type)
+            return {
+                "message": f"Stopped {media_type} playback",
+                "media_type": media_type
+            }
+        except Exception as e:
+            logging.error(f"Failed to stop playback: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return router

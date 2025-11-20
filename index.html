@@ -574,6 +574,18 @@
                 <h2>📺 VIDEO PLAYBACK</h2>
                 <p>Stream YouTube videos with or without audio</p>
 
+                <!-- Output Target Selection -->
+                <div style="margin-bottom: 15px; padding: 12px; background: rgba(114, 9, 183, 0.1); border-radius: 8px; border: 1px solid var(--neon-purple);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                        <label style="font-weight: bold; margin: 0; flex-shrink: 0;">Output Target:</label>
+                        <select id="videoTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
+                            <option value="">Loading targets...</option>
+                        </select>
+                        <button onclick="refreshOutputTargets()" class="small-btn" title="Refresh Chromecasts">🔄</button>
+                    </div>
+                    <div id="videoTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
+                </div>
+
                 <!-- Preset Selection -->
                 <div style="margin-bottom: 10px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Quick select (auto-starts):</label>
@@ -630,6 +642,18 @@
             <div class="card">
                 <h2>🎵 AUDIO STREAMING</h2>
                 <p>Stream from Soma.FM, web radio, or any audio URL</p>
+
+                <!-- Output Target Selection -->
+                <div style="margin-bottom: 15px; padding: 12px; background: rgba(114, 9, 183, 0.1); border-radius: 8px; border: 1px solid var(--neon-purple);">
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
+                        <label style="font-weight: bold; margin: 0; flex-shrink: 0;">Output Target:</label>
+                        <select id="audioTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
+                            <option value="">Loading targets...</option>
+                        </select>
+                        <button onclick="refreshOutputTargets()" class="small-btn" title="Refresh Chromecasts">🔄</button>
+                    </div>
+                    <div id="audioTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
+                </div>
 
                 <!-- Quick Stream Selection -->
                 <div style="margin-bottom: 15px;">
@@ -1058,6 +1082,118 @@
             container.appendChild(errorDiv);
         }
 
+        // Output Target Management
+        let availableTargets = { targets: [], defaults: {}, active: {} };
+
+        async function loadOutputTargets() {
+            try {
+                availableTargets = await apiCall('GET', '/targets');
+                updateTargetSelectors();
+                updateTargetStatus();
+            } catch (error) {
+                console.error('Failed to load output targets:', error);
+            }
+        }
+
+        async function refreshOutputTargets() {
+            const refreshBtn = event ? event.target : document.querySelector('button[onclick="refreshOutputTargets()"]');
+
+            try {
+                setButtonLoading(refreshBtn, true);
+
+                // Trigger Chromecast discovery
+                const result = await apiCall('POST', '/targets/refresh');
+                showStatus(`Discovered ${result.chromecasts_found} Chromecast device(s)`, 'success');
+
+                // Reload targets
+                await loadOutputTargets();
+
+            } catch (error) {
+                showStatus(`Failed to refresh targets: ${error.message}`, 'error');
+            } finally {
+                setButtonLoading(refreshBtn, false);
+            }
+        }
+
+        function getTargetIcon(targetType) {
+            const icons = {
+                'local-video': '📺',
+                'local-audio': '🔊',
+                'chromecast': '📡'
+            };
+            return icons[targetType] || '🎯';
+        }
+
+        function updateTargetSelectors() {
+            const videoSelect = document.getElementById('videoTargetSelect');
+            const audioSelect = document.getElementById('audioTargetSelect');
+
+            // Get video-capable targets
+            const videoTargets = availableTargets.targets.filter(t =>
+                t.capabilities.includes('video') && t.is_available
+            );
+
+            // Get audio-capable targets
+            const audioTargets = availableTargets.targets.filter(t =>
+                t.capabilities.includes('audio') && t.is_available
+            );
+
+            // Update video target selector
+            videoSelect.innerHTML = '<option value="">Use Default (HDMI)</option>';
+            videoTargets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                const icon = getTargetIcon(target.type);
+                option.textContent = `${icon} ${target.name}`;
+                if (target.id === availableTargets.defaults.video) {
+                    option.textContent += ' (Default)';
+                }
+                videoSelect.appendChild(option);
+            });
+
+            // Update audio target selector
+            audioSelect.innerHTML = '<option value="">Use Default (Audio Hat)</option>';
+            audioTargets.forEach(target => {
+                const option = document.createElement('option');
+                option.value = target.id;
+                const icon = getTargetIcon(target.type);
+                option.textContent = `${icon} ${target.name}`;
+                if (target.id === availableTargets.defaults.audio) {
+                    option.textContent += ' (Default)';
+                }
+                audioSelect.appendChild(option);
+            });
+        }
+
+        function updateTargetStatus() {
+            const videoStatusDiv = document.getElementById('videoTargetStatus');
+            const audioStatusDiv = document.getElementById('audioTargetStatus');
+
+            // Show active video target
+            if (availableTargets.active.video) {
+                const target = availableTargets.targets.find(t => t.id === availableTargets.active.video);
+                if (target) {
+                    videoStatusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">● Active: ${target.name}</span>`;
+                } else {
+                    videoStatusDiv.innerHTML = '';
+                }
+            } else {
+                videoStatusDiv.innerHTML = '';
+            }
+
+            // Show active audio target
+            if (availableTargets.active.audio) {
+                const target = availableTargets.targets.find(t => t.id === availableTargets.active.audio);
+                if (target) {
+                    audioStatusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">● Active: ${target.name}</span>`;
+                } else {
+                    audioStatusDiv.innerHTML = '';
+                }
+            } else {
+                audioStatusDiv.innerHTML = '';
+            }
+        }
+
         async function startStream() {
             const streamKey = document.getElementById('streamKey').value;
             const sourceUrl = document.getElementById('sourceUrl').value;
@@ -1180,11 +1316,14 @@
 
             // If a preset is selected, auto-fill URL and start playback
             if (dropdown.value && dropdown.value.startsWith('http')) {
-                customUrlInput.value = dropdown.value;
-                playVideo();
+                const selectedUrl = dropdown.value;
 
-                // Reset dropdown to allow re-selection
+                // Reset dropdown immediately to allow re-selection
                 dropdown.value = "";
+
+                // Now set the URL and play
+                customUrlInput.value = selectedUrl;
+                playVideo();
             }
         }
 
@@ -1223,6 +1362,10 @@
                 const audioEnabled = document.getElementById('videoAudioEnabled').checked;
                 const duration = document.getElementById('videoDuration').value;
 
+                // Get selected target
+                const targetSelect = document.getElementById('videoTargetSelect');
+                const selectedTarget = targetSelect.value;
+
                 statusDiv.innerHTML = `<span>Starting video playback...</span>`;
 
                 // Build request data
@@ -1232,11 +1375,24 @@
                 };
                 if (duration) data.duration = parseInt(duration);
 
-                await apiCall('POST', '/playback/youtube', data);
+                // Use target-aware endpoint
+                let endpoint = '/targets/play/video';
+                if (selectedTarget) {
+                    endpoint += `?target=${encodeURIComponent(selectedTarget)}`;
+                }
+
+                await apiCall('POST', endpoint, data);
 
                 const audioText = audioEnabled ? ' with audio' : ' (muted)';
-                statusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Playing: ${videoTitle}${audioText}</span>`;
+                const targetName = selectedTarget ?
+                    availableTargets.targets.find(t => t.id === selectedTarget)?.name || 'selected target' :
+                    'default target';
+
+                statusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Playing: ${videoTitle}${audioText} on ${targetName}</span>`;
                 showStatus('Video started successfully', 'success');
+
+                // Refresh target status to show active target
+                await loadOutputTargets();
                 refreshStatus();
 
             } catch (error) {
@@ -1320,13 +1476,31 @@
             showStatus('Starting audio stream...', 'success');
 
             try {
+                // Get selected target
+                const targetSelect = document.getElementById('audioTargetSelect');
+                const selectedTarget = targetSelect.value;
+
                 const data = {
                     stream_url: streamUrl,
                     volume: parseInt(volume)
                 };
 
-                await apiCall('POST', '/audio/start', data);
-                showStatus(`Audio stream started: ${streamUrl}`, 'success');
+                // Use target-aware endpoint
+                let endpoint = '/targets/play/audio';
+                if (selectedTarget) {
+                    endpoint += `?target=${encodeURIComponent(selectedTarget)}`;
+                }
+
+                await apiCall('POST', endpoint, data);
+
+                const targetName = selectedTarget ?
+                    availableTargets.targets.find(t => t.id === selectedTarget)?.name || 'selected target' :
+                    'default target';
+
+                showStatus(`Audio stream started on ${targetName}`, 'success');
+
+                // Refresh target status to show active target
+                await loadOutputTargets();
                 updateAudioStatus();
             } catch (error) {
                 showValidationError(audioCard, `Failed to start audio stream: ${error.message}`);
@@ -1358,16 +1532,19 @@
             const selectedUrl = dropdown.value;
 
             if (selectedUrl) {
+                // Reset dropdown immediately to allow re-selection
+                dropdown.value = '';
+
+                // Set the URL in the input field
                 document.getElementById('audioStreamUrl').value = selectedUrl;
 
+                // Visual feedback with green border
                 const audioUrlInput = document.getElementById('audioStreamUrl');
                 audioUrlInput.style.borderColor = '#28a745';
 
                 setTimeout(() => {
                     audioUrlInput.style.borderColor = '';
                 }, 2000);
-
-                dropdown.value = '';
             }
         }
 
@@ -2186,9 +2363,11 @@
         setInterval(refreshBackgroundStatus, 15000);
         setInterval(refreshCECStatus, 20000);
         setInterval(refreshSpotifyStatus, 30000);
+        setInterval(loadOutputTargets, 15000);  // Refresh targets every 15 seconds
 
         // Initial load
         loadResolution();
+        loadOutputTargets();  // Load output targets on page load
         refreshStatus();
         updateScreenStreamUI();
         refreshBackgroundStatus();

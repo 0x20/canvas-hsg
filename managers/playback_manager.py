@@ -70,7 +70,13 @@ class PlaybackManager:
             width, height, refresh = self.display_detector.get_resolution_for_content_type("youtube")
 
             # Choose YouTube quality optimized for Pi hardware decoding
-            youtube_quality = "bestvideo[vcodec^=avc1][height<=720]+bestaudio/best[height<=720]"
+            # IMPORTANT: Prefer AVC1 (H.264) codec - Pi has hardware decoder for this
+            # Fall back to other codecs (VP9) if AVC1 not available, but will be choppy
+            youtube_quality = "bestvideo[vcodec^=avc1][height<=720]+bestaudio/bestvideo[height<=720]+bestaudio/best"
+
+            # Log warning if we're likely to get VP9 (no hardware acceleration)
+            logging.warning(f"YouTube playback: Preferring AVC1 (H.264) for hardware decoding. "
+                          f"If video is choppy, it may be using VP9 codec without hardware acceleration.")
 
             # Get controller from video pool
             controller = await self.video_pool.get_available_controller()

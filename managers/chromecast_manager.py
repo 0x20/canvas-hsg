@@ -15,6 +15,10 @@ import pychromecast
 from pychromecast.controllers.media import MediaController
 from pychromecast.quick_play import quick_play
 
+# Suppress pychromecast deprecation log messages (get_chromecasts still works)
+# Set to ERROR to hide INFO-level deprecation messages
+logging.getLogger('pychromecast.discovery').setLevel(logging.ERROR)
+
 
 class ChromecastManager:
     """Manages Chromecast device discovery and media casting"""
@@ -31,13 +35,15 @@ class ChromecastManager:
         self.playback_manager = playback_manager
 
         # Chromecast state
-        self.chromecasts: List[pychromecast.Chromecast] = []
+        # Store device info as dicts (from subprocess) to avoid FD leaks
+        # Reconnect on-demand when casting
+        self.chromecasts: List[Dict[str, Any]] = []
         self.current_cast: Optional[pychromecast.Chromecast] = None
         self.media_controller: Optional[MediaController] = None
         self.discovery_running = False
         self.last_discovery_time = 0
-        self.discovery_cache_duration = 60  # Cache discovery results for 60 seconds
-        self.browser = None  # Keep browser alive for Chromecast connections
+        self.discovery_cache_duration = 86400  # Cache for 24 hours
+        self.browser = None  # Not used with subprocess approach
 
         # Current cast state
         self.current_media_url: Optional[str] = None
@@ -64,26 +70,82 @@ class ChromecastManager:
             logging.info(f"Discovering Chromecast devices (timeout={timeout}s)...")
             self.discovery_running = True
 
-            # Stop old browser if exists
-            if self.browser:
-                try:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, self.browser.stop_discovery)
-                except Exception as e:
-                    logging.debug(f"Error stopping old browser: {e}")
+            # Use subprocess to avoid file descriptor leaks in main process
+            # The subprocess will be terminated, releasing all its FDs
+            import subprocess
+            import json
+            import sys
 
-            # Run discovery in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-            chromecasts, browser = await loop.run_in_executor(
-                None,
-                lambda: pychromecast.get_chromecasts(timeout=timeout)
-            )
+            discovery_script = """
+import pychromecast
+import json
+import sys
 
-            # Keep the browser alive for Chromecast connections
-            self.browser = browser
+# Discover chromecasts
+chromecasts, browser = pychromecast.get_chromecasts(timeout={timeout})
 
-            self.chromecasts = list(chromecasts)
-            self.last_discovery_time = current_time
+# Extract cast info
+devices = []
+for cast in chromecasts:
+    try:
+        host = cast.cast_info.host if hasattr(cast, 'cast_info') else cast.uri.split(':')[0]
+        port = cast.cast_info.port if hasattr(cast, 'cast_info') else 8009
+        devices.append({{
+            'name': cast.name,
+            'model': cast.model_name,
+            'uuid': str(cast.uuid),
+            'host': host,
+            'port': port
+        }})
+    except:
+        pass
+
+# Output as JSON
+print(json.dumps(devices))
+
+# Clean exit
+browser.stop_discovery()
+if hasattr(browser, 'zc') and browser.zc:
+    browser.zc.close()
+""".format(timeout=timeout)
+
+            try:
+                # Run discovery in subprocess
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable, '-c', discovery_script,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+
+                stdout, stderr = await asyncio.wait_for(
+                    proc.communicate(),
+                    timeout=timeout + 5
+                )
+
+                if proc.returncode == 0:
+                    # Parse device info from subprocess
+                    devices_data = json.loads(stdout.decode())
+
+                    # Store device info as dicts - will reconnect on-demand when casting
+                    # This avoids keeping Chromecast objects alive (which leak FDs)
+                    self.chromecasts = devices_data
+
+                    logging.info(f"Discovered {len(devices_data)} Chromecast device(s) via subprocess - zero FD leaks")
+                    self.last_discovery_time = current_time
+                    self.discovery_running = False
+
+                    # Return formatted device list
+                    return devices_data
+                else:
+                    logging.error(f"Subprocess discovery failed: {stderr.decode()}")
+
+            except asyncio.TimeoutError:
+                logging.error("Chromecast discovery timed out")
+                if proc:
+                    proc.kill()
+            except Exception as e:
+                logging.error(f"Subprocess discovery error: {e}")
+
             self.discovery_running = False
 
             logging.info(f"Discovered {len(self.chromecasts)} Chromecast device(s)")
@@ -94,34 +156,40 @@ class ChromecastManager:
             self.discovery_running = False
             return []
 
-    def _format_device_list(self, chromecasts: List[pychromecast.Chromecast]) -> List[Dict[str, Any]]:
-        """Format Chromecast device list for API response"""
-        devices = []
-        for cast in chromecasts:
-            try:
-                # Get host and port from cast_info
-                host = cast.cast_info.host if hasattr(cast, 'cast_info') else cast.uri.split(':')[0]
-                port = cast.cast_info.port if hasattr(cast, 'cast_info') else 8009
+    def _format_device_list(self, chromecasts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Format Chromecast device list for API response
 
-                devices.append({
-                    "name": cast.name,
-                    "model": cast.model_name,
-                    "uuid": str(cast.uuid),
-                    "host": host,
-                    "port": port,
-                    "status": cast.status.status_text if cast.status else "unknown"
-                })
-            except Exception as e:
-                logging.warning(f"Error formatting device {cast.name}: {e}")
-                # Add minimal info
-                devices.append({
-                    "name": cast.name,
-                    "model": getattr(cast, 'model_name', 'unknown'),
-                    "uuid": str(getattr(cast, 'uuid', 'unknown')),
-                    "host": "unknown",
-                    "port": 8009,
-                    "status": "unknown"
-                })
+        Args:
+            chromecasts: List of device info dicts
+
+        Returns:
+            Formatted device list
+        """
+        devices = []
+        for device in chromecasts:
+            # Already in dict format from subprocess discovery
+            if isinstance(device, dict):
+                # Add status field if missing
+                if "status" not in device:
+                    device["status"] = "available"
+                devices.append(device)
+            else:
+                # Fallback for Chromecast objects (legacy support)
+                try:
+                    host = device.cast_info.host if hasattr(device, 'cast_info') else device.uri.split(':')[0]
+                    port = device.cast_info.port if hasattr(device, 'cast_info') else 8009
+
+                    devices.append({
+                        "name": device.name,
+                        "model": device.model_name,
+                        "uuid": str(device.uuid),
+                        "host": host,
+                        "port": port,
+                        "status": device.status.status_text if device.status else "unknown"
+                    })
+                except Exception as e:
+                    logging.warning(f"Error formatting device: {e}")
         return devices
 
     def _detect_media_type(self, media_url: str) -> str:
@@ -213,15 +281,25 @@ class ChromecastManager:
                 logging.error("No Chromecast devices found on the network")
                 return False
 
-            # Select device
+            # Select device from stored device info
+            device_info = None
             if device_name:
-                cast = next((c for c in self.chromecasts if c.name == device_name), None)
-                if not cast:
+                device_info = next((d for d in self.chromecasts if d['name'] == device_name), None)
+                if not device_info:
                     logging.error(f"Chromecast device '{device_name}' not found")
                     return False
             else:
-                cast = self.chromecasts[0]
-                logging.info(f"Using first available Chromecast: {cast.name}")
+                device_info = self.chromecasts[0]
+                logging.info(f"Using first available Chromecast: {device_info['name']}")
+
+            # Reconnect to Chromecast using stored device info
+            # This creates a fresh connection without FD leaks
+            logging.info(f"Connecting to Chromecast at {device_info['host']}:{device_info['port']}")
+            cast = pychromecast.Chromecast(device_info['host'], port=device_info['port'])
+
+            # Set friendly name for logging
+            if not hasattr(cast, 'name') or not cast.name:
+                cast.name = device_info['name']
 
             # Detect media type (audio vs video)
             media_type = self._detect_media_type(media_url)
@@ -351,6 +429,13 @@ class ChromecastManager:
             loop = asyncio.get_event_loop()
             await loop.run_in_executor(None, self.media_controller.stop)
 
+            # Disconnect the Chromecast to free resources
+            try:
+                await loop.run_in_executor(None, self.current_cast.disconnect)
+                logging.info("Disconnected Chromecast to free resources")
+            except Exception as e:
+                logging.debug(f"Error disconnecting Chromecast: {e}")
+
             # Clear state
             self.current_cast = None
             self.media_controller = None
@@ -457,27 +542,12 @@ class ChromecastManager:
     async def cleanup(self):
         """Cleanup Chromecast connections"""
         try:
+            # Stop current cast (this will disconnect the active Chromecast)
             if self.current_cast:
                 await self.stop_cast()
 
-            # Stop discovery browser
-            if self.browser:
-                try:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, self.browser.stop_discovery)
-                except Exception as e:
-                    logging.debug(f"Error stopping browser: {e}")
-
-            # Disconnect all chromecasts
-            for cast in self.chromecasts:
-                try:
-                    loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(None, cast.disconnect)
-                except Exception as e:
-                    logging.debug(f"Error disconnecting Chromecast {cast.name}: {e}")
-
+            # Clear device info cache (just dicts, no connections to close)
             self.chromecasts = []
-            self.browser = None
             logging.info("Chromecast manager cleaned up")
 
         except Exception as e:

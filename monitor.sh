@@ -172,6 +172,14 @@ main() {
     check_system_resources
 
     echo -e "\n${BLUE}========================================${NC}\n"
+
+    # Follow HSG Canvas logs (last 100 lines, then continuous)
+    echo -e "${YELLOW}Following HSG Canvas Logs (press Ctrl+C to exit)...${NC}\n"
+    if systemctl is-active --quiet hsg-canvas 2>/dev/null; then
+        journalctl -u hsg-canvas -n 100 -f
+    else
+        echo -e "${RED}HSG Canvas not running${NC}"
+    fi
 }
 
 # Handle arguments
