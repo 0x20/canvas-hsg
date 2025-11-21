@@ -85,23 +85,26 @@ echo -e "Old version: ${YELLOW}$CURRENT_VERSION${NC}"
 echo -e "New version: ${GREEN}$NEW_VERSION${NC}"
 echo ""
 
-# Update requirements.txt
-if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
-    echo -e "${BLUE}Updating requirements.txt...${NC}"
-
-    # Create backup
-    cp requirements.txt requirements.txt.backup
-
-    # Update the yt-dlp version in requirements.txt
-    sed -i "s/^yt-dlp==.*/yt-dlp==$NEW_VERSION/" requirements.txt
-
-    echo -e "${GREEN}requirements.txt updated${NC}"
-    echo -e "Backup saved as: requirements.txt.backup"
-    echo ""
-else
+# Check if version changed
+if [ "$CURRENT_VERSION" = "$NEW_VERSION" ]; then
     echo -e "${BLUE}Already on latest version, no update needed${NC}"
     echo ""
+    echo -e "${BLUE}========================================${NC}\n"
+    exit 0
 fi
+
+# Update requirements.txt
+echo -e "${BLUE}Updating requirements.txt...${NC}"
+
+# Create backup
+cp requirements.txt requirements.txt.backup
+
+# Update the yt-dlp version in requirements.txt
+sed -i "s/^yt-dlp==.*/yt-dlp==$NEW_VERSION/" requirements.txt
+
+echo -e "${GREEN}requirements.txt updated${NC}"
+echo -e "Backup saved as: requirements.txt.backup"
+echo ""
 
 # Restart service if it was running
 if [ "$SERVICE_RUNNING" = true ]; then
