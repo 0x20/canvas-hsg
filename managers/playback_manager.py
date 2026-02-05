@@ -9,6 +9,8 @@ from typing import Optional
 
 from managers.mpv_pools import VideoMPVPool
 from managers.mpv_controller import MPVController
+from config import YOUTUBE_COOKIES_PATH
+from utils.drm import get_optimal_connector_and_device as _get_optimal_connector_and_device
 
 
 class PlaybackManager:
@@ -37,22 +39,7 @@ class PlaybackManager:
 
     def get_optimal_connector_and_device(self) -> tuple[str, str]:
         """Get optimal DRM connector and device for current display"""
-        try:
-            connector = self.display_detector.optimal_connector
-
-            # Determine DRM device based on connector
-            if connector in self.display_detector.capabilities:
-                connector_data = self.display_detector.capabilities[connector]
-                if connector_data['item'].startswith('card1-'):
-                    return connector, '/dev/dri/card1'
-                else:
-                    return connector, '/dev/dri/card0'
-
-            return "HDMI-A-1", "/dev/dri/card0"
-
-        except Exception as e:
-            logging.warning(f"Failed to get optimal connector: {e}")
-            return "HDMI-A-1", "/dev/dri/card0"
+        return _get_optimal_connector_and_device(self.display_detector)
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play YouTube video using video pool with IPC control"""
@@ -89,6 +76,15 @@ class PlaybackManager:
             # Configure playback settings via IPC
             # NOTE: DRM device/connector are already set at mpv launch time and cannot be changed at runtime.
             # However, we still need to set fullscreen and other properties before loadfile.
+
+            # Enable ytdl for YouTube playback (needed since --ytdl flag removed from startup to fix background images)
+            await controller.send_command(["set", "ytdl", "yes"])
+
+            # Set YouTube cookies if available
+            import os
+            if os.path.exists(YOUTUBE_COOKIES_PATH):
+                await controller.send_command(["set", "ytdl-raw-options", f"cookies={YOUTUBE_COOKIES_PATH}"])
+
             await controller.send_command(["set", "fullscreen", "yes"])
             await controller.send_command(["set", "ytdl-format", youtube_quality])
 
@@ -101,8 +97,10 @@ class PlaybackManager:
                 await controller.send_command(["set", "end", str(duration)])
 
             # Load the YouTube video
-            logging.info(f"Sending loadfile command for: {youtube_url}")
-            result = await controller.send_command(["loadfile", youtube_url])
+            # IMPORTANT: Prefix with ytdl:// to trigger MPV's ytdl_hook
+            ytdl_url = f"ytdl://{youtube_url}" if not youtube_url.startswith("ytdl://") else youtube_url
+            logging.info(f"Sending loadfile command for: {ytdl_url}")
+            result = await controller.send_command(["loadfile", ytdl_url])
             logging.info(f"Loadfile result: {result}")
 
             if result.get("error") and result.get("error") != "success":

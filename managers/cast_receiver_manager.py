@@ -11,11 +11,10 @@ import struct
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Optional, Dict, Any
-from urllib.parse import urlparse
-
 import netifaces
 
-from config import PRODUCTION_PORT
+from config import PRODUCTION_PORT, SSDP_MULTICAST_ADDR, SSDP_PORT, DEVICE_NAME
+from utils.media import detect_media_type
 
 
 class CastReceiverManager:
@@ -33,7 +32,7 @@ class CastReceiverManager:
         self.audio_manager = audio_manager
 
         # Receiver state
-        self.device_name = "HSG Canvas"
+        self.device_name = DEVICE_NAME
         self.device_uuid = "hsg-canvas-receiver"
         self.is_running = False
         self.ssdp_task: Optional[asyncio.Task] = None
@@ -43,8 +42,8 @@ class CastReceiverManager:
         self.session_id: Optional[str] = None
 
         # SSDP/DIAL configuration
-        self.ssdp_port = 1900
-        self.ssdp_addr = "239.255.255.250"
+        self.ssdp_port = SSDP_PORT
+        self.ssdp_addr = SSDP_MULTICAST_ADDR
         self.dial_port = PRODUCTION_PORT  # Use same port as main FastAPI server
 
         # Get local IP
@@ -321,41 +320,7 @@ class CastReceiverManager:
 
     def _detect_media_type(self, media_url: str, content_type: Optional[str] = None) -> str:
         """Detect if media is audio or video"""
-        # Check content type first
-        if content_type:
-            if 'video' in content_type.lower():
-                return 'video'
-            if 'audio' in content_type.lower():
-                return 'audio'
-
-        # Parse URL
-        parsed = urlparse(media_url.lower())
-        path = parsed.path
-
-        # Check for video services
-        if 'youtube.com' in parsed.netloc or 'youtu.be' in parsed.netloc:
-            return 'video'
-        if 'vimeo.com' in parsed.netloc:
-            return 'video'
-
-        # Check file extensions
-        audio_extensions = ['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav']
-        video_extensions = ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v']
-
-        for ext in audio_extensions:
-            if path.endswith(ext):
-                return 'audio'
-
-        for ext in video_extensions:
-            if path.endswith(ext):
-                return 'video'
-
-        # Check for streaming patterns
-        if any(pattern in media_url.lower() for pattern in ['.pls', '.m3u', 'radio', 'stream']):
-            return 'audio'
-
-        # Default to video for unknown types
-        return 'video'
+        return detect_media_type(media_url, content_type)
 
     def get_receiver_status(self) -> Dict[str, Any]:
         """Get current receiver status"""

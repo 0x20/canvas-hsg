@@ -11,6 +11,7 @@ import subprocess
 from typing import Optional, Dict, Any
 
 from config import SRS_RTMP_URL, SRS_HTTP_FLV_URL, SRS_HLS_URL
+from utils.drm import get_optimal_connector_and_device as _get_optimal_connector_and_device
 
 
 class ScreenStreamManager:
@@ -30,22 +31,7 @@ class ScreenStreamManager:
 
     def get_optimal_connector_and_device(self) -> tuple[str, str]:
         """Get optimal DRM connector and device for current display"""
-        try:
-            connector = self.display_detector.optimal_connector
-
-            # Determine DRM device based on connector
-            if connector in self.display_detector.capabilities:
-                connector_data = self.display_detector.capabilities[connector]
-                if connector_data['item'].startswith('card1-'):
-                    return connector, '/dev/dri/card1'
-                else:
-                    return connector, '/dev/dri/card0'
-
-            return "HDMI-A-1", "/dev/dri/card0"
-
-        except Exception as e:
-            logging.warning(f"Failed to get optimal connector: {e}")
-            return "HDMI-A-1", "/dev/dri/card0"
+        return _get_optimal_connector_and_device(self.display_detector)
 
     async def start_screen_stream(self, stream_key: str, protocol: str = "rtmp") -> bool:
         """Start streaming the display output to SRS server"""

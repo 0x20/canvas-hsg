@@ -29,6 +29,7 @@ from managers.webcast_manager import WebcastManager
 from managers.chromecast_manager import ChromecastManager
 from managers.cast_receiver_manager import CastReceiverManager
 from managers.output_target_manager import OutputTargetManager
+from managers.spotify_manager import SpotifyManager
 
 # API routes
 from routes import (
@@ -55,122 +56,113 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-# Global manager instances (will be initialized in lifespan)
-audio_pool: AudioMPVPool = None
-video_pool: VideoMPVPool = None
-audio_manager: AudioManager = None
-playback_manager: PlaybackManager = None
-image_manager: ImageManager = None
-stream_manager: StreamManager = None
-screen_stream_manager: ScreenStreamManager = None
-background_manager: BackgroundManager = None
-webcast_manager_instance: WebcastManager = None
-chromecast_manager: ChromecastManager = None
-cast_receiver_manager: CastReceiverManager = None
-output_target_manager: OutputTargetManager = None
-display_detector = None
-framebuffer_manager = None
-cec_manager = None
-health_task = None
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Lifespan management for FastAPI application.
     Handles startup and shutdown tasks.
+    All managers are stored on app.state instead of module globals.
     """
-    global audio_pool, video_pool, audio_manager, playback_manager, image_manager
-    global stream_manager, screen_stream_manager, background_manager
-    global webcast_manager_instance, chromecast_manager, cast_receiver_manager
-    global output_target_manager, display_detector, framebuffer_manager, cec_manager, health_task
-
     # STARTUP
     logging.info("Starting HSG Canvas application...")
 
     try:
         # Initialize display detector
         logging.info("Initializing display detector...")
-        display_detector = DisplayCapabilityDetector()
-        await display_detector.initialize()
+        app.state.display_detector = DisplayCapabilityDetector()
+        await app.state.display_detector.initialize()
 
         # Initialize framebuffer
         logging.info("Initializing framebuffer...")
-        framebuffer_manager = FramebufferManager()
-        framebuffer_manager.initialize()
+        app.state.framebuffer_manager = FramebufferManager()
+        app.state.framebuffer_manager.initialize()
 
         # Initialize MPV pools
         logging.info(f"Initializing audio MPV pool (size={AUDIO_POOL_SIZE})...")
-        audio_pool = AudioMPVPool(pool_size=AUDIO_POOL_SIZE)
-        await audio_pool.initialize()
+        app.state.audio_pool = AudioMPVPool(pool_size=AUDIO_POOL_SIZE)
+        await app.state.audio_pool.initialize()
 
         logging.info(f"Initializing video MPV pool (size={VIDEO_POOL_SIZE})...")
-        video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
-        await video_pool.initialize()
+        app.state.video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
+        await app.state.video_pool.initialize()
 
         # Initialize background manager with video pool
         logging.info("Initializing background manager...")
-        background_manager = BackgroundManager(display_detector, framebuffer_manager, video_pool)
+        app.state.background_manager = BackgroundManager(
+            app.state.display_detector, app.state.framebuffer_manager, app.state.video_pool
+        )
 
         # Start default background display
         logging.info("Starting default background display...")
-        await background_manager.start_static_mode()
+        await app.state.background_manager.start_static_mode()
 
         # Initialize managers
         logging.info("Initializing managers...")
-        audio_manager = AudioManager(audio_pool)
-        playback_manager = PlaybackManager(video_pool, display_detector, background_manager, audio_manager)
-        image_manager = ImageManager(display_detector, framebuffer_manager, video_pool)
-        stream_manager = StreamManager()
-        screen_stream_manager = ScreenStreamManager(display_detector)
+        app.state.audio_manager = AudioManager(app.state.audio_pool)
+
+        # Initialize Spotify manager with audio manager integration
+        logging.info("Initializing Spotify manager...")
+        app.state.spotify_manager = SpotifyManager(app.state.audio_manager)
+
+        app.state.playback_manager = PlaybackManager(
+            app.state.video_pool, app.state.display_detector,
+            app.state.background_manager, app.state.audio_manager
+        )
+        app.state.image_manager = ImageManager(
+            app.state.display_detector, app.state.framebuffer_manager, app.state.video_pool
+        )
+        app.state.stream_manager = StreamManager()
+        app.state.screen_stream_manager = ScreenStreamManager(app.state.display_detector)
 
         # Initialize CEC manager
         logging.info("Initializing HDMI-CEC manager...")
-        cec_manager = HDMICECManager()
+        app.state.cec_manager = HDMICECManager()
 
         # Initialize webcast manager
         logging.info("Initializing webcast manager...")
-        webcast_manager_instance = WebcastManager()
+        app.state.webcast_manager = WebcastManager()
 
         # Initialize chromecast manager
         logging.info("Initializing Chromecast manager...")
-        chromecast_manager = ChromecastManager(audio_manager, playback_manager)
+        app.state.chromecast_manager = ChromecastManager(
+            app.state.audio_manager, app.state.playback_manager
+        )
 
         # Initialize cast receiver manager (disabled - native phone apps require full Cast protocol)
         logging.info("Initializing Cast Receiver manager...")
-        cast_receiver_manager = CastReceiverManager(playback_manager, audio_manager)
-
-        # Cast receiver auto-start disabled (doesn't work with native phone apps)
-        # logging.info("Starting Cast receiver for device discovery...")
-        # await cast_receiver_manager.start_receiver()
+        app.state.cast_receiver_manager = CastReceiverManager(
+            app.state.playback_manager, app.state.audio_manager
+        )
 
         # Initialize output target manager (unified target management)
         logging.info("Initializing Output Target manager...")
-        output_target_manager = OutputTargetManager(audio_manager, playback_manager, chromecast_manager)
+        app.state.output_target_manager = OutputTargetManager(
+            app.state.audio_manager, app.state.playback_manager, app.state.chromecast_manager
+        )
 
         # Chromecast discovery now uses subprocess isolation - ZERO file descriptor leaks
         logging.info("Discovering Chromecast devices...")
-        await output_target_manager.discover_chromecast_targets()
+        await app.state.output_target_manager.discover_chromecast_targets()
 
         # Setup routers with managers
         logging.info("Setting up API routes...")
-        app.include_router(setup_audio_routes(audio_manager))
-        app.include_router(setup_playback_routes(playback_manager))
-        app.include_router(setup_stream_routes(stream_manager))
-        app.include_router(setup_screen_routes(screen_stream_manager))
-        app.include_router(setup_display_routes(image_manager, background_manager))
-        app.include_router(setup_background_routes(background_manager))
-        app.include_router(setup_cec_routes(cec_manager))
-        app.include_router(setup_system_routes(audio_pool, video_pool, display_detector))
-        app.include_router(setup_webcast_routes(webcast_manager_instance))
-        app.include_router(setup_chromecast_routes(chromecast_manager))
-        app.include_router(setup_cast_receiver_routes(cast_receiver_manager))
-        app.include_router(setup_output_target_routes(output_target_manager))
+        app.include_router(setup_audio_routes(app.state.audio_manager, app.state.spotify_manager))
+        app.include_router(setup_playback_routes(app.state.playback_manager))
+        app.include_router(setup_stream_routes(app.state.stream_manager))
+        app.include_router(setup_screen_routes(app.state.screen_stream_manager))
+        app.include_router(setup_display_routes(app.state.image_manager, app.state.background_manager))
+        app.include_router(setup_background_routes(app.state.background_manager))
+        app.include_router(setup_cec_routes(app.state.cec_manager))
+        app.include_router(setup_system_routes(app.state.audio_pool, app.state.video_pool, app.state.display_detector))
+        app.include_router(setup_webcast_routes(app.state.webcast_manager))
+        app.include_router(setup_chromecast_routes(app.state.chromecast_manager))
+        app.include_router(setup_cast_receiver_routes(app.state.cast_receiver_manager))
+        app.include_router(setup_output_target_routes(app.state.output_target_manager))
 
         # Start health monitor for MPV pools
         logging.info("Starting MPV pool health monitor...")
-        health_task = asyncio.create_task(
-            mpv_pool_health_monitor(audio_pool, video_pool)
+        app.state.health_task = asyncio.create_task(
+            mpv_pool_health_monitor(app.state.audio_pool, app.state.video_pool)
         )
 
         logging.info("HSG Canvas application started successfully!")
@@ -188,56 +180,56 @@ async def lifespan(app: FastAPI):
 
     try:
         # Stop health monitor
-        if health_task:
-            health_task.cancel()
+        if hasattr(app.state, 'health_task') and app.state.health_task:
+            app.state.health_task.cancel()
             try:
-                await health_task
+                await app.state.health_task
             except asyncio.CancelledError:
                 pass
 
         # Stop background manager
-        if background_manager:
-            await background_manager.stop()
+        if hasattr(app.state, 'background_manager') and app.state.background_manager:
+            await app.state.background_manager.stop()
 
         # Stop webcast
-        if webcast_manager_instance:
-            await webcast_manager_instance.stop_webcast()
+        if hasattr(app.state, 'webcast_manager') and app.state.webcast_manager:
+            await app.state.webcast_manager.stop_webcast()
 
         # Stop Chromecast
-        if chromecast_manager:
-            await chromecast_manager.cleanup()
+        if hasattr(app.state, 'chromecast_manager') and app.state.chromecast_manager:
+            await app.state.chromecast_manager.cleanup()
 
         # Stop Cast Receiver
-        if cast_receiver_manager:
-            await cast_receiver_manager.cleanup()
+        if hasattr(app.state, 'cast_receiver_manager') and app.state.cast_receiver_manager:
+            await app.state.cast_receiver_manager.cleanup()
 
         # Stop Output Target Manager
-        if output_target_manager:
-            await output_target_manager.cleanup()
+        if hasattr(app.state, 'output_target_manager') and app.state.output_target_manager:
+            await app.state.output_target_manager.cleanup()
 
         # Cleanup managers
-        if audio_manager:
-            await audio_manager.stop_audio_stream()
+        if hasattr(app.state, 'audio_manager') and app.state.audio_manager:
+            await app.state.audio_manager.stop_audio_stream()
 
-        if playback_manager:
-            await playback_manager.stop_playback()
+        if hasattr(app.state, 'playback_manager') and app.state.playback_manager:
+            await app.state.playback_manager.stop_playback()
 
-        if stream_manager:
-            await stream_manager.cleanup()
+        if hasattr(app.state, 'stream_manager') and app.state.stream_manager:
+            await app.state.stream_manager.cleanup()
 
-        if screen_stream_manager:
-            await screen_stream_manager.stop_screen_stream()
+        if hasattr(app.state, 'screen_stream_manager') and app.state.screen_stream_manager:
+            await app.state.screen_stream_manager.stop_screen_stream()
 
         # Cleanup MPV pools
-        if audio_pool:
-            await audio_pool.cleanup()
+        if hasattr(app.state, 'audio_pool') and app.state.audio_pool:
+            await app.state.audio_pool.cleanup()
 
-        if video_pool:
-            await video_pool.cleanup()
+        if hasattr(app.state, 'video_pool') and app.state.video_pool:
+            await app.state.video_pool.cleanup()
 
         # Cleanup framebuffer
-        if framebuffer_manager:
-            framebuffer_manager.cleanup()
+        if hasattr(app.state, 'framebuffer_manager') and app.state.framebuffer_manager:
+            app.state.framebuffer_manager.cleanup()
 
         logging.info("HSG Canvas application shut down successfully!")
 

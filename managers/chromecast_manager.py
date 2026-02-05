@@ -11,6 +11,9 @@ import re
 from typing import Optional, Dict, Any, List
 from urllib.parse import urlparse, parse_qs
 
+from config import CHROMECAST_CACHE_DURATION
+from utils.media import detect_media_type
+
 import pychromecast
 from pychromecast.controllers.media import MediaController
 from pychromecast.quick_play import quick_play
@@ -42,7 +45,7 @@ class ChromecastManager:
         self.media_controller: Optional[MediaController] = None
         self.discovery_running = False
         self.last_discovery_time = 0
-        self.discovery_cache_duration = 86400  # Cache for 24 hours
+        self.discovery_cache_duration = CHROMECAST_CACHE_DURATION
         self.browser = None  # Not used with subprocess approach
 
         # Current cast state
@@ -193,42 +196,8 @@ if hasattr(browser, 'zc') and browser.zc:
         return devices
 
     def _detect_media_type(self, media_url: str) -> str:
-        """
-        Detect if media URL is audio or video based on file extension and URL patterns
-
-        Args:
-            media_url: Media URL to analyze
-
-        Returns:
-            'audio' or 'video'
-        """
-        # Parse URL
-        parsed = urlparse(media_url.lower())
-        path = parsed.path
-
-        # Common audio file extensions
-        audio_extensions = ['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav', '.wma']
-        # Common video file extensions
-        video_extensions = ['.mp4', '.mkv', '.webm', '.avi', '.mov', '.m4v', '.flv', '.wmv']
-
-        # Check file extension
-        for ext in audio_extensions:
-            if path.endswith(ext):
-                return 'audio'
-
-        for ext in video_extensions:
-            if path.endswith(ext):
-                return 'video'
-
-        # Check for streaming patterns
-        if any(pattern in media_url.lower() for pattern in ['.pls', '.m3u', 'radio', 'somafm', 'audio']):
-            return 'audio'
-
-        if any(pattern in media_url.lower() for pattern in ['youtube', 'youtu.be', 'vimeo', 'video']):
-            return 'video'
-
-        # Default to video for unknown types
-        return 'video'
+        """Detect if media URL is audio or video"""
+        return detect_media_type(media_url)
 
     def _extract_youtube_id(self, youtube_url: str) -> Optional[str]:
         """

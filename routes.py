@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 import yaml
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
+from utils.route_helpers import require_video_controller, manager_operation
 
 from models.request_models import (
     AudioStreamRequest,
@@ -25,7 +26,15 @@ from models.request_models import (
     ImageDisplayRequest,
     ChromecastStartRequest,
     ChromecastVolumeRequest,
-    CastReceiveRequest
+    CastReceiveRequest,
+    SpotifyEventRequest,
+    PlaybackVolumeRequest,
+    BackgroundModeRequest,
+    SpotifyVolumeRequest,
+    WebcastStartRequest,
+    WebcastConfigRequest,
+    WebcastScrollRequest,
+    WebcastJumpRequest,
 )
 
 if TYPE_CHECKING:
@@ -36,21 +45,23 @@ if TYPE_CHECKING:
     from managers.image_manager import ImageManager
     from managers.chromecast_manager import ChromecastManager
     from managers.cast_receiver_manager import CastReceiverManager
-    from background_modes import BackgroundManager
-    from webcast_manager import WebcastManager, WebcastConfig
-    from core.mpv_pools import AudioMPVPool, VideoMPVPool
+    from managers.spotify_manager import SpotifyManager
+    from managers.background_modes import BackgroundManager
+    from managers.webcast_manager import WebcastManager, WebcastConfig
+    from managers.mpv_pools import AudioMPVPool, VideoMPVPool
 
 
 # =============================================================================
 # AUDIO ROUTES
 # =============================================================================
 
-def setup_audio_routes(audio_manager: 'AudioManager') -> APIRouter:
+def setup_audio_routes(audio_manager: 'AudioManager', spotify_manager: Optional['SpotifyManager'] = None) -> APIRouter:
     """
     Setup audio routes with dependency injection
 
     Args:
         audio_manager: AudioManager instance for audio streaming
+        spotify_manager: Optional SpotifyManager instance for Spotify integration
 
     Returns:
         Configured APIRouter
@@ -96,9 +107,6 @@ def setup_audio_routes(audio_manager: 'AudioManager') -> APIRouter:
     @router.put("/audio/volume")
     async def set_audio_volume(request: AudioVolumeRequest):
         """Set audio volume via IPC (0-100)"""
-        if not 0 <= request.volume <= 100:
-            raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
-
         success = await audio_manager.set_volume(request.volume)
         if success:
             return {"message": f"Audio volume set to {request.volume}"}
@@ -134,9 +142,10 @@ def setup_audio_routes(audio_manager: 'AudioManager') -> APIRouter:
             except Exception as vol_error:
                 logging.warning(f"Could not get Spotify volume: {vol_error}")
 
+            from config import DEVICE_NAME
             return {
                 "service_running": is_running,
-                "device_name": "HSG Canvas",
+                "device_name": DEVICE_NAME,
                 "status": "active" if is_running else "inactive",
                 "volume": volume,
                 "message": "Spotify Connect is available - cast from your phone!" if is_running else "Spotify Connect service is not running"
@@ -156,14 +165,10 @@ def setup_audio_routes(audio_manager: 'AudioManager') -> APIRouter:
             }
 
     @router.put("/audio/spotify/volume")
-    async def set_spotify_volume(request: Request):
+    async def set_spotify_volume(request: SpotifyVolumeRequest):
         """Set Spotify Connect (Raspotify) volume using ALSA mixer"""
         try:
-            data = await request.json()
-            volume = data.get("volume", 70)
-
-            if not 0 <= volume <= 100:
-                raise HTTPException(status_code=400, detail="Volume must be between 0 and 100")
+            volume = request.volume
 
             # Set volume using amixer for CARD 3
             result = subprocess.run(
@@ -186,6 +191,54 @@ def setup_audio_routes(audio_manager: 'AudioManager') -> APIRouter:
             raise HTTPException(status_code=500, detail="Timeout setting volume")
         except Exception as e:
             logging.error(f"Error setting Spotify volume: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/audio/spotify/event")
+    async def handle_spotify_event(request: SpotifyEventRequest):
+        """Handle Spotify Connect (Raspotify) events from librespot onevent hook"""
+        try:
+            logging.info(f"Spotify event received: {request.event}")
+            logging.debug(f"Event details - Track: {request.track_id}, Duration: {request.duration_ms}ms, Position: {request.position_ms}ms")
+
+            # Forward event to SpotifyManager if available
+            if spotify_manager:
+                success = await spotify_manager.handle_event(
+                    event=request.event,
+                    track_id=request.track_id,
+                    old_track_id=request.old_track_id,
+                    duration_ms=request.duration_ms,
+                    position_ms=request.position_ms
+                )
+
+                if not success:
+                    logging.warning(f"SpotifyManager failed to handle event: {request.event}")
+            else:
+                logging.warning("No SpotifyManager available to handle event")
+
+            return {
+                "success": True,
+                "event": request.event,
+                "message": f"Event '{request.event}' processed successfully"
+            }
+
+        except Exception as e:
+            logging.error(f"Error handling Spotify event: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/audio/spotify/playback")
+    async def get_spotify_playback():
+        """Get current Spotify playback information"""
+        try:
+            if spotify_manager:
+                return spotify_manager.get_status()
+            else:
+                return {
+                    "is_playing": False,
+                    "is_session_connected": False,
+                    "message": "SpotifyManager not available"
+                }
+        except Exception as e:
+            logging.error(f"Error getting Spotify playback status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     return router
@@ -256,18 +309,10 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
             raise HTTPException(status_code=500, detail="Failed to stop playback")
 
     @router.post("/playback/youtube/volume")
-    async def set_youtube_volume(request: dict):
+    async def set_youtube_volume(request: PlaybackVolumeRequest):
         """Set volume for YouTube playback"""
-        volume = request.get('volume', 80)
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active YouTube playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
-
-        # Clamp volume to valid range
-        volume = max(0, min(130, volume))
+        controller = require_video_controller(playback_manager)
+        volume = request.volume
 
         result = await controller.set_property("volume", volume)
         if result.get('error') == 'success':
@@ -281,12 +326,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
+        controller = require_video_controller(playback_manager)
 
         # Clamp volume to valid range
         volume = max(0, min(130, volume))
@@ -303,12 +343,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
+        controller = require_video_controller(playback_manager)
 
         result = await controller.add_property("volume", adjustment)
         if result.get('error') == 'success':
@@ -325,12 +360,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
+        controller = require_video_controller(playback_manager)
 
         result = await controller.pause(pause)
         if result.get('error') == 'success':
@@ -345,12 +375,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
+        controller = require_video_controller(playback_manager)
 
         result = await controller.seek(position, mode)
         if result.get('error') == 'success':
@@ -364,10 +389,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
+        controller = require_video_controller(playback_manager)
 
         # Gather stats from mpv via IPC
         stats = {}
@@ -395,12 +417,7 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         if stream_key != playback_manager.current_stream:
             raise HTTPException(status_code=404, detail="Stream not currently playing")
 
-        if not playback_manager.video_controller:
-            raise HTTPException(status_code=404, detail="No active playback")
-
-        controller = playback_manager.video_controller
-        if not controller.connected:
-            raise HTTPException(status_code=500, detail="Playback controller not available")
+        controller = require_video_controller(playback_manager)
 
         # Clamp speed to reasonable range
         speed = max(0.1, min(4.0, speed))
@@ -658,12 +675,12 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
             raise HTTPException(status_code=500, detail=f"Failed to set background: {str(e)}")
 
     @router.post("/background/mode")
-    async def set_background_mode(request: dict):
+    async def set_background_mode(request: BackgroundModeRequest):
         """Set background display mode (static only)"""
-        logging.info(f"POST /background/mode called with request: {request}")
+        logging.info(f"POST /background/mode called with mode: {request.mode}")
         # Note: stop_all_visual_content() will be called by unified manager in main.py
         try:
-            mode = request.get("mode", "static")
+            mode = request.mode
             logging.info(f"Setting background mode to: {mode}")
             if mode != "static":
                 raise HTTPException(status_code=400, detail="Invalid mode. Only 'static' mode is supported")
@@ -1018,31 +1035,27 @@ def setup_webcast_routes(webcast_manager: 'WebcastManager') -> APIRouter:
     router = APIRouter()
 
     @router.post("/webcast/start")
-    async def start_webcast(request: Request):
+    async def start_webcast(request: WebcastStartRequest):
         """Start webcasting a website with auto-scroll"""
         # Note: stop_all_visual_content() will be called by unified manager in main.py
         try:
-            from webcast_manager import WebcastConfig
+            from managers.webcast_manager import WebcastConfig
 
-            data = await request.json()
-
-            # Create webcast configuration
+            # Create webcast configuration from validated request
             config = WebcastConfig(
-                url=data.get("url"),
-                viewport_width=data.get("viewport_width", 1920),
-                viewport_height=data.get("viewport_height", 1080),
-                scroll_delay=data.get("scroll_delay", 5.0),
-                scroll_percentage=data.get("scroll_percentage", 30.0),
-                overlap_percentage=data.get("overlap_percentage", 5.0),
-                loop_count=data.get("loop_count", 3),
-                zoom_level=data.get("zoom_level", 1.0),
-                wait_for_load=data.get("wait_for_load", 3.0),
-                screenshot_path=data.get("screenshot_path", "/tmp/webcast_screenshot.png")
+                url=request.url,
+                viewport_width=request.viewport_width,
+                viewport_height=request.viewport_height,
+                scroll_delay=request.scroll_delay,
+                scroll_percentage=request.scroll_percentage,
+                overlap_percentage=request.overlap_percentage,
+                loop_count=request.loop_count,
+                zoom_level=request.zoom_level,
+                wait_for_load=request.wait_for_load,
+                screenshot_path=request.screenshot_path
             )
 
             result = await webcast_manager.start_webcast(config)
-
-            # Note: Automatic screenshot display will be handled by unified manager in main.py
 
             return result
 
@@ -1070,10 +1083,10 @@ def setup_webcast_routes(webcast_manager: 'WebcastManager') -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/webcast/config")
-    async def update_webcast_config(request: Request):
+    async def update_webcast_config(request: WebcastConfigRequest):
         """Update webcast configuration"""
         try:
-            data = await request.json()
+            data = request.model_dump(exclude_none=True)
             result = await webcast_manager.update_config(data)
             return result
         except Exception as e:
@@ -1081,27 +1094,20 @@ def setup_webcast_routes(webcast_manager: 'WebcastManager') -> APIRouter:
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/webcast/scroll")
-    async def manual_webcast_scroll(request: Request):
+    async def manual_webcast_scroll(request: WebcastScrollRequest):
         """Manually scroll the webcast"""
         try:
-            data = await request.json()
-            direction = data.get("direction", "down")
-            amount = data.get("amount")
-
-            result = await webcast_manager.manual_scroll(direction, amount)
+            result = await webcast_manager.manual_scroll(request.direction, request.amount)
             return result
         except Exception as e:
             logging.error(f"Failed to scroll webcast: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/webcast/jump")
-    async def jump_webcast_position(request: Request):
+    async def jump_webcast_position(request: WebcastJumpRequest):
         """Jump to a specific position in the webcast"""
         try:
-            data = await request.json()
-            position_percent = data.get("position_percent", 0)
-
-            result = await webcast_manager.jump_to_position(position_percent)
+            result = await webcast_manager.jump_to_position(request.position_percent)
             return result
         except Exception as e:
             logging.error(f"Failed to jump webcast: {e}")
@@ -1165,49 +1171,37 @@ def setup_chromecast_routes(chromecast_manager: 'ChromecastManager') -> APIRoute
     @router.post("/chromecast/stop")
     async def stop_chromecast():
         """Stop the current cast"""
-        try:
-            success = await chromecast_manager.stop_cast()
-            if success:
-                return {"message": "Cast stopped"}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to stop cast")
-        except Exception as e:
-            logging.error(f"Failed to stop cast: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await manager_operation(
+            chromecast_manager.stop_cast(),
+            {"message": "Cast stopped"},
+            "Failed to stop cast",
+            "stop cast",
+        )
 
     @router.post("/chromecast/pause")
     async def pause_chromecast():
         """Pause the current cast"""
-        try:
-            success = await chromecast_manager.pause_cast()
-            if success:
-                return {"message": "Cast paused"}
-            else:
-                raise HTTPException(status_code=404, detail="No active cast to pause")
-        except Exception as e:
-            logging.error(f"Failed to pause cast: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await manager_operation(
+            chromecast_manager.pause_cast(),
+            {"message": "Cast paused"},
+            "No active cast to pause",
+            "pause cast",
+        )
 
     @router.post("/chromecast/play")
     async def play_chromecast():
         """Resume/play the current cast"""
-        try:
-            success = await chromecast_manager.play_cast()
-            if success:
-                return {"message": "Cast resumed"}
-            else:
-                raise HTTPException(status_code=404, detail="No active cast to play")
-        except Exception as e:
-            logging.error(f"Failed to play cast: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await manager_operation(
+            chromecast_manager.play_cast(),
+            {"message": "Cast resumed"},
+            "No active cast to play",
+            "play cast",
+        )
 
     @router.put("/chromecast/volume")
     async def set_chromecast_volume(request: ChromecastVolumeRequest):
         """Set Chromecast volume (0.0-1.0)"""
         try:
-            if not 0.0 <= request.volume <= 1.0:
-                raise HTTPException(status_code=400, detail="Volume must be between 0.0 and 1.0")
-
             success = await chromecast_manager.set_volume(request.volume)
             if success:
                 return {"message": f"Chromecast volume set to {request.volume}"}
@@ -1277,15 +1271,12 @@ def setup_cast_receiver_routes(cast_receiver: 'CastReceiverManager') -> APIRoute
     @router.post("/cast-receiver/stop")
     async def stop_receiver():
         """Stop the cast receiver"""
-        try:
-            success = await cast_receiver.stop_receiver()
-            if success:
-                return {"message": "Cast receiver stopped"}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to stop cast receiver")
-        except Exception as e:
-            logging.error(f"Failed to stop cast receiver: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await manager_operation(
+            cast_receiver.stop_receiver(),
+            {"message": "Cast receiver stopped"},
+            "Failed to stop cast receiver",
+            "stop cast receiver",
+        )
 
     @router.post("/cast-receiver/receive")
     async def receive_cast(request: CastReceiveRequest):
@@ -1310,15 +1301,12 @@ def setup_cast_receiver_routes(cast_receiver: 'CastReceiverManager') -> APIRoute
     @router.post("/cast-receiver/stop-session")
     async def stop_cast_session():
         """Stop the current cast session"""
-        try:
-            success = await cast_receiver.stop_session()
-            if success:
-                return {"message": "Cast session stopped"}
-            else:
-                raise HTTPException(status_code=500, detail="Failed to stop session")
-        except Exception as e:
-            logging.error(f"Failed to stop cast session: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+        return await manager_operation(
+            cast_receiver.stop_session(),
+            {"message": "Cast session stopped"},
+            "Failed to stop session",
+            "stop cast session",
+        )
 
     @router.get("/cast-receiver/status")
     async def get_receiver_status():

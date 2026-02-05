@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from managers.mpv_pools import AudioMPVPool
 from managers.mpv_controller import MPVController
-from config import AUDIO_DEVICE
+from config import AUDIO_DEVICE, METADATA_UPDATE_INTERVAL
 
 
 class AudioManager:
@@ -370,8 +370,7 @@ class AudioManager:
                             self.current_metadata = metadata
                             logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
 
-                # Wait 15 seconds before next update
-                await asyncio.sleep(15)
+                await asyncio.sleep(METADATA_UPDATE_INTERVAL)
 
             except Exception as e:
                 logging.warning(f"Metadata update failed: {e}")

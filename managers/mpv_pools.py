@@ -35,10 +35,58 @@ class MPVProcessPool:
         self.process_status: Dict[int, Dict] = {}
         self.socket_dir = socket_dir
 
+    def _cleanup_orphaned_processes(self):
+        """Clean up orphaned MPV processes that might be using our sockets"""
+        try:
+            import psutil
+
+            orphan_count = 0
+            for process_id in range(1, self.pool_size + 1):
+                socket_path = f"{self.socket_dir}/{self.pool_name}-pool-{process_id}"
+
+                # Find processes using this socket
+                for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
+                    try:
+                        cmdline = proc.info.get('cmdline', [])
+                        if cmdline and 'mpv' in proc.info.get('name', '').lower():
+                            if socket_path in ' '.join(cmdline):
+                                logging.warning(f"Found orphaned MPV process {proc.pid} using socket {socket_path}")
+                                proc.terminate()
+                                try:
+                                    proc.wait(timeout=3)
+                                except psutil.TimeoutExpired:
+                                    proc.kill()
+                                orphan_count += 1
+                                logging.info(f"Killed orphaned MPV process {proc.pid}")
+                    except (psutil.NoSuchProcess, psutil.AccessDenied):
+                        pass
+
+                # Remove socket file if it exists
+                if os.path.exists(socket_path):
+                    os.remove(socket_path)
+                    logging.info(f"Removed orphaned socket: {socket_path}")
+
+            if orphan_count > 0:
+                logging.info(f"Cleaned up {orphan_count} orphaned MPV process(es)")
+
+        except ImportError:
+            # psutil not available, fall back to simpler cleanup
+            logging.warning("psutil not available, skipping orphan process cleanup")
+            for process_id in range(1, self.pool_size + 1):
+                socket_path = f"{self.socket_dir}/{self.pool_name}-pool-{process_id}"
+                if os.path.exists(socket_path):
+                    os.remove(socket_path)
+        except Exception as e:
+            logging.warning(f"Error cleaning up orphaned processes: {e}")
+
     async def initialize(self) -> bool:
         """Initialize the pool with configured number of mpv processes"""
         try:
             logging.info(f"Starting {self.pool_name} pool initialization ({self.pool_size} processes)...")
+
+            # Clean up any orphaned processes from previous runs
+            self._cleanup_orphaned_processes()
+
             # Ensure socket directory exists
             os.makedirs(self.socket_dir, exist_ok=True)
             logging.info(f"Created socket directory: {self.socket_dir}")
@@ -432,15 +480,22 @@ class VideoMPVPool(MPVProcessPool):
 
     def _get_mpv_command(self, socket_path: str) -> list:
         """Get mpv command configured for video playback with DRM"""
-        return [
+        import os
+
+        # Check if YouTube cookies file exists
+        cookies_file = "/home/hsg/srs_server/youtube-cookies.txt"
+        has_cookies = os.path.exists(cookies_file)
+
+        cmd = [
             "mpv",
             "--vo=drm",  # DRM video output
             "--drm-device=/dev/dri/card1",  # FIXED: Display is on card1, not card0!
             "--drm-connector=HDMI-A-1",
-            "--drm-mode=1920x1200",  # Force native display resolution!
+            # Don't force drm-mode - let mpv auto-detect for faster startup and better compatibility
             "--fs",  # Fullscreen - critical for proper scaling!
             f"--audio-device={AUDIO_DEVICE}",
             "--hwdec=v4l2m2m",  # Hardware decoding
+            "--no-ytdl",  # CRITICAL: Disable ytdl at startup to prevent delays loading images
             "--quiet",
             "--no-input-default-bindings",
             "--no-osc",
@@ -449,3 +504,5 @@ class VideoMPVPool(MPVProcessPool):
             "--no-terminal",
             "--really-quiet"
         ]
+
+        return cmd

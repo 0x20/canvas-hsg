@@ -6,7 +6,7 @@ Central configuration file for all constants and settings.
 import os
 
 # SRS Server Configuration
-HOST = "localhost"
+HOST = os.getenv("SRS_HOST", "localhost")
 SRS_RTMP_URL = f"rtmp://{HOST}:1935/live"
 SRS_HTTP_FLV_URL = f"http://{HOST}:8080/live"
 SRS_HLS_URL = f"http://{HOST}:8080/live"
@@ -16,8 +16,12 @@ SRS_API_URL = f"http://{HOST}:1985/api/v1"
 # Use pulse (PipeWire) instead of direct ALSA to avoid conflicts with Raspotify
 AUDIO_DEVICE = os.getenv("AUDIO_DEVICE", "pulse")
 
+# Base directory (for resolving relative paths)
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Paths
-DEFAULT_BACKGROUND_PATH = "/home/hsg/srs_server/canvas_background.png"
+DEFAULT_BACKGROUND_PATH = os.path.join(_BASE_DIR, "canvas_background.png")
+YOUTUBE_COOKIES_PATH = os.path.join(_BASE_DIR, "youtube-cookies.txt")
 TEMP_IMAGE_DIR = "/tmp/stream_images"
 SOCKET_DIR = "/tmp"
 
@@ -28,112 +32,63 @@ VIDEO_POOL_SIZE = 1
 # Health Monitor Configuration
 HEALTH_CHECK_INTERVAL = 30  # seconds
 
+# Network/Discovery Constants
+SSDP_MULTICAST_ADDR = "239.255.255.250"
+SSDP_PORT = 1900
+DEVICE_NAME = "HSG Canvas"
+CHROMECAST_CACHE_DURATION = 86400  # 24 hours
+METADATA_UPDATE_INTERVAL = 15  # seconds
+
 # Server Configuration
 DEFAULT_PORT = 8000
 PRODUCTION_PORT = 80
 
-# Explicit player command matrix for all resolutions
-OPTIMAL_PLAYER_COMMANDS = {
-    # 4K UHD Commands - Optimized for smooth playback
-    "mpv_3840x2160_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=3840x2160@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
-        "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_3840x2160_30hz": [
-        "mpv", "--vo=drm", "--drm-mode=3840x2160@30", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
-        "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
+# Player command generation
+def _build_mpv_command(drm_mode: str, extra_flags: list = None, hwdec: bool = True) -> list:
+    """Build an mpv command with standard DRM flags."""
+    cmd = ["mpv", "--vo=drm", f"--drm-mode={drm_mode}", "--fs", "--quiet",
+           "--no-input-default-bindings", "--no-osc"]
+    if hwdec:
+        cmd.append("--hwdec=v4l2m2m")
+    if extra_flags:
+        cmd.extend(extra_flags)
+    cmd.append(f"--audio-device={AUDIO_DEVICE}")
+    return cmd
 
-    # 1440p Commands
-    "mpv_2560x1440_144hz": [
-        "mpv", "--vo=drm", "--drm-mode=2560x1440@144", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_2560x1440_120hz": [
-        "mpv", "--vo=drm", "--drm-mode=2560x1440@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_2560x1440_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=2560x1440@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
 
-    # 1080p Commands
-    "mpv_1920x1080_144hz": [
-        "mpv", "--vo=drm", "--drm-mode=1920x1080@144", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--vd-lavc-fast", "--cache=yes", "--cache-secs=2",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_1920x1080_120hz": [
-        "mpv", "--vo=drm", "--drm-mode=1920x1080@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_1920x1080_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=1920x1080@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--ao=pulse", "--audio-channels=stereo",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
+# Resolution definitions: (resolution, refresh, extra_flags, hwdec)
+_4K_PERF = ["--vd-lavc-threads=4", "--cache=yes", "--demuxer-max-bytes=50MiB",
+            "--cache-secs=3", "--vd-lavc-dr=yes", "--vd-lavc-fast"]
+_HIGH_REFRESH_PERF = ["--vd-lavc-fast", "--cache=yes", "--cache-secs=2"]
+_60HZ_AUDIO = ["--ao=pulse", "--audio-channels=stereo"]
 
-    # 720p Commands
-    "mpv_1280x720_120hz": [
-        "mpv", "--vo=drm", "--drm-mode=1280x720@120", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_1280x720_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=1280x720@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--ao=pulse", "--audio-channels=stereo",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
+_MPV_RESOLUTIONS = [
+    # (width, height, refresh, extra_flags, hwdec)
+    (3840, 2160, 60,  _4K_PERF,           True),
+    (3840, 2160, 30,  _4K_PERF,           True),
+    (2560, 1440, 144, _HIGH_REFRESH_PERF, True),
+    (2560, 1440, 120, None,               True),
+    (2560, 1440, 60,  None,               True),
+    (1920, 1080, 144, _HIGH_REFRESH_PERF, True),
+    (1920, 1080, 120, None,               True),
+    (1920, 1080, 60,  _60HZ_AUDIO,        True),
+    (1280, 720,  120, None,               True),
+    (1280, 720,  60,  _60HZ_AUDIO,        True),
+    (1024, 768,  75,  None,               True),
+    (1024, 768,  60,  _60HZ_AUDIO,        True),
+    (800,  600,  75,  None,               True),
+    (800,  600,  60,  _60HZ_AUDIO,        True),
+    (640,  480,  60,  None,               False),  # No hwdec for VGA
+]
 
-    # XGA Commands
-    "mpv_1024x768_75hz": [
-        "mpv", "--vo=drm", "--drm-mode=1024x768@75", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_1024x768_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=1024x768@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--ao=pulse", "--audio-channels=stereo",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
+# Generate mpv resolution commands from data
+OPTIMAL_PLAYER_COMMANDS = {}
+for _w, _h, _r, _extra, _hw in _MPV_RESOLUTIONS:
+    _key = f"mpv_{_w}x{_h}_{_r}hz"
+    OPTIMAL_PLAYER_COMMANDS[_key] = _build_mpv_command(f"{_w}x{_h}@{_r}", _extra, _hw)
 
-    # SVGA Commands
-    "mpv_800x600_75hz": [
-        "mpv", "--vo=drm", "--drm-mode=800x600@75", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-    "mpv_800x600_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=800x600@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc", "--hwdec=v4l2m2m",
-        "--ao=pulse", "--audio-channels=stereo",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-
-    # VGA Fallback Commands
-    "mpv_640x480_60hz": [
-        "mpv", "--vo=drm", "--drm-mode=640x480@60", "--fs", "--quiet",
-        "--no-input-default-bindings", "--no-osc",
-        f"--audio-device={AUDIO_DEVICE}"
-    ],
-
-    # FFplay Variants
+# FFplay variants (few entries, not worth templating)
+OPTIMAL_PLAYER_COMMANDS.update({
     "ffplay_3840x2160_60hz": [
         "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
         "-video_size", "3840x2160", "-framerate", "60"
@@ -146,8 +101,10 @@ OPTIMAL_PLAYER_COMMANDS = {
         "ffplay", "-fs", "-autoexit", "-hwaccel", "v4l2m2m",
         "-video_size", "1024x768", "-framerate", "60"
     ],
+})
 
-    # VLC Variants
+# VLC variants
+OPTIMAL_PLAYER_COMMANDS.update({
     "vlc_3840x2160_60hz": [
         "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m",
         "--width", "3840", "--height", "2160"
@@ -160,8 +117,10 @@ OPTIMAL_PLAYER_COMMANDS = {
         "vlc", "--intf", "dummy", "--fullscreen", "--avcodec-hw", "v4l2m2m",
         "--width", "1024", "--height", "768"
     ],
+})
 
-    # Legacy compatibility commands
+# Legacy compatibility commands
+OPTIMAL_PLAYER_COMMANDS.update({
     "mpv_basic": ["mpv", "--vo=drm", "--fs", "--quiet", f"--audio-device={AUDIO_DEVICE}"],
     "mpv_optimized": [
         "mpv", "--vo=drm", "--fs", "--quiet",
@@ -174,8 +133,8 @@ OPTIMAL_PLAYER_COMMANDS = {
         f"--audio-device={AUDIO_DEVICE}"
     ],
     "ffplay_basic": ["ffplay", "-fs", "-autoexit"],
-    "vlc_basic": ["vlc", "--intf", "dummy", "--fullscreen"]
-}
+    "vlc_basic": ["vlc", "--intf", "dummy", "--fullscreen"],
+})
 
 # Legacy player commands for backward compatibility
 PLAYER_COMMANDS = {

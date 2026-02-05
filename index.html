@@ -5,559 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HSG Canvas - Synthwave Edition</title>
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        :root {
-            --neon-pink: #ff006e;
-            --neon-cyan: #00f5ff;
-            --neon-purple: #7209b7;
-            --dark-bg: #0a0e27;
-            --dark-card: #1a1f3a;
-            --grid-color: rgba(127, 9, 183, 0.2);
-        }
-
-        body {
-            font-family: 'Rajdhani', sans-serif;
-            background: var(--dark-bg);
-            color: #fff;
-            min-height: 100vh;
-            position: relative;
-            overflow-x: hidden;
-        }
-
-        /* Synthwave grid background */
-        body::before {
-            content: '';
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-image:
-                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px),
-                linear-gradient(var(--grid-color) 1px, transparent 1px);
-            background-size: 50px 50px;
-            animation: gridMove 20s linear infinite;
-            pointer-events: none;
-            z-index: 0;
-        }
-
-        @keyframes gridMove {
-            0% { transform: perspective(500px) rotateX(60deg) translateY(0); }
-            100% { transform: perspective(500px) rotateX(60deg) translateY(50px); }
-        }
-
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
-            padding: 20px;
-            position: relative;
-            z-index: 1;
-        }
-
-        /* Header */
-        .header {
-            text-align: center;
-            margin-bottom: 25px;
-            padding: 25px 20px 5px 20px;
-        }
-
-        .header h1 {
-            font-family: 'Orbitron', sans-serif;
-            font-size: 2.5rem;
-            font-weight: 900;
-            background: linear-gradient(90deg,
-                var(--neon-purple) 0%,
-                var(--neon-purple) 30%,
-                var(--neon-pink) 45%,
-                #ff3399 50%,
-                var(--neon-pink) 55%,
-                var(--neon-purple) 70%,
-                var(--neon-purple) 100%);
-            background-size: 200% 100%;
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
-            margin-bottom: 8px;
-            letter-spacing: 3px;
-            animation: knightRider 30s ease-in-out infinite;
-        }
-
-        @keyframes knightRider {
-            0%, 100% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-        }
-
-        .header p {
-            color: var(--neon-cyan);
-            font-size: 0.95rem;
-        }
-
-        /* Toggle button for advanced features */
-        .toggle-advanced {
-            text-align: center;
-            margin: 30px 0;
-        }
-
-        .toggle-btn {
-            background: linear-gradient(135deg, rgba(114, 9, 183, 0.6), rgba(255, 0, 110, 0.6));
-            border: 2px solid var(--neon-purple);
-            color: var(--neon-cyan);
-            padding: 15px 40px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 1rem;
-            cursor: pointer;
-            border-radius: 30px;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 2px;
-        }
-
-        .toggle-btn:hover {
-            border-color: var(--neon-cyan);
-            transform: none;
-        }
-
-        .toggle-btn.active {
-            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-            color: #fff;
-        }
-
-        .advanced-features {
-            display: none;
-            margin-top: 30px;
-        }
-
-        .advanced-features.visible {
-            display: block;
-            animation: fadeIn 0.3s ease-in;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        /* Hero section for main features */
-        .hero {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
-
-        .card {
-            background: var(--dark-card);
-            padding: 20px;
-            border-radius: 15px;
-            border: 2px solid var(--neon-purple);
-            position: relative;
-            transition: border-color 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            min-height: 400px;
-        }
-
-        .card:hover {
-            border-color: rgba(255, 0, 110, 0.6);
-        }
-
-        .card > div[style*="justify-content: space-between"] {
-            margin-top: auto;
-        }
-
-        .card > button:first-of-type {
-            margin-top: auto;
-        }
-
-        h2 {
-            font-family: 'Orbitron', sans-serif;
-            color: var(--neon-cyan);
-            margin-bottom: 15px;
-            font-size: 1.8rem;
-            letter-spacing: 2px;
-        }
-
-        p {
-            color: rgba(255, 255, 255, 0.7);
-            margin-bottom: 20px;
-            line-height: 1.6;
-        }
-
-        /* Tabs */
-        .tabs {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            flex-wrap: wrap;
-            justify-content: center;
-        }
-
-        .tab-btn {
-            background: transparent;
-            border: 2px solid var(--neon-purple);
-            color: var(--neon-cyan);
-            padding: 12px 30px;
-            font-family: 'Orbitron', sans-serif;
-            font-size: 0.9rem;
-            cursor: pointer;
-            border-radius: 25px;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        .tab-btn:hover {
-            border-color: var(--neon-cyan);
-            transform: none;
-        }
-
-        .tab-btn.active {
-            background: linear-gradient(135deg, var(--neon-pink), var(--neon-purple));
-            border-color: var(--neon-pink);
-            color: #fff;
-        }
-
-        .tab-content {
-            display: none;
-        }
-
-        .tab-content.active {
-            display: block;
-        }
-
-        /* Buttons */
-        button {
-            background: linear-gradient(135deg, var(--neon-purple), var(--neon-pink));
-            color: #fff;
-            border: 2px solid var(--neon-pink);
-            padding: 10px 20px;
-            margin: 5px;
-            border-radius: 25px;
-            cursor: pointer;
-            font-weight: 600;
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 1rem;
-            transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-        }
-
-        button:hover {
-            border-color: var(--neon-cyan);
-            transform: none;
-        }
-
-        button.danger {
-            background: linear-gradient(135deg, #dc3545, #c82333);
-            border-color: #dc3545;
-        }
-
-        button.danger:hover {
-            border-color: #ff6b6b;
-            transform: none;
-        }
-
-        button:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none !important;
-        }
-
-        button.loading {
-            position: relative;
-            color: transparent;
-        }
-
-        button.loading::after {
-            content: "";
-            position: absolute;
-            width: 16px;
-            height: 16px;
-            top: 50%;
-            left: 50%;
-            margin-left: -8px;
-            margin-top: -8px;
-            border: 2px solid #ffffff;
-            border-radius: 50%;
-            border-top-color: transparent;
-            animation: spin 1s ease-in-out infinite;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        button.small-btn {
-            padding: 8px 16px;
-            font-size: 0.85rem;
-        }
-
-        /* Inputs */
-        input, select {
-            background: rgba(26, 31, 58, 0.8);
-            border: 2px solid var(--neon-purple);
-            color: #fff;
-            padding: 12px;
-            margin: 5px;
-            border-radius: 10px;
-            width: 220px;
-            font-size: 14px;
-            font-family: 'Rajdhani', sans-serif;
-            transition: all 0.3s ease;
-        }
-
-        input:focus, select:focus {
-            outline: none;
-            border-color: var(--neon-cyan);
-        }
-
-        input[type="range"] {
-            width: 200px;
-        }
-
-        /* Status messages */
-        .status {
-            padding: 15px;
-            border-radius: 10px;
-            margin: 15px 0;
-            font-weight: 500;
-            border: 2px solid;
-        }
-
-        .status.success {
-            background: rgba(40, 167, 69, 0.2);
-            color: #28a745;
-            border-color: #28a745;
-        }
-
-        .status.error {
-            background: rgba(220, 53, 69, 0.2);
-            color: #dc3545;
-            border-color: #dc3545;
-        }
-
-        .validation-error {
-            background: rgba(220, 53, 69, 0.2);
-            color: #ff6b6b;
-            border: 2px solid #dc3545;
-            padding: 10px;
-            border-radius: 8px;
-            margin: 10px 0;
-            font-size: 14px;
-        }
-
-        /* Stats grid */
-        .stats {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-top: 15px;
-        }
-
-        .stat-item {
-            background: rgba(0, 245, 255, 0.1);
-            border: 2px solid var(--neon-cyan);
-            padding: 20px;
-            border-radius: 10px;
-            text-align: center;
-        }
-
-        .stat-item strong {
-            color: var(--neon-cyan);
-            display: block;
-            margin-bottom: 8px;
-            font-size: 0.9rem;
-            text-shadow: 0 0 10px rgba(0, 245, 255, 0.5);
-        }
-
-        /* Stream items */
-        .streams-list {
-            max-height: 300px;
-            overflow-y: auto;
-        }
-
-        .stream-item {
-            background: rgba(26, 31, 58, 0.6);
-            border: 1px solid var(--neon-purple);
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            background: var(--neon-cyan);
-            margin-right: 8px;
-            animation: pulse 2s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Grid layouts */
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
-            gap: 30px;
-            margin-bottom: 30px;
-        }
-
-        /* Mobile responsive */
-        @media (max-width: 768px) {
-            .header h1 {
-                font-size: 2rem;
-            }
-
-            .hero {
-                grid-template-columns: 1fr;
-            }
-
-            .grid {
-                grid-template-columns: 1fr;
-            }
-
-            input, select {
-                width: 100%;
-                margin: 5px 0;
-            }
-
-            .tabs {
-                flex-direction: column;
-            }
-
-            .tab-btn {
-                width: 100%;
-            }
-        }
-
-        /* Additional utilities */
-        .text-cyan { color: var(--neon-cyan); }
-        .text-pink { color: var(--neon-pink); }
-        .text-purple { color: var(--neon-purple); }
-
-        label {
-            color: rgba(255, 255, 255, 0.8);
-            margin: 10px 0;
-        }
-
-        /* Scrollbar styling */
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-
-        ::-webkit-scrollbar-track {
-            background: var(--dark-bg);
-        }
-
-        ::-webkit-scrollbar-thumb {
-            background: linear-gradient(180deg, var(--neon-cyan), var(--neon-pink));
-            border-radius: 5px;
-        }
-
-        ::-webkit-scrollbar-thumb:hover {
-            background: linear-gradient(180deg, var(--neon-pink), var(--neon-purple));
-        }
-
-        /* Mode buttons */
-        .mode-button {
-            padding: 10px 20px;
-            border: 2px solid var(--neon-purple);
-            border-radius: 10px;
-            background: transparent;
-            color: var(--neon-cyan);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            font-family: 'Orbitron', sans-serif;
-        }
-
-        .mode-button:hover {
-            border-color: var(--neon-cyan);
-            transform: none;
-        }
-
-        .mode-button.active {
-            background: linear-gradient(135deg, var(--neon-cyan), var(--neon-purple));
-            color: #fff;
-            border-color: var(--neon-cyan);
-        }
-
-        /* Quick selection styling */
-        optgroup {
-            background: var(--dark-card);
-            color: var(--neon-cyan);
-            font-weight: 600;
-        }
-
-        option {
-            background: var(--dark-card);
-            color: #fff;
-            padding: 5px;
-        }
-
-        /* Audio Toggle Switch */
-        .audio-toggle-switch {
-            position: relative;
-            display: inline-block;
-            width: 80px;
-            height: 40px;
-        }
-
-        .audio-toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .toggle-slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, rgba(114, 9, 183, 0.3) 0%, rgba(20, 20, 40, 0.8) 100%);
-            transition: 0.4s;
-            border-radius: 34px;
-            border: 2px solid var(--neon-purple);
-        }
-
-        .toggle-slider:before {
-            position: absolute;
-            content: "";
-            height: 28px;
-            width: 28px;
-            left: 4px;
-            bottom: 4px;
-            background: linear-gradient(135deg, var(--neon-purple) 0%, #7209b7 100%);
-            transition: 0.4s;
-            border-radius: 50%;
-        }
-
-        input:checked + .toggle-slider {
-            background: linear-gradient(135deg, rgba(0, 255, 255, 0.3) 0%, rgba(20, 40, 60, 0.8) 100%);
-            border-color: var(--neon-cyan);
-        }
-
-        input:checked + .toggle-slider:before {
-            transform: translateX(40px);
-            background: linear-gradient(135deg, var(--neon-cyan) 0%, #00d9ff 100%);
-        }
-
-    </style>
+    <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
     <div class="container">
@@ -581,7 +29,7 @@
                         <select id="videoTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
                             <option value="">Loading targets...</option>
                         </select>
-                        <button onclick="refreshOutputTargets()" class="small-btn" title="Refresh Chromecasts">🔄</button>
+                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">🔄</button>
                     </div>
                     <div id="videoTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
                 </div>
@@ -589,7 +37,7 @@
                 <!-- Preset Selection -->
                 <div style="margin-bottom: 10px;">
                     <label style="display: block; margin-bottom: 5px; font-weight: bold;">Quick select (auto-starts):</label>
-                    <select id="videoPresets" style="width: 100%; max-width: 400px;" onchange="onVideoPresetChange()">
+                    <select id="videoPresets" style="width: 100%; max-width: 400px;">
                         <option value="">Choose preset...</option>
                         <optgroup label="24/7 Live Streams">
                             <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
@@ -632,8 +80,8 @@
 
                 <!-- Controls -->
                 <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-                    <button onclick="playVideo()" style="font-size: 1.1rem; padding: 12px 24px;">▶ PLAY VIDEO</button>
-                    <button onclick="stopVideo()" class="danger" style="font-size: 1.1rem; padding: 12px 24px;">⏹ STOP</button>
+                    <button id="playVideoBtn" style="font-size: 1.1rem; padding: 12px 24px;">▶ PLAY VIDEO</button>
+                    <button id="stopVideoBtn" class="danger" style="font-size: 1.1rem; padding: 12px 24px;">⏹ STOP</button>
                 </div>
                 <div id="videoStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
             </div>
@@ -650,14 +98,14 @@
                         <select id="audioTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
                             <option value="">Loading targets...</option>
                         </select>
-                        <button onclick="refreshOutputTargets()" class="small-btn" title="Refresh Chromecasts">🔄</button>
+                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">🔄</button>
                     </div>
                     <div id="audioTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
                 </div>
 
                 <!-- Quick Stream Selection -->
                 <div style="margin-bottom: 15px;">
-                    <select id="quickStreamSelect" style="width: 100%; max-width: 400px;" onchange="onQuickStreamChange()">
+                    <select id="quickStreamSelect" style="width: 100%; max-width: 400px;" >
                         <option value="">Select a stream...</option>
                         <optgroup label="soma.fm Stations">
                             <option value="https://somafm.com/groovesalad.pls">Groove Salad</option>
@@ -676,8 +124,8 @@
                     <label style="margin: 0;">Volume: <span id="volumeDisplay">80</span>%</label>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <button onclick="startAudioStream()">▶ START AUDIO</button>
-                    <button onclick="stopAudioStream()" class="danger">⏹ STOP</button>
+                    <button id="startAudioBtn">▶ START AUDIO</button>
+                    <button id="stopAudioBtn" class="danger">⏹ STOP</button>
                 </div>
                 <div id="audioStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
             </div>
@@ -689,7 +137,7 @@
 
                 <!-- Device Discovery -->
                 <div style="margin-bottom: 15px;">
-                    <button onclick="discoverChromecasts()">DISCOVER</button>
+                    <button id="discoverChromecastBtn">DISCOVER</button>
                     <select id="chromecastDevice" style="width: 100%; max-width: 400px; margin-top: 10px; display: none;">
                         <option value="">Select a device...</option>
                     </select>
@@ -698,15 +146,15 @@
                 <input type="url" id="chromecastUrl" placeholder="Enter media URL to cast..." style="width: 100%; max-width: 400px;">
                 <br>
                 <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
-                    <input type="range" id="chromecastVolume" min="0" max="100" value="50" oninput="updateChromecastVolumeDisplay()" style="width: 200px;">
+                    <input type="range" id="chromecastVolume" min="0" max="100" value="50" style="width: 200px;">
                     <label style="margin: 0;">Volume: <span id="chromecastVolumeDisplay">50</span>%</label>
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center;">
                     <div>
-                        <button onclick="startChromecast()">▶ START CAST</button>
-                        <button onclick="pauseChromecast()">⏸ PAUSE</button>
+                        <button id="startChromecastBtn">▶ START CAST</button>
+                        <button id="pauseChromecastBtn">⏸ PAUSE</button>
                     </div>
-                    <button onclick="stopChromecast()" class="danger">⏹ STOP</button>
+                    <button id="stopChromecastBtn" class="danger">⏹ STOP</button>
                 </div>
                 <div id="chromecastStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
             </div>
@@ -733,7 +181,7 @@
 
         <!-- Toggle Button for Advanced Features -->
         <div class="toggle-advanced">
-            <button class="toggle-btn" onclick="toggleAdvancedFeatures()">
+            <button class="toggle-btn" id="toggleAdvancedBtn">
                 <span id="toggleText">⚙️ SHOW ADVANCED FEATURES</span>
             </button>
         </div>
@@ -743,10 +191,10 @@
 
             <!-- Tabs for Advanced Features -->
             <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('streams')">🌊 STREAMS</button>
-                <button class="tab-btn" onclick="switchTab('display')">🖼️ DISPLAY</button>
-                <button class="tab-btn" onclick="switchTab('system')">📊 SYSTEM</button>
-                <button class="tab-btn" onclick="switchTab('advanced')">⚙️ ADVANCED</button>
+                <button class="tab-btn active" id="tab-btn-streams">🌊 STREAMS</button>
+                <button class="tab-btn" id="tab-btn-display">🖼️ DISPLAY</button>
+                <button class="tab-btn" id="tab-btn-system">📊 SYSTEM</button>
+                <button class="tab-btn" id="tab-btn-advanced">⚙️ ADVANCED</button>
             </div>
 
             <!-- Tab Content: Streams -->
@@ -775,8 +223,8 @@
                     </select>
                     <br>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button onclick="startPlayback()">START PLAYBACK</button>
-                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                        <button id="startPlaybackBtn">START PLAYBACK</button>
+                        <button id="stopPlaybackBtn" class="danger">STOP</button>
                     </div>
                 </div>
 
@@ -790,7 +238,7 @@
                         <option value="rtmp">RTMP</option>
                     </select>
                     <br>
-                    <button onclick="startStream()">START STREAM</button>
+                    <button id="startStreamBtn">START STREAM</button>
                 </div>
 
                 <!-- Screen Streaming -->
@@ -804,7 +252,7 @@
                         <option value="hls">HLS</option>
                     </select>
                     <br>
-                    <button id="screenStreamButton" onclick="toggleScreenStream()">START SCREEN STREAM</button>
+                    <button id="screenStreamButton">START SCREEN STREAM</button>
                     <div id="screenStreamStatus" style="margin-top: 10px;"></div>
                 </div>
 
@@ -827,8 +275,8 @@
                     <input type="number" id="imageDuration" placeholder="Duration (seconds)" value="10" min="1" max="300">
                     <br>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button onclick="displayImage()">DISPLAY IMAGE</button>
-                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                        <button id="displayImageBtn">DISPLAY IMAGE</button>
+                        <button id="stopDisplayImageBtn" class="danger">STOP</button>
                     </div>
                 </div>
 
@@ -840,8 +288,8 @@
                     <input type="number" id="qrDuration" placeholder="Duration (seconds)" min="1" max="300">
                     <br>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button onclick="displayQRCode()">GENERATE QR CODE</button>
-                        <button onclick="stopPlayback()" class="danger">STOP</button>
+                        <button id="displayQRCodeBtn">GENERATE QR CODE</button>
+                        <button id="stopQRCodeBtn" class="danger">STOP</button>
                     </div>
                 </div>
 
@@ -850,17 +298,17 @@
                     <h2>🖼️ BACKGROUND</h2>
                     <p>Manage background display</p>
                     <div style="margin-bottom: 15px;">
-                        <button id="staticModeBtn" onclick="setBackgroundMode('static')" class="mode-button active">
+                        <button id="staticModeBtn" class="mode-button active">
                             STATIC BACKGROUND
                         </button>
                     </div>
                     <div id="staticControls">
                         <input type="file" id="backgroundFile" accept="image/*" style="width: 100%;">
                         <br>
-                        <button onclick="setBackground()">SET BACKGROUND</button>
+                        <button id="setBackgroundBtn">SET BACKGROUND</button>
                     </div>
-                    <button onclick="refreshBackground()">🔄 REFRESH</button>
-                    <button onclick="showBackground()">SHOW NOW</button>
+                    <button id="refreshBackgroundBtn">🔄 REFRESH</button>
+                    <button id="showBackgroundBtn">SHOW NOW</button>
                     <div id="backgroundStatus" style="margin-top: 10px; color: var(--neon-cyan);"></div>
                 </div>
             </div>
@@ -874,7 +322,7 @@
                     <h2>📊 SYSTEM STATUS</h2>
                     <div id="status" class="status">Click refresh to load...</div>
                     <div id="systemStats" class="stats"></div>
-                    <button onclick="refreshStatus()">🔄 REFRESH STATUS</button>
+                    <button id="refreshStatusBtn">🔄 REFRESH STATUS</button>
                 </div>
 
                 <!-- Current Playback -->
@@ -888,9 +336,9 @@
                     <h2>⚡ QUICK ACTIONS</h2>
                     <input type="text" id="switchKey" placeholder="New stream key">
                     <br>
-                    <button onclick="switchStream()">SWITCH STREAM</button>
-                    <button onclick="switchPlayer('mpv')" class="small-btn">MPV</button>
-                    <button onclick="switchPlayer('ffplay')" class="small-btn">FFPLAY</button>
+                    <button id="switchStreamBtn">SWITCH STREAM</button>
+                    <button id="switchPlayerMpvBtn" class="small-btn">MPV</button>
+                    <button id="switchPlayerFfplayBtn" class="small-btn">FFPLAY</button>
                 </div>
 
                 <!-- Navigation Links -->
@@ -916,7 +364,16 @@
                         <div><strong>Device:</strong> <span id="spotifyDeviceName">HSG Canvas</span></div>
                         <div><strong>Status:</strong> <span id="spotifyServiceStatus">Checking...</span></div>
                     </div>
-                    <button onclick="refreshSpotifyStatus()" style="background: #1DB954;">🔄 REFRESH</button>
+
+                    <!-- Now Playing Info -->
+                    <div id="spotifyPlaybackInfo" style="display: none; margin-bottom: 15px; padding: 15px; background: rgba(29,185,84,0.1); border-radius: 10px; border: 1px solid #1DB954;">
+                        <div style="font-size: 1.1em; margin-bottom: 10px;"><strong>🎵 Now Playing</strong></div>
+                        <div style="margin-bottom: 5px;"><strong>Track:</strong> <span id="spotifyTrackId">-</span></div>
+                        <div style="margin-bottom: 5px;"><strong>Duration:</strong> <span id="spotifyDuration">-</span></div>
+                        <div style="font-size: 0.85em; opacity: 0.7;"><span id="spotifyLastEvent">-</span></div>
+                    </div>
+
+                    <button id="refreshSpotifyBtn" style="background: #1DB954;">🔄 REFRESH</button>
                     <div style="margin-top: 15px; padding: 15px; background: rgba(114,9,183,0.1); border-radius: 10px; font-size: 0.9em;">
                         <strong>HOW TO USE:</strong>
                         <ol style="margin: 10px 0 0 20px;">
@@ -933,9 +390,9 @@
                     <h2>📺 TV CONTROL</h2>
                     <p>HDMI-CEC power control</p>
                     <div style="margin-bottom: 15px;">
-                        <button id="tvPowerOnBtn" onclick="powerOnTV()" style="background: #28a745;">⚡ POWER ON</button>
-                        <button id="tvPowerOffBtn" onclick="powerOffTV()" class="danger">💤 POWER OFF</button>
-                        <button onclick="refreshCECStatus()">🔄 REFRESH</button>
+                        <button id="tvPowerOnBtn" style="background: #28a745;">⚡ POWER ON</button>
+                        <button id="tvPowerOffBtn" class="danger">💤 POWER OFF</button>
+                        <button id="refreshCECBtn">🔄 REFRESH</button>
                     </div>
                     <div id="cecStatus">
                         <div><strong>CEC:</strong> <span id="cecAvailability">Checking...</span></div>
@@ -975,8 +432,8 @@
                     </select>
                     <br>
                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button id="webcastStartBtn" onclick="startWebcast()">▶ START</button>
-                        <button id="webcastStopBtn" onclick="stopWebcast()" class="danger">⏹ STOP</button>
+                        <button id="webcastStartBtn">▶ START</button>
+                        <button id="webcastStopBtn" class="danger">⏹ STOP</button>
                     </div>
                     <div id="webcastStatus" style="margin-top: 10px;">
                         <div><strong>Status:</strong> <span id="webcastState">Stopped</span></div>
@@ -987,1392 +444,6 @@
         </div>
     </div>
 
-    <script>
-        const API_BASE = '';
-
-        // Tab switching
-        function switchTab(tabName) {
-            // Hide all tabs
-            document.querySelectorAll('.tab-content').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.remove('active');
-            });
-
-            // Show selected tab
-            document.getElementById('tab-' + tabName).classList.add('active');
-            event.target.classList.add('active');
-        }
-
-        // Toggle advanced features visibility
-        function toggleAdvancedFeatures() {
-            const advancedSection = document.getElementById('advancedFeatures');
-            const toggleBtn = document.querySelector('.toggle-btn');
-            const toggleText = document.getElementById('toggleText');
-
-            advancedSection.classList.toggle('visible');
-            toggleBtn.classList.toggle('active');
-
-            if (advancedSection.classList.contains('visible')) {
-                toggleText.textContent = '⚙️ HIDE ADVANCED FEATURES';
-            } else {
-                toggleText.textContent = '⚙️ SHOW ADVANCED FEATURES';
-            }
-        }
-
-        async function apiCall(method, endpoint, data = null) {
-            try {
-                const options = {
-                    method: method,
-                    headers: { 'Content-Type': 'application/json' }
-                };
-                if (data) options.body = JSON.stringify(data);
-
-                const response = await fetch(API_BASE + endpoint, options);
-
-                if (!response.ok) {
-                    let errorMessage = `Server error (${response.status})`;
-                    try {
-                        const result = await response.json();
-                        errorMessage = result.detail || errorMessage;
-                    } catch {
-                        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
-                    }
-                    throw new Error(errorMessage);
-                }
-
-                const result = await response.json();
-                return result;
-            } catch (error) {
-                throw error;
-            }
-        }
-
-        function showStatus(message, type) {
-            const statusDiv = document.getElementById('status');
-            statusDiv.textContent = message;
-            statusDiv.className = `status ${type}`;
-        }
-
-        function setButtonLoading(buttonElement, isLoading) {
-            if (isLoading) {
-                buttonElement.disabled = true;
-                buttonElement.classList.add('loading');
-                buttonElement.dataset.originalText = buttonElement.textContent;
-            } else {
-                buttonElement.disabled = false;
-                buttonElement.classList.remove('loading');
-                if (buttonElement.dataset.originalText) {
-                    buttonElement.textContent = buttonElement.dataset.originalText;
-                }
-            }
-        }
-
-        function clearValidationErrors(container) {
-            const errors = container.querySelectorAll('.validation-error');
-            errors.forEach(error => error.remove());
-        }
-
-        function showValidationError(container, message) {
-            clearValidationErrors(container);
-            const errorDiv = document.createElement('div');
-            errorDiv.className = 'validation-error';
-            errorDiv.textContent = message;
-            container.appendChild(errorDiv);
-        }
-
-        // Output Target Management
-        let availableTargets = { targets: [], defaults: {}, active: {} };
-
-        async function loadOutputTargets() {
-            try {
-                availableTargets = await apiCall('GET', '/targets');
-                updateTargetSelectors();
-                updateTargetStatus();
-            } catch (error) {
-                console.error('Failed to load output targets:', error);
-            }
-        }
-
-        async function refreshOutputTargets() {
-            const refreshBtn = event ? event.target : document.querySelector('button[onclick="refreshOutputTargets()"]');
-
-            try {
-                setButtonLoading(refreshBtn, true);
-
-                // Trigger Chromecast discovery
-                const result = await apiCall('POST', '/targets/refresh');
-                showStatus(`Discovered ${result.chromecasts_found} Chromecast device(s)`, 'success');
-
-                // Reload targets
-                await loadOutputTargets();
-
-            } catch (error) {
-                showStatus(`Failed to refresh targets: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(refreshBtn, false);
-            }
-        }
-
-        function getTargetIcon(targetType) {
-            const icons = {
-                'local-video': '📺',
-                'local-audio': '🔊',
-                'chromecast': '📡'
-            };
-            return icons[targetType] || '🎯';
-        }
-
-        function updateTargetSelectors() {
-            const videoSelect = document.getElementById('videoTargetSelect');
-            const audioSelect = document.getElementById('audioTargetSelect');
-
-            // Get video-capable targets
-            const videoTargets = availableTargets.targets.filter(t =>
-                t.capabilities.includes('video') && t.is_available
-            );
-
-            // Get audio-capable targets
-            const audioTargets = availableTargets.targets.filter(t =>
-                t.capabilities.includes('audio') && t.is_available
-            );
-
-            // Update video target selector
-            videoSelect.innerHTML = '<option value="">Use Default (HDMI)</option>';
-            videoTargets.forEach(target => {
-                const option = document.createElement('option');
-                option.value = target.id;
-                const icon = getTargetIcon(target.type);
-                option.textContent = `${icon} ${target.name}`;
-                if (target.id === availableTargets.defaults.video) {
-                    option.textContent += ' (Default)';
-                }
-                videoSelect.appendChild(option);
-            });
-
-            // Update audio target selector
-            audioSelect.innerHTML = '<option value="">Use Default (Audio Hat)</option>';
-            audioTargets.forEach(target => {
-                const option = document.createElement('option');
-                option.value = target.id;
-                const icon = getTargetIcon(target.type);
-                option.textContent = `${icon} ${target.name}`;
-                if (target.id === availableTargets.defaults.audio) {
-                    option.textContent += ' (Default)';
-                }
-                audioSelect.appendChild(option);
-            });
-        }
-
-        function updateTargetStatus() {
-            const videoStatusDiv = document.getElementById('videoTargetStatus');
-            const audioStatusDiv = document.getElementById('audioTargetStatus');
-
-            // Show active video target
-            if (availableTargets.active.video) {
-                const target = availableTargets.targets.find(t => t.id === availableTargets.active.video);
-                if (target) {
-                    videoStatusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">● Active: ${target.name}</span>`;
-                } else {
-                    videoStatusDiv.innerHTML = '';
-                }
-            } else {
-                videoStatusDiv.innerHTML = '';
-            }
-
-            // Show active audio target
-            if (availableTargets.active.audio) {
-                const target = availableTargets.targets.find(t => t.id === availableTargets.active.audio);
-                if (target) {
-                    audioStatusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">● Active: ${target.name}</span>`;
-                } else {
-                    audioStatusDiv.innerHTML = '';
-                }
-            } else {
-                audioStatusDiv.innerHTML = '';
-            }
-        }
-
-        async function startStream() {
-            const streamKey = document.getElementById('streamKey').value;
-            const sourceUrl = document.getElementById('sourceUrl').value;
-            const protocol = document.getElementById('streamProtocol').value;
-
-            if (!streamKey || !sourceUrl) {
-                showStatus('Please fill in stream key and source URL', 'error');
-                return;
-            }
-
-            const params = new URLSearchParams({ source_url: sourceUrl, protocol: protocol });
-            await apiCall('POST', `/streams/${streamKey}/start?${params}`);
-            refreshStatus();
-        }
-
-        async function startPlayback() {
-            const startButton = event ? event.target : document.querySelector('button[onclick="startPlayback()"]');
-            const playbackCard = startButton.closest('.card');
-
-            clearValidationErrors(playbackCard);
-
-            const streamKey = document.getElementById('playbackKey').value.trim();
-            const player = document.getElementById('player').value;
-            const mode = document.getElementById('playMode').value;
-            const protocol = document.getElementById('playProtocol').value;
-
-            if (!streamKey) {
-                showValidationError(playbackCard, 'Please enter a stream key to play');
-                return;
-            }
-
-            setButtonLoading(startButton, true);
-            showStatus('Starting playback...', 'success');
-
-            try {
-                const params = new URLSearchParams({ player, mode, protocol });
-                await apiCall('POST', `/playback/${streamKey}/start?${params}`);
-                showStatus(`Successfully started playback of "${streamKey}" with ${player}`, 'success');
-                refreshStatus();
-            } catch (error) {
-                showValidationError(playbackCard, `Failed to start playback: ${error.message}`);
-                showStatus(`Playback failed: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(startButton, false);
-            }
-        }
-
-        async function stopPlayback() {
-            const stopButton = event ? event.target : document.querySelector('button[onclick="stopPlayback()"]');
-
-            setButtonLoading(stopButton, true);
-            showStatus('Stopping playback...', 'success');
-
-            try {
-                await apiCall('DELETE', '/playback/stop');
-                showStatus('Playback stopped successfully', 'success');
-                refreshStatus();
-            } catch (error) {
-                showStatus(`Failed to stop playback: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(stopButton, false);
-            }
-        }
-
-        async function switchStream() {
-            const newKey = document.getElementById('switchKey').value;
-            if (!newKey) {
-                showStatus('Please enter a stream key', 'error');
-                return;
-            }
-            await apiCall('POST', `/playback/switch/${newKey}`);
-            refreshStatus();
-        }
-
-        async function switchPlayer(player) {
-            await apiCall('POST', `/playback/player/${player}`);
-            refreshStatus();
-        }
-
-        async function stopStream(streamKey) {
-            await apiCall('DELETE', `/streams/${streamKey}`);
-            refreshStatus();
-        }
-
-        async function displayImage() {
-            const fileInput = document.getElementById('imageFile');
-            const duration = document.getElementById('imageDuration').value || 10;
-
-            if (!fileInput.files[0]) {
-                showStatus('Please select an image file', 'error');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            try {
-                const response = await fetch(`/display/image?duration=${duration}`, {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to display image');
-                }
-
-                showStatus(result.message, 'success');
-                refreshStatus();
-            } catch (error) {
-                showStatus(error.message, 'error');
-            }
-        }
-
-        // Unified Video Playback Functions
-        function onVideoPresetChange() {
-            const dropdown = document.getElementById('videoPresets');
-            const customUrlInput = document.getElementById('customVideoUrl');
-
-            // If a preset is selected, auto-fill URL and start playback
-            if (dropdown.value && dropdown.value.startsWith('http')) {
-                const selectedUrl = dropdown.value;
-
-                // Reset dropdown immediately to allow re-selection
-                dropdown.value = "";
-
-                // Now set the URL and play
-                customUrlInput.value = selectedUrl;
-                playVideo();
-            }
-        }
-
-        async function playVideo() {
-            const playButton = event ? event.target : document.querySelector('button[onclick="playVideo()"]');
-            const videoCard = playButton ? playButton.closest('.card') : null;
-            const statusDiv = document.getElementById('videoStatus');
-
-            try {
-                if (playButton) setButtonLoading(playButton, true);
-
-                // Get video URL from URL input (always visible)
-                const customUrlInput = document.getElementById('customVideoUrl');
-                const videoUrl = customUrlInput.value.trim();
-
-                // Validate URL
-                if (!videoUrl) {
-                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a valid URL</span>';
-                    return;
-                }
-
-                const urlRegex = /^https?:\/\/[^\s]+$/;
-                if (!urlRegex.test(videoUrl)) {
-                    statusDiv.innerHTML = '<span style="color: #dc3545;">Please enter a valid URL starting with http:// or https://</span>';
-                    return;
-                }
-
-                // Get video title from dropdown if it matches, otherwise use "Custom Video"
-                const dropdown = document.getElementById('videoPresets');
-                let videoTitle = 'Custom Video';
-                if (dropdown.value === videoUrl) {
-                    videoTitle = dropdown.options[dropdown.selectedIndex].text;
-                }
-
-                // Get settings
-                const audioEnabled = document.getElementById('videoAudioEnabled').checked;
-                const duration = document.getElementById('videoDuration').value;
-
-                // Get selected target
-                const targetSelect = document.getElementById('videoTargetSelect');
-                const selectedTarget = targetSelect.value;
-
-                statusDiv.innerHTML = `<span>Starting video playback...</span>`;
-
-                // Build request data
-                const data = {
-                    youtube_url: videoUrl,
-                    mute: !audioEnabled  // Invert because API expects "mute"
-                };
-                if (duration) data.duration = parseInt(duration);
-
-                // Use target-aware endpoint
-                let endpoint = '/targets/play/video';
-                if (selectedTarget) {
-                    endpoint += `?target=${encodeURIComponent(selectedTarget)}`;
-                }
-
-                await apiCall('POST', endpoint, data);
-
-                const audioText = audioEnabled ? ' with audio' : ' (muted)';
-                const targetName = selectedTarget ?
-                    availableTargets.targets.find(t => t.id === selectedTarget)?.name || 'selected target' :
-                    'default target';
-
-                statusDiv.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Playing: ${videoTitle}${audioText} on ${targetName}</span>`;
-                showStatus('Video started successfully', 'success');
-
-                // Refresh target status to show active target
-                await loadOutputTargets();
-                refreshStatus();
-
-            } catch (error) {
-                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to start: ${error.message}</span>`;
-                showStatus(`Video playback failed: ${error.message}`, 'error');
-            } finally {
-                if (playButton) setButtonLoading(playButton, false);
-            }
-        }
-
-        async function stopVideo() {
-            const stopButton = event ? event.target : document.querySelector('button[onclick="stopVideo()"]');
-            const statusDiv = document.getElementById('videoStatus');
-
-            try {
-                setButtonLoading(stopButton, true);
-                statusDiv.innerHTML = '<span>Stopping video...</span>';
-
-                await apiCall('DELETE', '/playback/stop');
-
-                statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Video stopped</span>';
-                showStatus('Video stopped', 'success');
-                refreshStatus();
-
-            } catch (error) {
-                statusDiv.innerHTML = `<span style="color: #dc3545;">Failed to stop: ${error.message}</span>`;
-                showStatus(`Failed to stop video: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(stopButton, false);
-            }
-        }
-
-        async function displayQRCode() {
-            const generateButton = event ? event.target : document.querySelector('button[onclick="displayQRCode()"]');
-            const qrCard = generateButton.closest('.card');
-
-            clearValidationErrors(qrCard);
-
-            const content = document.getElementById('qrContent').value.trim();
-            const duration = document.getElementById('qrDuration').value;
-
-            if (!content) {
-                showValidationError(qrCard, 'Please enter text or URL for the QR code');
-                return;
-            }
-
-            setButtonLoading(generateButton, true);
-            showStatus('Generating QR code...', 'success');
-
-            try {
-                const data = { content: content };
-                if (duration) data.duration = parseInt(duration);
-
-                await apiCall('POST', '/display/qrcode', data);
-                showStatus(`QR code displayed successfully`, 'success');
-                refreshStatus();
-            } catch (error) {
-                showValidationError(qrCard, `Failed to generate QR code: ${error.message}`);
-                showStatus(`QR code generation failed: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(generateButton, false);
-            }
-        }
-
-        // Audio streaming functions
-        async function startAudioStream() {
-            const startButton = event ? event.target : document.querySelector('button[onclick="startAudioStream()"]');
-            const audioCard = startButton.closest('.card');
-
-            clearValidationErrors(audioCard);
-
-            const streamUrl = document.getElementById('audioStreamUrl').value.trim();
-            const volume = document.getElementById('audioVolume').value;
-
-            if (!streamUrl) {
-                showValidationError(audioCard, 'Please enter an audio stream URL');
-                return;
-            }
-
-            setButtonLoading(startButton, true);
-            showStatus('Starting audio stream...', 'success');
-
-            try {
-                // Get selected target
-                const targetSelect = document.getElementById('audioTargetSelect');
-                const selectedTarget = targetSelect.value;
-
-                const data = {
-                    stream_url: streamUrl,
-                    volume: parseInt(volume)
-                };
-
-                // Use target-aware endpoint
-                let endpoint = '/targets/play/audio';
-                if (selectedTarget) {
-                    endpoint += `?target=${encodeURIComponent(selectedTarget)}`;
-                }
-
-                await apiCall('POST', endpoint, data);
-
-                const targetName = selectedTarget ?
-                    availableTargets.targets.find(t => t.id === selectedTarget)?.name || 'selected target' :
-                    'default target';
-
-                showStatus(`Audio stream started on ${targetName}`, 'success');
-
-                // Refresh target status to show active target
-                await loadOutputTargets();
-                updateAudioStatus();
-            } catch (error) {
-                showValidationError(audioCard, `Failed to start audio stream: ${error.message}`);
-                showStatus(`Audio stream failed: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(startButton, false);
-            }
-        }
-
-        async function stopAudioStream() {
-            const stopButton = event ? event.target : document.querySelector('button[onclick="stopAudioStream()"]');
-
-            setButtonLoading(stopButton, true);
-            showStatus('Stopping audio stream...', 'success');
-
-            try {
-                await apiCall('POST', '/audio/stop');
-                showStatus('Audio stream stopped', 'success');
-                updateAudioStatus();
-            } catch (error) {
-                showStatus(`Failed to stop audio stream: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(stopButton, false);
-            }
-        }
-
-        function onQuickStreamChange() {
-            const dropdown = document.getElementById('quickStreamSelect');
-            const selectedUrl = dropdown.value;
-
-            if (selectedUrl) {
-                // Reset dropdown immediately to allow re-selection
-                dropdown.value = '';
-
-                // Set the URL in the input field
-                document.getElementById('audioStreamUrl').value = selectedUrl;
-
-                // Visual feedback with green border
-                const audioUrlInput = document.getElementById('audioStreamUrl');
-                audioUrlInput.style.borderColor = '#28a745';
-
-                setTimeout(() => {
-                    audioUrlInput.style.borderColor = '';
-                }, 2000);
-            }
-        }
-
-        async function updateAudioStatus() {
-            try {
-                const status = await apiCall('GET', '/audio/status');
-                const statusDiv = document.getElementById('audioStatus');
-
-                if (status.is_playing) {
-                    const displayName = status.stream_name || status.current_stream || 'Unknown Stream';
-                    let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">🎵 Playing: ${displayName}</span><br>
-                                     <span style="font-size: 12px;">Volume: ${status.volume}%</span>`;
-
-                    if (status.metadata) {
-                        const metadata = status.metadata;
-                        statusHtml += '<br><div style="margin-top: 8px; padding: 8px; background: rgba(0, 245, 255, 0.1); border-radius: 8px;">';
-                        statusHtml += `<div style="font-weight: bold;">${metadata.title}</div>`;
-                        if (metadata.artist) {
-                            statusHtml += `<div style="font-size: 12px;">by ${metadata.artist}</div>`;
-                        }
-                        statusHtml += '</div>';
-                    }
-
-                    statusDiv.innerHTML = statusHtml;
-                } else {
-                    statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">No audio stream playing</span>';
-                }
-            } catch (error) {
-                console.error('Failed to update audio status:', error);
-            }
-        }
-
-        // Chromecast functions
-        async function discoverChromecasts() {
-            const discoverButton = event ? event.target : document.querySelector('button[onclick="discoverChromecasts()"]');
-
-            setButtonLoading(discoverButton, true);
-            showStatus('Discovering Chromecast devices...', 'success');
-
-            try {
-                const result = await apiCall('GET', '/chromecast/discover');
-                const deviceSelect = document.getElementById('chromecastDevice');
-
-                // Show the dropdown (it starts hidden)
-                deviceSelect.style.display = 'block';
-
-                // Clear existing options except the first one
-                deviceSelect.innerHTML = '<option value="">Select a device...</option>';
-
-                // Add discovered devices
-                if (result.devices && result.devices.length > 0) {
-                    result.devices.forEach(device => {
-                        const option = document.createElement('option');
-                        option.value = device.name;
-                        option.textContent = `${device.name} (${device.model})`;
-                        deviceSelect.appendChild(option);
-                    });
-
-                    showStatus(`Found ${result.count} Chromecast device(s)`, 'success');
-                } else {
-                    showStatus('No Chromecast devices found on network', 'error');
-                }
-            } catch (error) {
-                showStatus(`Failed to discover Chromecast devices: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(discoverButton, false);
-            }
-        }
-
-        async function startChromecast() {
-            const startButton = event ? event.target : document.querySelector('button[onclick="startChromecast()"]');
-            const chromecastCard = startButton.closest('.card');
-
-            clearValidationErrors(chromecastCard);
-
-            const mediaUrl = document.getElementById('chromecastUrl').value.trim();
-            const deviceName = document.getElementById('chromecastDevice').value;
-
-            if (!mediaUrl) {
-                showValidationError(chromecastCard, 'Please enter a media URL to cast');
-                return;
-            }
-
-            setButtonLoading(startButton, true);
-            showStatus('Starting Chromecast...', 'success');
-
-            try {
-                const data = {
-                    media_url: mediaUrl
-                };
-
-                if (deviceName) {
-                    data.device_name = deviceName;
-                }
-
-                const result = await apiCall('POST', '/chromecast/start', data);
-                showStatus(`Started casting to Chromecast (${result.media_type})`, 'success');
-                updateChromecastStatus();
-            } catch (error) {
-                showValidationError(chromecastCard, `Failed to start casting: ${error.message}`);
-                showStatus(`Chromecast failed: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(startButton, false);
-            }
-        }
-
-        async function pauseChromecast() {
-            const pauseButton = event ? event.target : document.querySelector('button[onclick="pauseChromecast()"]');
-
-            setButtonLoading(pauseButton, true);
-
-            try {
-                await apiCall('POST', '/chromecast/pause');
-                showStatus('Chromecast paused', 'success');
-                updateChromecastStatus();
-            } catch (error) {
-                showStatus(`Failed to pause Chromecast: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(pauseButton, false);
-            }
-        }
-
-        async function stopChromecast() {
-            const stopButton = event ? event.target : document.querySelector('button[onclick="stopChromecast()"]');
-
-            setButtonLoading(stopButton, true);
-            showStatus('Stopping Chromecast...', 'success');
-
-            try {
-                await apiCall('POST', '/chromecast/stop');
-                showStatus('Chromecast stopped', 'success');
-                updateChromecastStatus();
-            } catch (error) {
-                showStatus(`Failed to stop Chromecast: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(stopButton, false);
-            }
-        }
-
-        function updateChromecastVolumeDisplay() {
-            const volume = document.getElementById('chromecastVolume').value;
-            document.getElementById('chromecastVolumeDisplay').textContent = volume;
-
-            // Update volume on Chromecast if casting
-            if (document.getElementById('chromecastStatus').innerHTML.includes('Casting')) {
-                setChromecastVolume();
-            }
-        }
-
-        async function setChromecastVolume() {
-            const volume = document.getElementById('chromecastVolume').value;
-
-            try {
-                await apiCall('PUT', '/chromecast/volume', {
-                    volume: parseFloat(volume) / 100
-                });
-            } catch (error) {
-                console.error('Failed to set Chromecast volume:', error);
-            }
-        }
-
-        async function updateChromecastStatus() {
-            try {
-                const status = await apiCall('GET', '/chromecast/status');
-                const statusDiv = document.getElementById('chromecastStatus');
-
-                if (status.is_casting) {
-                    let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Casting to: ${status.device_name}</span><br>`;
-                    statusHtml += `<span style="font-size: 12px;">Type: ${status.media_type}</span><br>`;
-
-                    if (status.player_state) {
-                        statusHtml += `<span style="font-size: 12px;">State: ${status.player_state}</span><br>`;
-                    }
-
-                    if (status.duration && status.current_time !== undefined) {
-                        const currentMin = Math.floor(status.current_time / 60);
-                        const currentSec = Math.floor(status.current_time % 60);
-                        const durationMin = Math.floor(status.duration / 60);
-                        const durationSec = Math.floor(status.duration % 60);
-                        statusHtml += `<span style="font-size: 12px;">Time: ${currentMin}:${currentSec.toString().padStart(2, '0')} / ${durationMin}:${durationSec.toString().padStart(2, '0')}</span>`;
-                    }
-
-                    statusDiv.innerHTML = statusHtml;
-                } else {
-                    statusDiv.innerHTML = '<span style="color: rgba(255,255,255,0.5);">Not casting</span>';
-                    if (status.available_devices > 0) {
-                        statusDiv.innerHTML += `<br><span style="font-size: 12px;">${status.available_devices} device(s) available</span>`;
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to update Chromecast status:', error);
-            }
-        }
-
-        // Cast Receiver status update
-        async function updateCastReceiverStatus() {
-            try {
-                const status = await apiCall('GET', '/cast-receiver/status');
-                const statusDiv = document.getElementById('castReceiverStatus');
-
-                if (status.is_running) {
-                    let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">✅ Receiver Active</span><br>`;
-                    statusHtml += `<span style="font-size: 12px;">Device Name: ${status.device_name}</span><br>`;
-                    statusHtml += `<span style="font-size: 12px;">IP: ${status.local_ip}:${status.dial_port}</span>`;
-
-                    if (status.has_session && status.session) {
-                        statusHtml += '<br><br><div style="border-top: 1px solid rgba(0,245,255,0.3); padding-top: 10px; margin-top: 10px;">';
-                        statusHtml += `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Currently Playing:</span><br>`;
-                        statusHtml += `<span style="font-size: 12px;">${status.session.title || 'Media'}</span><br>`;
-                        statusHtml += `<span style="font-size: 12px;">Type: ${status.session.media_type}</span>`;
-                        statusHtml += '</div>';
-                    }
-
-                    statusDiv.innerHTML = statusHtml;
-                } else {
-                    statusDiv.innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Receiver Inactive</span>';
-                }
-            } catch (error) {
-                console.error('Failed to update cast receiver status:', error);
-                document.getElementById('castReceiverStatus').innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Status check failed</span>';
-            }
-        }
-
-
-        // Background management
-        async function setBackground() {
-            const fileInput = document.getElementById('backgroundFile');
-
-            if (!fileInput.files[0]) {
-                showStatus('Please select a background image', 'error');
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append('file', fileInput.files[0]);
-
-            try {
-                const response = await fetch('/background/set', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to set background');
-                }
-
-                showStatus(result.message, 'success');
-                refreshStatus();
-            } catch (error) {
-                showStatus(error.message, 'error');
-            }
-        }
-
-        async function showBackground() {
-            await apiCall('POST', '/background/show');
-            refreshStatus();
-        }
-
-        async function setBackgroundMode(mode) {
-            const staticBtn = document.getElementById('staticModeBtn');
-            staticBtn.disabled = true;
-
-            try {
-                showStatus(`Setting background mode to ${mode}...`, 'success');
-
-                const response = await fetch('/background/mode', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: mode })
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to set background mode');
-                }
-
-                showStatus(`Background mode set to ${mode}`, 'success');
-                await refreshBackgroundStatus();
-
-            } catch (error) {
-                showStatus(`Failed to set background mode: ${error.message}`, 'error');
-            } finally {
-                staticBtn.disabled = false;
-            }
-        }
-
-        async function refreshBackgroundStatus() {
-            try {
-                const response = await fetch('/background/mode');
-                const status = await response.json();
-
-                const statusDiv = document.getElementById('backgroundStatus');
-
-                let statusText = `Mode: ${status.mode}`;
-                if (!status.is_running) {
-                    statusText += ' (not running)';
-                }
-                statusDiv.textContent = statusText;
-
-            } catch (error) {
-                console.error('Failed to refresh background status:', error);
-                document.getElementById('backgroundStatus').textContent = 'Error loading status';
-            }
-        }
-
-        async function refreshBackground() {
-            try {
-                showStatus('Refreshing background...', 'success');
-
-                const response = await fetch('/background/refresh', {
-                    method: 'POST'
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to refresh');
-                }
-
-                showStatus(result.message || 'Background refreshed', 'success');
-                await refreshBackgroundStatus();
-
-            } catch (error) {
-                showStatus(`Failed to refresh: ${error.message}`, 'error');
-            }
-        }
-
-        async function toggleScreenStream() {
-            const button = document.getElementById('screenStreamButton');
-            const statusDiv = document.getElementById('screenStreamStatus');
-            const streamCard = button.closest('.card');
-
-            clearValidationErrors(streamCard);
-
-            try {
-                const status = await fetch('/screen-stream/status').then(r => r.json());
-
-                if (status.active) {
-                    setButtonLoading(button, true);
-                    statusDiv.textContent = 'Stopping screen stream...';
-
-                    await apiCall('DELETE', '/screen-stream/stop');
-                    button.textContent = 'START SCREEN STREAM';
-                    button.className = '';
-                    statusDiv.textContent = '';
-                    showStatus('Screen streaming stopped', 'success');
-                } else {
-                    const streamKey = document.getElementById('screenStreamKey').value.trim();
-                    const protocol = document.getElementById('screenStreamProtocol').value;
-
-                    if (!streamKey) {
-                        showValidationError(streamCard, 'Please enter a stream key');
-                        return;
-                    }
-
-                    setButtonLoading(button, true);
-                    statusDiv.textContent = 'Starting screen stream...';
-
-                    await apiCall('POST', `/screen-stream/${streamKey}/start?protocol=${protocol}`);
-                    button.textContent = 'STOP SCREEN STREAM';
-                    button.className = 'danger';
-                    statusDiv.innerHTML = `<span style="color: var(--neon-cyan);">🔴 Streaming "${streamKey}"</span>`;
-                    showStatus(`Screen streaming started: ${streamKey}`, 'success');
-                }
-
-                refreshStatus();
-            } catch (error) {
-                showValidationError(streamCard, `Screen streaming error: ${error.message}`);
-                showStatus(`Screen streaming failed: ${error.message}`, 'error');
-                statusDiv.textContent = '';
-            } finally {
-                setButtonLoading(button, false);
-            }
-        }
-
-        async function updateScreenStreamUI() {
-            try {
-                const status = await fetch('/screen-stream/status').then(r => r.json());
-                const button = document.getElementById('screenStreamButton');
-                const statusDiv = document.getElementById('screenStreamStatus');
-
-                if (status.active) {
-                    button.textContent = 'STOP SCREEN STREAM';
-                    button.className = 'danger';
-                    statusDiv.innerHTML = `<span style="color: var(--neon-cyan);">🔴 Streaming "${status.stream_key}"</span>`;
-                } else {
-                    button.textContent = 'START SCREEN STREAM';
-                    button.className = '';
-                    statusDiv.textContent = '';
-                }
-            } catch (error) {
-                console.error('Failed to update screen stream UI:', error);
-            }
-        }
-
-        async function refreshStatus() {
-            try {
-                const [status, streams] = await Promise.all([
-                    fetch('/status').then(r => r.json()),
-                    fetch('/streams').then(r => r.json())
-                ]);
-
-                // Update system stats
-                const systemStats = document.getElementById('systemStats');
-                const stats = status.system_stats;
-                systemStats.innerHTML = `
-                    <div class="stat-item">
-                        <strong>CPU</strong><br>${stats.cpu_percent?.toFixed(1) || 'N/A'}%
-                    </div>
-                    <div class="stat-item">
-                        <strong>Memory</strong><br>${stats.memory_percent?.toFixed(1) || 'N/A'}%
-                    </div>
-                    <div class="stat-item">
-                        <strong>Temperature</strong><br>${stats.temperature?.toFixed(1) || 'N/A'}°C
-                    </div>
-                    <div class="stat-item">
-                        <strong>Active Streams</strong><br>${status.active_streams}
-                    </div>
-                `;
-
-                // Update active streams
-                const activeStreams = document.getElementById('activeStreams');
-                if (Object.keys(streams.active_streams).length === 0) {
-                    activeStreams.innerHTML = 'No active streams';
-                } else {
-                    activeStreams.innerHTML = Object.entries(streams.active_streams)
-                        .map(([key, info]) => `
-                            <div class="stream-item">
-                                <div>
-                                    <strong>${key}</strong><br>
-                                    <small>${info.source_url}</small><br>
-                                    <small>Started: ${new Date(info.started_at).toLocaleTimeString()}</small>
-                                </div>
-                                <button onclick="stopStream('${key}')" class="danger small-btn">STOP</button>
-                            </div>
-                        `).join('');
-                }
-
-                // Update current playback
-                const currentPlayback = document.getElementById('currentPlayback');
-                const playback = streams.current_playback;
-
-                if (playback.stream) {
-                    let playbackHtml = `
-                        <strong>Stream:</strong> ${playback.stream}<br>
-                        <strong>Player:</strong> ${playback.player}<br>
-                        <strong>Protocol:</strong> ${playback.protocol}
-                    `;
-
-                    if (playback.stats) {
-                        const s = playback.stats;
-                        const dropPercent = s.drop_percentage ? s.drop_percentage.toFixed(2) : '0.00';
-                        const fpsDisplay = s.fps_current ? s.fps_current.toFixed(1) : 'N/A';
-
-                        playbackHtml += `<br><br><strong>Performance:</strong><br>
-                        <strong>FPS:</strong> ${fpsDisplay}<br>
-                        <strong>Frames:</strong> ${s.total_frames || 0}<br>
-                        <strong>Dropped:</strong> ${s.dropped_frames || 0} (${dropPercent}%)`;
-                    }
-
-                    currentPlayback.innerHTML = playbackHtml;
-                } else {
-                    try {
-                        const audioStatus = await fetch('/audio/status').then(r => r.json());
-                        if (audioStatus.is_playing) {
-                            let audioInfo = `<strong>🎵 Audio:</strong> ${audioStatus.stream_name || 'Audio Stream'}<br>
-                                           <strong>Volume:</strong> ${audioStatus.volume}%`;
-
-                            if (audioStatus.metadata) {
-                                const meta = audioStatus.metadata;
-                                audioInfo += `<br><strong>Now Playing:</strong> ${meta.title}`;
-                                if (meta.artist) audioInfo += ` by ${meta.artist}`;
-                            }
-
-                            currentPlayback.innerHTML = audioInfo;
-                        } else {
-                            currentPlayback.innerHTML = 'No active playback';
-                        }
-                    } catch (error) {
-                        currentPlayback.innerHTML = 'No active playback';
-                    }
-                }
-
-                showStatus('Status refreshed', 'success');
-                updateAudioStatus();
-                updateChromecastStatus();
-                updateCastReceiverStatus();
-
-            } catch (error) {
-                showStatus('Failed to refresh status', 'error');
-            }
-        }
-
-        async function loadResolution() {
-            try {
-                const response = await fetch('/resolution');
-                const resolution = await response.json();
-
-                const resolutionDisplay = document.getElementById('resolution-display');
-                resolutionDisplay.textContent = resolution.resolution_string.toUpperCase();
-            } catch (error) {
-                document.getElementById('resolution-display').textContent = 'RESOLUTION DETECTION FAILED';
-            }
-        }
-
-        // TV Control Functions
-        async function powerOnTV() {
-            const button = document.getElementById('tvPowerOnBtn');
-
-            try {
-                setButtonLoading(button, true);
-                showStatus('Powering on TV...', 'success');
-
-                const response = await fetch('/cec/tv/power-on', { method: 'POST' });
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to power on TV');
-                }
-
-                showStatus(result.message, 'success');
-                setTimeout(() => refreshCECStatus(), 2000);
-
-            } catch (error) {
-                showStatus(`Failed to power on TV: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(button, false);
-            }
-        }
-
-        async function powerOffTV() {
-            const button = document.getElementById('tvPowerOffBtn');
-
-            try {
-                setButtonLoading(button, true);
-                showStatus('Powering off TV...', 'success');
-
-                const response = await fetch('/cec/tv/power-off', { method: 'POST' });
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to power off TV');
-                }
-
-                showStatus(result.message, 'success');
-                setTimeout(() => refreshCECStatus(), 2000);
-
-            } catch (error) {
-                showStatus(`Failed to power off TV: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(button, false);
-            }
-        }
-
-        async function refreshCECStatus() {
-            try {
-                const response = await fetch('/cec/status');
-                const status = await response.json();
-
-                const cecAvailability = document.getElementById('cecAvailability');
-                const tvPowerStatus = document.getElementById('tvPowerStatus');
-                const tvAddress = document.getElementById('tvAddress');
-
-                if (status.available) {
-                    cecAvailability.textContent = '✅ Available';
-                    cecAvailability.style.color = 'var(--neon-cyan)';
-
-                    tvAddress.textContent = status.tv_address || '-';
-
-                    if (status.tv_power && status.tv_power.success) {
-                        const powerState = status.tv_power.power_status;
-                        if (powerState === 'on') {
-                            tvPowerStatus.textContent = '🟢 On';
-                            tvPowerStatus.style.color = 'var(--neon-cyan)';
-                        } else if (powerState === 'standby') {
-                            tvPowerStatus.textContent = '🔴 Standby';
-                            tvPowerStatus.style.color = '#dc3545';
-                        } else {
-                            tvPowerStatus.textContent = '❓ Unknown';
-                        }
-                    } else {
-                        tvPowerStatus.textContent = '❓ Check Failed';
-                    }
-
-                    document.getElementById('tvPowerOnBtn').disabled = false;
-                    document.getElementById('tvPowerOffBtn').disabled = false;
-
-                } else {
-                    cecAvailability.textContent = '❌ Not Available';
-                    cecAvailability.style.color = '#dc3545';
-                    tvPowerStatus.textContent = '❌ Unavailable';
-                    tvAddress.textContent = '-';
-
-                    document.getElementById('tvPowerOnBtn').disabled = true;
-                    document.getElementById('tvPowerOffBtn').disabled = true;
-                }
-
-            } catch (error) {
-                console.error('Failed to refresh CEC status:', error);
-            }
-        }
-
-        // Webcast Functions
-        async function startWebcast() {
-            const button = document.getElementById('webcastStartBtn');
-
-            try {
-                setButtonLoading(button, true);
-
-                const url = document.getElementById('webcastUrl').value;
-                if (!url) {
-                    throw new Error('Please enter a website URL');
-                }
-
-                const viewportSize = document.getElementById('viewportSize').value;
-                const [width, height] = viewportSize.split('x').map(Number);
-
-                const config = {
-                    url: url,
-                    viewport_width: width,
-                    viewport_height: height,
-                    scroll_delay: parseFloat(document.getElementById('scrollDelay').value),
-                    scroll_percentage: parseFloat(document.getElementById('scrollPercentage').value),
-                    overlap_percentage: parseFloat(document.getElementById('overlapPercentage').value),
-                    loop_count: parseInt(document.getElementById('loopCount').value),
-                    zoom_level: 1.0
-                };
-
-                showStatus('Starting webcast...', 'success');
-
-                const response = await fetch('/webcast/start', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(config)
-                });
-
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to start webcast');
-                }
-
-                showStatus('Webcast started successfully', 'success');
-                updateWebcastUI(result);
-
-            } catch (error) {
-                showStatus(`Failed to start webcast: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(button, false);
-            }
-        }
-
-        async function stopWebcast() {
-            const button = document.getElementById('webcastStopBtn');
-
-            try {
-                setButtonLoading(button, true);
-                showStatus('Stopping webcast...', 'success');
-
-                const response = await fetch('/webcast/stop', { method: 'POST' });
-                const result = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(result.detail || 'Failed to stop webcast');
-                }
-
-                showStatus('Webcast stopped', 'success');
-                updateWebcastUI(result);
-
-            } catch (error) {
-                showStatus(`Failed to stop webcast: ${error.message}`, 'error');
-            } finally {
-                setButtonLoading(button, false);
-            }
-        }
-
-        function updateWebcastUI(status) {
-            const state = document.getElementById('webcastState');
-
-            if (status.status === 'running') {
-                state.textContent = '🟢 Running';
-                state.style.color = 'var(--neon-cyan)';
-                document.getElementById('webcastStartBtn').disabled = true;
-                document.getElementById('webcastStopBtn').disabled = false;
-            } else {
-                state.textContent = '🔴 Stopped';
-                state.style.color = '#dc3545';
-                document.getElementById('webcastStartBtn').disabled = false;
-                document.getElementById('webcastStopBtn').disabled = true;
-            }
-        }
-
-        // Spotify Functions
-        async function refreshSpotifyStatus() {
-            try {
-                const response = await fetch('/audio/spotify/status');
-                const status = await response.json();
-
-                const serviceStatus = document.getElementById('spotifyServiceStatus');
-
-                if (status.service_running) {
-                    serviceStatus.textContent = '✅ Active - Ready to cast';
-                    serviceStatus.style.color = 'var(--neon-cyan)';
-                } else {
-                    serviceStatus.textContent = '❌ Service not running';
-                    serviceStatus.style.color = '#dc3545';
-                }
-
-            } catch (error) {
-                console.error('Failed to refresh Spotify status:', error);
-                document.getElementById('spotifyServiceStatus').textContent = '❌ Error checking status';
-            }
-        }
-
-        // Load media sources
-        async function loadMediaSources() {
-            try {
-                const mediaSources = await apiCall('GET', '/media-sources');
-
-                const quickStreamSelect = document.getElementById('quickStreamSelect');
-                if (quickStreamSelect && mediaSources.music_streams) {
-                    while (quickStreamSelect.children.length > 1) {
-                        quickStreamSelect.removeChild(quickStreamSelect.lastChild);
-                    }
-
-                    if (mediaSources.music_streams.somafm) {
-                        const somaGroup = document.createElement('optgroup');
-                        somaGroup.label = 'soma.fm Stations';
-                        mediaSources.music_streams.somafm.forEach(station => {
-                            const option = document.createElement('option');
-                            option.value = station.url;
-                            option.textContent = station.name;
-                            somaGroup.appendChild(option);
-                        });
-                        quickStreamSelect.appendChild(somaGroup);
-                    }
-
-                    if (mediaSources.music_streams.bbc) {
-                        const bbcGroup = document.createElement('optgroup');
-                        bbcGroup.label = 'BBC Radio';
-                        mediaSources.music_streams.bbc.forEach(station => {
-                            const option = document.createElement('option');
-                            option.value = station.url;
-                            option.textContent = station.name;
-                            bbcGroup.appendChild(option);
-                        });
-                        quickStreamSelect.appendChild(bbcGroup);
-                    }
-                }
-
-                // Load video presets into the unified video playback dropdown
-                const videoPresets = document.getElementById('videoPresets');
-                if (videoPresets && mediaSources.youtube_channels) {
-                    // Remove existing dynamic options (keep the first "Select a video..." option and custom option)
-                    const staticOptions = Array.from(videoPresets.options).slice(0, 2);
-                    const customOption = videoPresets.querySelector('option[value="custom"]');
-
-                    videoPresets.innerHTML = '';
-                    staticOptions.forEach(opt => videoPresets.appendChild(opt));
-
-                    Object.entries(mediaSources.youtube_channels).forEach(([category, videos]) => {
-                        const group = document.createElement('optgroup');
-                        group.label = category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-
-                        videos.forEach(video => {
-                            const option = document.createElement('option');
-                            option.value = video.url;
-                            option.textContent = video.name;
-                            group.appendChild(option);
-                        });
-                        videoPresets.appendChild(group);
-                    });
-
-                    // Re-add custom option at the end
-                    if (customOption) {
-                        const customGroup = document.createElement('optgroup');
-                        customGroup.label = 'Custom';
-                        customGroup.appendChild(customOption.cloneNode(true));
-                        videoPresets.appendChild(customGroup);
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to load media sources:', error);
-            }
-        }
-
-        // Volume slider
-        document.addEventListener('DOMContentLoaded', function() {
-            loadMediaSources();
-
-            const volumeSlider = document.getElementById('audioVolume');
-            const volumeDisplay = document.getElementById('volumeDisplay');
-
-            if (volumeSlider && volumeDisplay) {
-                volumeSlider.addEventListener('input', function() {
-                    volumeDisplay.textContent = this.value;
-                });
-
-                volumeSlider.addEventListener('change', async function() {
-                    try {
-                        await apiCall('PUT', '/audio/volume', { volume: parseInt(this.value) });
-                    } catch (error) {
-                        console.error('Failed to set volume:', error);
-                    }
-                });
-            }
-
-        });
-
-        // Auto-refresh intervals
-        setInterval(refreshStatus, 10000);
-        setInterval(updateScreenStreamUI, 5000);
-        setInterval(refreshBackgroundStatus, 15000);
-        setInterval(refreshCECStatus, 20000);
-        setInterval(refreshSpotifyStatus, 30000);
-        setInterval(loadOutputTargets, 15000);  // Refresh targets every 15 seconds
-
-        // Initial load
-        loadResolution();
-        loadOutputTargets();  // Load output targets on page load
-        refreshStatus();
-        updateScreenStreamUI();
-        refreshBackgroundStatus();
-        refreshCECStatus();
-        refreshSpotifyStatus();
-    </script>
+    <script src="/static/app.js"></script>
 </body>
 </html>

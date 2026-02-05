@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Optional, Any
 from PIL import Image
 
+from config import DEFAULT_BACKGROUND_PATH
+
 
 class BackgroundManager:
     """Manages static background image display"""
@@ -24,7 +26,7 @@ class BackgroundManager:
         self.is_running = False
         
         # Static background image path - set to canvas_background.png by default
-        self.static_background_image = "/home/hsg/srs_server/canvas_background.png"
+        self.static_background_image = DEFAULT_BACKGROUND_PATH
         
         # Verify the default background exists
         if not os.path.exists(self.static_background_image):
@@ -90,8 +92,9 @@ class BackgroundManager:
                 img = self._scale_image_to_resolution(self.static_background_image, width, height)
                 logging.info(f"Scaled background image to: {width}x{height}")
             
-            # Save scaled background
-            img.save(str(self.current_background_path))
+            # Save scaled background with fast compression for quicker loading
+            # compress_level=1 (fastest) instead of default 6 - trades file size for speed
+            img.save(str(self.current_background_path), compress_level=1)
             
         except Exception as e:
             logging.error(f"Failed to create static background: {e}")
@@ -115,11 +118,11 @@ class BackgroundManager:
         if not controller:
             raise RuntimeError("No available video pool controller for background")
 
-        # Configure fullscreen display settings - CRITICAL for true fullscreen!
-        await controller.send_command(["set", "fullscreen", "yes"])
+        # Set loop-file to infinite (mpv already started with --fs so fullscreen is automatic)
         await controller.send_command(["set", "loop-file", "inf"])
 
-        # Load background image - will display fullscreen
+        # Load background image - will display fullscreen instantly
+        # Note: mpv is started with --no-ytdl to prevent yt-dlp from probing the image file
         await controller.send_command(["loadfile", str(self.current_background_path)])
 
         # Release controller back to pool (it keeps playing the background)
