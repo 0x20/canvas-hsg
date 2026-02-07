@@ -13,6 +13,9 @@ sleep 0.5
 # Set audio device to use PulseAudio/PipeWire (avoids conflicts with Raspotify)
 export AUDIO_DEVICE="pulse"
 
+# Add deno to PATH for yt-dlp JavaScript runtime (helps with YouTube extraction)
+export PATH="/home/hsg/.deno/bin:$PATH"
+
 # Start the application
 # Note: When run via systemd, we're already the correct user, so no sudo needed
 if [ -n "$INVOCATION_ID" ]; then

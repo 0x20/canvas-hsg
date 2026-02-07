@@ -102,7 +102,8 @@ async def lifespan(app: FastAPI):
 
         # Initialize Spotify manager with audio manager integration
         logging.info("Initializing Spotify manager...")
-        app.state.spotify_manager = SpotifyManager(app.state.audio_manager)
+        app.state.spotify_manager = SpotifyManager(app.state.audio_manager, app.state.background_manager)
+        await app.state.spotify_manager.initialize()
 
         app.state.playback_manager = PlaybackManager(
             app.state.video_pool, app.state.display_detector,

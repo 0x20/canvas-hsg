@@ -207,7 +207,11 @@ def setup_audio_routes(audio_manager: 'AudioManager', spotify_manager: Optional[
                     track_id=request.track_id,
                     old_track_id=request.old_track_id,
                     duration_ms=request.duration_ms,
-                    position_ms=request.position_ms
+                    position_ms=request.position_ms,
+                    name=request.name,
+                    artists=request.artists,
+                    album=request.album,
+                    covers=request.covers,
                 )
 
                 if not success:

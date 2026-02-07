@@ -200,6 +200,276 @@ class BackgroundManager:
             # Return black canvas as fallback
             return Image.new('RGB', (target_width, target_height), (0, 0, 0))
     
+    async def start_now_playing_mode(self, track_name: str, artists: str,
+                                     album: str = "", album_art_path: str = None) -> bool:
+        """Display a 'Now Playing' screen with track info and album art.
+
+        Args:
+            track_name: Song title
+            artists: Comma-separated artist names
+            album: Album name
+            album_art_path: Path to downloaded album art image file
+        """
+        try:
+            logging.info(f"Starting now-playing mode: {track_name} - {artists}")
+
+            display_config = self.display_detector.get_optimal_framebuffer_config()
+            width, height = display_config['width'], display_config['height']
+
+            # Check if we need scrolling text
+            needs_scrolling = await self._check_if_scrolling_needed(
+                track_name, artists, width, height
+            )
+
+            # Always show static image immediately first (for fast track switching)
+            # Generate static image (responsive display)
+            from background_engine.generators.unified import UnifiedBackgroundGenerator
+            generator = UnifiedBackgroundGenerator()
+            img = generator.create_now_playing_background(
+                width, height,
+                track_name=track_name,
+                artists=artists,
+                album=album,
+                album_art_path=album_art_path,
+            )
+
+            # Save to temp file
+            now_playing_path = self.temp_dir / "now_playing.png"
+            img.save(str(now_playing_path), compress_level=1)
+
+            # Display static image immediately (fast response)
+            self.current_background_path = now_playing_path
+            await self._display_current_background()
+            self.is_running = True
+
+            # If scrolling is needed, generate video in background and switch to it
+            if needs_scrolling:
+                asyncio.create_task(self._generate_and_display_scrolling_video(
+                    track_name, artists, album, album_art_path, width, height
+                ))
+
+            return True
+
+        except Exception as e:
+            logging.error(f"Failed to start now-playing mode: {e}")
+            return False
+
+    async def _generate_and_display_scrolling_video(self, track_name: str, artists: str,
+                                                     album: str, album_art_path: str,
+                                                     width: int, height: int) -> None:
+        """Generate scrolling video in background and switch to it when ready"""
+        try:
+            logging.info("Generating scrolling video in background...")
+            video_path = await self._generate_scrolling_now_playing_video(
+                track_name, artists, album, album_art_path, width, height
+            )
+            if video_path:
+                # Switch to scrolling video
+                await self._display_now_playing_video(video_path)
+                logging.info("Switched to scrolling video")
+        except Exception as e:
+            logging.error(f"Failed to generate/display scrolling video: {e}")
+
+    async def _check_if_scrolling_needed(self, track_name: str, artists: str,
+                                         width: int, height: int) -> bool:
+        """Check if text needs scrolling based on font size and screen width"""
+        try:
+            from PIL import ImageFont
+            from background_engine.config import BackgroundConfig
+            config = BackgroundConfig()
+
+            track_font = ImageFont.truetype(config.title_font_path, int(height * 0.12))
+            artist_font = ImageFont.truetype(config.subtitle_font_path, int(height * 0.075))
+
+            padding = 80
+            max_width = width - (2 * padding)
+
+            track_bbox = track_font.getbbox(track_name)
+            artist_bbox = artist_font.getbbox(artists)
+
+            track_w = track_bbox[2] - track_bbox[0]
+            artist_w = artist_bbox[2] - artist_bbox[0]
+
+            return track_w > max_width or artist_w > max_width
+        except Exception as e:
+            logging.warning(f"Failed to check scrolling: {e}")
+            return False
+
+    async def _generate_scrolling_now_playing_video(self, track_name: str, artists: str,
+                                                     album: str, album_art_path: str,
+                                                     width: int, height: int) -> Path:
+        """Generate a video with scrolling text using PIL-rendered text for font consistency"""
+        try:
+            import asyncio
+            from PIL import Image, ImageDraw, ImageFont, ImageFilter
+
+            logging.debug(f"Generating scrolling video: track={track_name}, album_art={album_art_path}")
+            output_path = self.temp_dir / "now_playing_scroll.mp4"
+
+            # Font sizes
+            track_font_size = int(height * 0.12)
+            artist_font_size = int(height * 0.075)
+
+            # Text positioning - top left
+            text_y_start = 50
+            track_y = text_y_start
+            artist_y = text_y_start + track_font_size + 30
+            padding = 80
+
+            # Load font - use DejaVu Sans (clean, modern sans-serif)
+            font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+            track_font = ImageFont.truetype(font_path, track_font_size)
+            artist_font = ImageFont.truetype(font_path, artist_font_size)
+
+            # Calculate text dimensions
+            max_width = width - (2 * padding)
+            track_bbox = track_font.getbbox(track_name)
+            artist_bbox = artist_font.getbbox(artists)
+            track_width = track_bbox[2] - track_bbox[0]
+            artist_width = artist_bbox[2] - artist_bbox[0]
+
+            track_needs_scroll = track_width > max_width
+            artist_needs_scroll = artist_width > max_width
+
+            # Calculate canvas width - wide enough for scrolling
+            extra_width = max(
+                track_width - max_width if track_needs_scroll else 0,
+                artist_width - max_width if artist_needs_scroll else 0
+            )
+            canvas_width = width + extra_width + padding  # Add padding for smooth loop
+
+            # Create background - prepare it at canvas width
+            if album_art_path and Path(album_art_path).exists():
+                logging.info(f"Loading album art from: {album_art_path}")
+                art = Image.open(album_art_path).convert('RGB')
+                # Scale to fill screen height
+                img_aspect = art.width / art.height
+                screen_aspect = width / height
+                if img_aspect > screen_aspect:
+                    new_height = height
+                    new_width = int(art.width * (height / art.height))
+                else:
+                    new_width = width
+                    new_height = int(art.height * (width / art.width))
+                art = art.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                left = (new_width - width) // 2
+                top = (new_height - height) // 2
+                art_cropped = art.crop((left, top, left + width, top + height))
+                # Blur and darken
+                art_cropped = art_cropped.filter(ImageFilter.GaussianBlur(radius=3))
+                art_cropped = art_cropped.point(lambda p: int(p * 0.7))
+
+                # Extend to canvas width
+                bg_img = Image.new('RGB', (canvas_width, height))
+                # Tile the background
+                for x in range(0, canvas_width, width):
+                    bg_img.paste(art_cropped, (x, 0))
+            else:
+                # Create dark gradient
+                bg_img = Image.new('RGB', (canvas_width, height), (15, 15, 25))
+
+            # Draw text with PIL (ensures consistent font rendering)
+            draw = ImageDraw.Draw(bg_img)
+
+            # Draw track name
+            draw.text(
+                (padding, track_y),
+                track_name,
+                font=track_font,
+                fill='white',
+                stroke_width=4,
+                stroke_fill='black'
+            )
+
+            # Draw artist name
+            draw.text(
+                (padding, artist_y),
+                artists,
+                font=artist_font,
+                fill='#C8DCFF',
+                stroke_width=3,
+                stroke_fill='black'
+            )
+
+            # Save the wide image
+            wide_img_path = self.temp_dir / "now_playing_wide.png"
+            bg_img.save(str(wide_img_path))
+
+            # Use ffmpeg to scroll across the wide image
+            if track_needs_scroll or artist_needs_scroll:
+                # Smooth scrolling using crop filter
+                # Scroll from 0 to extra_width+padding and loop
+                scroll_distance = extra_width + padding
+                scroll_speed = 80  # pixels per second
+                scroll_duration = scroll_distance / scroll_speed
+
+                # Crop window scrolls left, then snaps back
+                crop_filter = f"crop={width}:{height}:x='mod(t*{scroll_speed},{scroll_distance})':y=0"
+
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-loop", "1", "-i", str(wide_img_path),
+                    "-t", "10",
+                    "-vf", crop_filter,
+                    "-c:v", "h264_v4l2m2m",
+                    "-pix_fmt", "yuv420p",
+                    "-b:v", "1.5M",
+                    "-preset", "ultrafast",
+                    str(output_path)
+                ]
+            else:
+                # No scrolling needed, just encode the static image
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-loop", "1", "-i", str(wide_img_path),
+                    "-t", "10",
+                    "-c:v", "h264_v4l2m2m",
+                    "-pix_fmt", "yuv420p",
+                    "-b:v", "1.5M",
+                    "-preset", "ultrafast",
+                    str(output_path)
+                ]
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode == 0:
+                logging.info(f"Generated scrolling now-playing video: {output_path}")
+                return output_path
+            else:
+                logging.error(f"Failed to generate scrolling video: {stderr.decode()}")
+                return None
+
+        except Exception as e:
+            import traceback
+            logging.error(f"Failed to generate scrolling video: {e}")
+            logging.error(traceback.format_exc())
+            return None
+
+    async def _display_now_playing_video(self, video_path: Path) -> bool:
+        """Display scrolling now-playing video in loop"""
+        try:
+            controller = await self.video_pool.get_available_controller()
+            if controller:
+                await controller.loadfile(str(video_path))
+                # Set loop mode to infinite
+                await controller.set_property("loop-file", "inf")
+                await self.video_pool.release_controller(controller)
+                self.current_background_path = video_path
+                self.is_running = True
+                logging.info("Now-playing scrolling video displayed in loop")
+                return True
+            else:
+                logging.error("No available video controller")
+                return False
+        except Exception as e:
+            logging.error(f"Failed to display scrolling video: {e}")
+            return False
+
     async def stop(self) -> None:
         """Stop background display (video pool handles this automatically)"""
         # No need to do anything - video pool will switch content when needed

@@ -67,6 +67,10 @@ class SpotifyEventRequest(BaseModel):
     old_track_id: Optional[str] = Field(None, description="Previous track ID")
     duration_ms: Optional[int] = Field(None, ge=0, description="Track duration in milliseconds")
     position_ms: Optional[int] = Field(None, ge=0, description="Current position in milliseconds")
+    name: Optional[str] = Field(None, description="Track title (from librespot onevent)")
+    artists: Optional[str] = Field(None, description="Comma-separated artist names (from librespot onevent)")
+    album: Optional[str] = Field(None, description="Album name (from librespot onevent)")
+    covers: Optional[str] = Field(None, description="Album art URL (from librespot onevent)")
 
 
 # New models for routes that previously used raw dicts or request.json()

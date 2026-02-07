@@ -6,12 +6,13 @@ complete backgrounds for both static and splitflap modes.
 """
 
 from typing import Optional, TYPE_CHECKING
+from pathlib import Path
 from PIL import Image
 import logging
 
 from ..config import BackgroundConfig, ConfigPresets
 from ..layout import LayoutEngine
-from ..components import TitleComponent, LineComponent, QRCodeComponent, TextComponent, LogoComponent, ClockComponent, AudioIconComponent
+from ..components import TitleComponent, LineComponent, QRCodeComponent, TextComponent, LogoComponent, ClockComponent, AudioIconComponent, NowPlayingComponent
 
 if TYPE_CHECKING:
     from ...splitflap.clock import SplitflapClock
@@ -110,7 +111,106 @@ class UnifiedBackgroundGenerator:
             # Return a simple fallback background
             return self._create_fallback_background(width, height, config)
     
-    def create_splitflap_background(self, width: int, height: int, 
+    def create_now_playing_background(self, width: int, height: int,
+                                      track_name: str, artists: str,
+                                      album: str = "",
+                                      album_art_path: str = None,
+                                      config_override: 'Optional[BackgroundConfig]' = None) -> Image.Image:
+        """
+        Create a "Now Playing" background with fullscreen album art and large track/artist text overlay.
+
+        Args:
+            width: Canvas width in pixels
+            height: Canvas height in pixels
+            track_name: Song title
+            artists: Comma-separated artist names
+            album: Album name
+            album_art_path: Path to downloaded album art image
+            config_override: Optional config override
+
+        Returns:
+            PIL Image with rendered now-playing background
+        """
+        config = config_override or self.config
+
+        from PIL import ImageDraw, ImageFont, ImageFilter
+
+        # Load and scale album art to fill entire screen
+        if album_art_path and Path(album_art_path).exists():
+            try:
+                art = Image.open(album_art_path)
+                if art.mode != 'RGB':
+                    art = art.convert('RGB')
+
+                # Scale to fill screen (cover mode)
+                img_aspect = art.width / art.height
+                screen_aspect = width / height
+
+                if img_aspect > screen_aspect:
+                    # Image is wider - fit to height
+                    new_height = height
+                    new_width = int(art.width * (height / art.height))
+                else:
+                    # Image is taller - fit to width
+                    new_width = width
+                    new_height = int(art.height * (width / art.width))
+
+                art = art.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+                # Crop to center if needed
+                left = (new_width - width) // 2
+                top = (new_height - height) // 2
+                art = art.crop((left, top, left + width, top + height))
+
+                # Apply slight blur and darken for text readability
+                img = art.filter(ImageFilter.GaussianBlur(radius=3))
+                img = img.point(lambda p: int(p * 0.7))  # Darken to 70%
+
+            except Exception as e:
+                logging.warning(f"Failed to load album art: {e}")
+                # Fallback to dark gradient
+                img = Image.new('RGB', (width, height), (15, 15, 25))
+        else:
+            # No album art - use dark gradient background
+            img = Image.new('RGB', (width, height), (15, 15, 25))
+
+        draw = ImageDraw.Draw(img)
+
+        # Load fonts - using DejaVu Sans (clean, modern sans-serif)
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        try:
+            track_font = ImageFont.truetype(font_path, int(height * 0.12))  # 12% of screen height
+            artist_font = ImageFont.truetype(font_path, int(height * 0.075))  # 7.5% of screen height
+        except:
+            # Fallback to default font
+            track_font = ImageFont.load_default()
+            artist_font = ImageFont.load_default()
+
+        # Text positioning - top left
+        text_y_start = 50  # Top of screen
+        padding = 80
+        max_text_width = width - (2 * padding)
+
+        # Draw track name with shadow for readability
+        track_bbox = track_font.getbbox(track_name)
+        track_h = track_bbox[3] - track_bbox[1]
+
+        # Shadow
+        draw.text((padding + 4, text_y_start + 4), track_name, fill=(0, 0, 0), font=track_font)
+        # Main text
+        draw.text((padding, text_y_start), track_name, fill=(255, 255, 255), font=track_font)
+
+        # Draw artist below track
+        artist_y = text_y_start + track_h + 30
+
+        # Shadow
+        draw.text((padding + 3, artist_y + 3), artists, fill=(0, 0, 0), font=artist_font)
+        # Main text
+        draw.text((padding, artist_y), artists, fill=(200, 220, 255), font=artist_font)
+
+        return img
+
+    def create_splitflap_background(self, width: int, height: int,
                                    splitflap_clock: 'SplitflapClock',
                                    config_override: Optional[BackgroundConfig] = None,
                                    title_height_percent: float = 0.08,    # Slightly smaller title for splitflap mode

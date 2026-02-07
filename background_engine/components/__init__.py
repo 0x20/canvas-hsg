@@ -11,13 +11,15 @@ from .text import TextComponent
 from .logo import LogoComponent
 from .clock import ClockComponent
 from .audio_icon import AudioIconComponent
+from .now_playing import NowPlayingComponent
 
 __all__ = [
     'TitleComponent',
-    'LineComponent', 
+    'LineComponent',
     'QRCodeComponent',
     'TextComponent',
     'LogoComponent',
     'ClockComponent',
-    'AudioIconComponent'
+    'AudioIconComponent',
+    'NowPlayingComponent'
 ]
