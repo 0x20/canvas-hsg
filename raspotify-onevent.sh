@@ -13,10 +13,10 @@
 API_URL="http://localhost:80/audio/spotify/event"
 LOG_FILE="/tmp/raspotify-events.log"
 
-# Extract first cover URL (librespot provides multiple sizes separated by newlines)
+# Extract LARGEST cover URL (librespot provides 3 sizes, last is biggest)
 COVER_URL=""
 if [ -n "$COVERS" ]; then
-  COVER_URL=$(echo "$COVERS" | head -n 1)
+  COVER_URL=$(echo "$COVERS" | tail -n 1)
 fi
 
 # Build JSON safely using jq (handles all escaping)

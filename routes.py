@@ -729,6 +729,31 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
             logging.error(f"Failed to refresh background: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.post("/display/navigate")
+    async def navigate_display(request: dict):
+        """Navigate the web display to a different URL/mode
+
+        Args:
+            request: {"url": "now-playing" or "static"}
+        """
+        try:
+            url_mode = request.get("url", "static")
+
+            if url_mode == "now-playing":
+                success = await background_manager.switch_to_now_playing()
+            elif url_mode == "static":
+                success = await background_manager.switch_to_static()
+            else:
+                raise HTTPException(status_code=400, detail=f"Invalid URL mode: {url_mode}")
+
+            if success:
+                return {"status": "success", "mode": url_mode}
+            else:
+                raise HTTPException(status_code=500, detail="Failed to switch display mode")
+        except Exception as e:
+            logging.error(f"Failed to navigate display: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     return router
 
 
@@ -1475,3 +1500,103 @@ def setup_output_target_routes(output_target_manager: 'OutputTargetManager') -> 
             raise HTTPException(status_code=500, detail=str(e))
 
     return router
+
+
+# =============================================================================
+# WEBSOCKET ROUTES (for real-time events)
+# =============================================================================
+
+def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manager=None) -> APIRouter:
+    """
+    Setup WebSocket routes for real-time event broadcasting
+
+    Args:
+        websocket_manager: WebSocketManager instance for connection management
+
+    Returns:
+        Configured APIRouter
+    """
+    from fastapi import WebSocket, WebSocketDisconnect
+    router = APIRouter()
+
+    @router.websocket("/ws/spotify-events")
+    async def spotify_events_websocket(websocket: WebSocket):
+        """WebSocket endpoint for real-time Spotify track updates"""
+        # Send current track data - better to show something than nothing
+        initial_data = None
+        if spotify_manager and spotify_manager.track_info.get("name"):
+            # Format artists with commas
+            artists = spotify_manager.track_info.get("artists", "Unknown Artist")
+            if isinstance(artists, str):
+                artists = artists.replace('\n', ', ')
+
+            initial_data = {
+                "event": "track_changed",
+                "data": {
+                    "name": spotify_manager.track_info.get("name"),
+                    "artists": artists,
+                    "album": spotify_manager.track_info.get("album", ""),
+                    "album_art_url": spotify_manager.track_info.get("album_art_url"),
+                    "duration_ms": spotify_manager.track_info.get("duration_ms")
+                }
+            }
+
+        await websocket_manager.connect(websocket, initial_data)
+        try:
+            # Keep connection alive and handle incoming messages
+            while True:
+                # Wait for messages from client (ping/pong, etc.)
+                data = await websocket.receive_text()
+                logging.debug(f"Received WebSocket message: {data}")
+
+                # Echo back for ping/pong
+                if data == "ping":
+                    await websocket.send_text("pong")
+
+        except WebSocketDisconnect:
+            logging.info("WebSocket client disconnected")
+        except Exception as e:
+            logging.error(f"WebSocket error: {e}")
+        finally:
+            await websocket_manager.disconnect(websocket)
+
+    @router.websocket("/ws/spotify-state")
+    async def spotify_state_websocket(websocket: WebSocket):
+        """WebSocket endpoint for Spotify playing/paused state changes"""
+        # Send current state immediately
+        initial_data = {
+            "event": "spotify_state",
+            "data": {
+                "is_playing": spotify_manager.is_playing if spotify_manager else False
+            }
+        }
+
+        await websocket_manager.connect(websocket, initial_data)
+        try:
+            # Keep connection alive
+            while True:
+                data = await websocket.receive_text()
+                # Echo back or handle messages if needed
+        except WebSocketDisconnect:
+            logging.info("Spotify state WebSocket disconnected")
+        except Exception as e:
+            logging.error(f"Spotify state WebSocket error: {e}")
+        finally:
+            await websocket_manager.disconnect(websocket)
+
+    @router.get("/ws/status")
+    async def websocket_status():
+        """Get WebSocket connection status"""
+        return {
+            "active_connections": websocket_manager.get_connection_count(),
+            "endpoint": "/ws/spotify-events"
+        }
+
+    return router
+
+
+# =============================================================================
+# TEMPLATE ROUTES - REMOVED (Now using React app on port 5173)
+# =============================================================================
+# Old now-playing template route removed - Chromium now points directly to
+# Vite dev server at http://127.0.0.1:5173 for React hot reload

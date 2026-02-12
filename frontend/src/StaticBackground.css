@@ -1,0 +1,202 @@
+/* Static Background Display Styles */
+
+.static-background {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+  background: #000;
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+}
+
+/* Original background image fullscreen */
+.background-image {
+  position: fixed;
+  top: -7%;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center top;
+}
+
+/* Content container */
+.static-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: center;
+  padding: 80px;
+  width: 100%;
+  height: 100%;
+  color: white;
+}
+
+/* Branding section */
+.branding {
+  text-align: center;
+  margin-top: 60px;
+  animation: fade-in-down 1s ease-out;
+}
+
+.title {
+  font-size: 6vw;
+  font-weight: 700;
+  margin: 0;
+  background: linear-gradient(135deg, #ffffff 0%, #c8dcff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.subtitle {
+  font-size: 2.5vw;
+  font-weight: 400;
+  color: #a0b0d0;
+  margin: 20px 0 0 0;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* Clock section */
+.clock-container {
+  text-align: center;
+  animation: fade-in-up 1s ease-out 0.3s both;
+}
+
+.time {
+  font-size: 15vw;
+  font-weight: 300;
+  line-height: 1;
+  margin: 0;
+  letter-spacing: -0.02em;
+  text-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+
+.date {
+  font-size: 3.5vw;
+  font-weight: 400;
+  color: #c8dcff;
+  margin-top: 20px;
+  letter-spacing: 0.05em;
+}
+
+/* QR code section */
+.qr-section {
+  animation: fade-in-up 1s ease-out 0.6s both;
+}
+
+.qr-placeholder {
+  text-align: center;
+}
+
+.qr-code {
+  width: 200px;
+  height: 200px;
+  background: white;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+
+.qr-code img {
+  width: 180px;
+  height: 180px;
+  border-radius: 10px;
+}
+
+.qr-label {
+  font-size: 2vw;
+  color: #a0b0d0;
+  margin-top: 20px;
+  letter-spacing: 0.05em;
+}
+
+/* Fade-in animations */
+@keyframes fade-in-down {
+  from {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(40px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments */
+@media (max-width: 1280px) {
+  .static-content {
+    padding: 60px;
+  }
+
+  .title {
+    font-size: 8vw;
+  }
+
+  .subtitle {
+    font-size: 3vw;
+  }
+
+  .time {
+    font-size: 18vw;
+  }
+
+  .date {
+    font-size: 4vw;
+  }
+}
+
+@media (max-width: 768px) {
+  .static-content {
+    padding: 40px;
+  }
+
+  .title {
+    font-size: 10vw;
+  }
+
+  .subtitle {
+    font-size: 4vw;
+  }
+
+  .time {
+    font-size: 20vw;
+  }
+
+  .date {
+    font-size: 5vw;
+  }
+
+  .qr-code {
+    width: 150px;
+    height: 150px;
+  }
+
+  .qr-code img {
+    width: 130px;
+    height: 130px;
+  }
+}

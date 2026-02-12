@@ -44,8 +44,12 @@ async def mpv_pool_health_monitor(audio_pool: AudioMPVPool, video_pool: VideoMPV
 
             # Check video pool
             if video_pool:
+                # Skip if pool is intentionally suspended (e.g., Chromium has DRM)
+                if video_pool.suspended:
+                    logging.debug("Video pool is suspended (Chromium mode) - skipping health check")
+
                 # Detect uninitialized pool (pool_size > 0 but no processes)
-                if video_pool.pool_size > 0 and len(video_pool.processes) == 0:
+                elif video_pool.pool_size > 0 and len(video_pool.processes) == 0:
                     logging.error(f"Video pool is uninitialized! Attempting to reinitialize...")
                     try:
                         success = await video_pool.initialize()

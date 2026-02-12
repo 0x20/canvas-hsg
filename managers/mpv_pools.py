@@ -34,6 +34,7 @@ class MPVProcessPool:
         self.controllers: Dict[int, MPVController] = {}
         self.process_status: Dict[int, Dict] = {}
         self.socket_dir = socket_dir
+        self.suspended = False  # Set when pool is intentionally stopped (e.g., Chromium has DRM)
 
     def _cleanup_orphaned_processes(self):
         """Clean up orphaned MPV processes that might be using our sockets"""
@@ -345,8 +346,13 @@ class MPVProcessPool:
                 status[process_id] = {"running": False, "connected": False}
         return status
 
-    async def cleanup(self):
-        """Clean up all processes and connections"""
+    async def cleanup(self, suspend=False):
+        """Clean up all processes and connections
+
+        Args:
+            suspend: If True, mark pool as suspended so health monitor won't restart it
+        """
+        self.suspended = suspend
         for process_id in list(self.controllers.keys()):
             controller = self.controllers[process_id]
             try:

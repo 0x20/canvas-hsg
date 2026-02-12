@@ -9,6 +9,7 @@ Librespot 0.8 onevent flow:
   2. playing        — has TRACK_ID, POSITION_MS only
   3. paused/stopped — has TRACK_ID only
 """
+import asyncio
 import logging
 import aiohttp
 import json
@@ -23,9 +24,10 @@ class SpotifyManager:
     COVER_ART_PATH = "/tmp/stream_images/spotify_cover.jpg"
     STATE_FILE = "/tmp/spotify_state.json"
 
-    def __init__(self, audio_manager=None, background_manager=None):
+    def __init__(self, audio_manager=None, background_manager=None, websocket_manager=None):
         self.audio_manager = audio_manager
         self.background_manager = background_manager
+        self.websocket_manager = websocket_manager
 
         # Current Spotify state
         self.is_playing = False
@@ -42,16 +44,18 @@ class SpotifyManager:
         """Initialize and restore state from disk if available"""
         await self._restore_state()
 
-        # If we restored a playing state, update the display
+        # Broadcast initial state to WebSocket clients (React will handle view switching)
         if self.is_playing and self.track_info.get("name"):
-            logging.info("Restoring Spotify now-playing display from saved state")
-            await self._update_now_playing_display(
-                self.track_info["name"],
-                self.track_info.get("artists"),
-                self.track_info.get("album"),
-                None,  # Will use cached cover art if available
-                skip_delete=True  # Don't delete cached album art during restoration
-            )
+            logging.info(f"Restored Spotify state: {self.track_info['name']} by {self.track_info.get('artists')}")
+            logging.info(f"Spotify is playing - React will show now-playing view")
+
+            # Broadcast state so React switches to now-playing view
+            if self.websocket_manager:
+                await self.websocket_manager.broadcast("spotify_state", {
+                    "is_playing": True
+                })
+        else:
+            logging.info("Spotify is not playing - React will show static background")
 
     async def handle_event(self, event: str, track_id: Optional[str] = None,
                           old_track_id: Optional[str] = None,
@@ -87,12 +91,28 @@ class SpotifyManager:
                     self.track_info["artists"] = artists
                 if album:
                     self.track_info["album"] = album
+                if covers:
+                    self.track_info["album_art_url"] = covers
 
                 self._store_spotify_url(track_id)
 
-                # Update now-playing display with metadata
-                if name and self.background_manager:
-                    await self._update_now_playing_display(name, artists, album, covers)
+                # ALWAYS broadcast track change via WebSocket (this updates the page)
+                if name and self.websocket_manager:
+                    cover_url = covers if covers else None
+                    # Format artists: replace newlines with comma-space
+                    formatted_artists = artists.replace('\n', ', ') if artists else "Unknown Artist"
+                    logging.info(f"Broadcasting track_changed: {name} by {formatted_artists}, album_art_url={cover_url}")
+                    await self.websocket_manager.broadcast("track_changed", {
+                        "name": name,
+                        "artists": formatted_artists,
+                        "album": album or "",
+                        "album_art_url": cover_url,
+                        "duration_ms": duration_ms
+                    })
+                    logging.info("Broadcast complete")
+
+                # View switching is now handled by React via WebSocket
+                # Chromium stays running, React switches between StaticBackground and NowPlaying
 
                 logging.info(f"Spotify track changed: {name} - {artists}")
 
@@ -110,23 +130,23 @@ class SpotifyManager:
                     logging.info("Spotify started playing - stopping audio streams")
                     await self.audio_manager.stop_audio_stream()
 
-                # Only update display if we don't have metadata yet (edge case: playing before track_changed)
-                # If track_changed already happened for ANY track, don't update display on playing
-                if self.background_manager and self.track_info.get("name") and not was_playing:
-                    # Only display if we haven't received track_changed yet (rare edge case)
-                    if self.last_event != "track_changed":
-                        await self._update_now_playing_display(
-                            self.track_info["name"],
-                            self.track_info.get("artists"),
-                            self.track_info.get("album"),
-                            None,  # cover already downloaded if available
-                        )
+                # Broadcast state change via WebSocket
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast("spotify_state", {
+                        "is_playing": True
+                    })
 
                 logging.info(f"Spotify now playing: {self.track_info.get('name', track_id)}")
 
             elif event == "paused":
                 self.is_playing = False
                 logging.info("Spotify playback paused")
+
+                # Broadcast state change via WebSocket (React will switch views)
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast("spotify_state", {
+                        "is_playing": False
+                    })
 
             elif event in ("stopped", "session_disconnected"):
                 self.is_playing = False
@@ -136,9 +156,11 @@ class SpotifyManager:
                 self.track_info = {}
                 logging.info(f"Spotify {event}")
 
-                # Restore default background
-                if self.background_manager:
-                    await self.background_manager.start_static_mode(force_redisplay=True)
+                # Broadcast state change via WebSocket (React will switch views)
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast("spotify_state", {
+                        "is_playing": False
+                    })
 
             elif event == "volume_changed":
                 logging.info("Spotify volume changed")
@@ -158,39 +180,15 @@ class SpotifyManager:
     async def _update_now_playing_display(self, name: str, artists: Optional[str],
                                           album: Optional[str], covers: Optional[str],
                                           skip_delete: bool = False) -> None:
-        """Download album art and trigger the now-playing background display"""
-        cover_path = None
-
-        # Delete old album art to force fresh download (unless restoring same track)
-        if not skip_delete:
-            try:
-                if Path(self.COVER_ART_PATH).exists():
-                    Path(self.COVER_ART_PATH).unlink()
-            except:
-                pass
-
-        # Try multiple methods to get album art
-        if covers:
-            # Method 1: Use COVERS URL from librespot (if provided)
-            cover_path = await self._download_cover_art(covers)
-
-        if not cover_path and self.current_track_id:
-            # Method 2: Fetch from Spotify using track ID (via Open Graph)
-            cover_path = await self._fetch_cover_art_from_track_id(self.current_track_id)
-
-        # Only use cached art during state restoration (skip_delete=True) if we're restoring the same track
-        if not cover_path and skip_delete and Path(self.COVER_ART_PATH).exists():
-            # Cached art is only valid during state restoration
-            cover_path = self.COVER_ART_PATH
-            logging.info("Using cached album art for restored track")
-
+        """Trigger the web-based now-playing display via Chromium kiosk mode"""
         try:
-            await self.background_manager.start_now_playing_mode(
-                track_name=name,
-                artists=artists or "Unknown Artist",
-                album=album or "",
-                album_art_path=cover_path,
-            )
+            # Switch to now-playing view (starts Chromium if needed, or navigates if already running)
+            # WebSocket will handle real-time updates of track info to the page
+            success = await self.background_manager.switch_to_now_playing()
+
+            if not success:
+                logging.error("Failed to switch to now-playing view")
+
         except Exception as e:
             logging.error(f"Failed to update now-playing display: {e}")
 

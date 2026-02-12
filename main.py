@@ -30,6 +30,8 @@ from managers.chromecast_manager import ChromecastManager
 from managers.cast_receiver_manager import CastReceiverManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
+from managers.websocket_manager import WebSocketManager
+from managers.chromium_manager import ChromiumManager
 
 # API routes
 from routes import (
@@ -44,7 +46,8 @@ from routes import (
     setup_webcast_routes,
     setup_chromecast_routes,
     setup_cast_receiver_routes,
-    setup_output_target_routes
+    setup_output_target_routes,
+    setup_websocket_routes
 )
 
 # Config
@@ -86,23 +89,48 @@ async def lifespan(app: FastAPI):
         app.state.video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
         await app.state.video_pool.initialize()
 
-        # Initialize background manager with video pool
+        # Initialize WebSocket manager
+        logging.info("Initializing WebSocket manager...")
+        app.state.websocket_manager = WebSocketManager()
+
+        # Initialize Chromium manager
+        logging.info("Initializing Chromium manager...")
+        app.state.chromium_manager = ChromiumManager(app.state.display_detector)
+
+        # Initialize background manager with video pool and chromium manager
         logging.info("Initializing background manager...")
         app.state.background_manager = BackgroundManager(
-            app.state.display_detector, app.state.framebuffer_manager, app.state.video_pool
+            app.state.display_detector, app.state.framebuffer_manager,
+            app.state.video_pool, app.state.chromium_manager
         )
 
-        # Start default background display
-        logging.info("Starting default background display...")
-        await app.state.background_manager.start_static_mode()
+        # Start Chromium once - it will stay running, React handles view switching
+        logging.info("Starting Chromium with React app...")
+        if app.state.chromium_manager:
+            # Stop video pool to free DRM for Chromium
+            if app.state.video_pool:
+                await app.state.video_pool.cleanup()
+            await asyncio.sleep(0.5)
+
+            # Start Chromium pointing to root (React app)
+            app.state.chromium_manager.video_pool = app.state.video_pool
+            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1:5173/")
+
+            if not success:
+                logging.error("Failed to start Chromium - falling back to MPV")
+                # Restart video pool and use MPV
+                await app.state.video_pool.initialize()
+                await app.state.background_manager.start_static_mode()
 
         # Initialize managers
         logging.info("Initializing managers...")
         app.state.audio_manager = AudioManager(app.state.audio_pool)
 
-        # Initialize Spotify manager with audio manager integration
+        # Initialize Spotify manager with audio manager, background manager, and websocket integration
         logging.info("Initializing Spotify manager...")
-        app.state.spotify_manager = SpotifyManager(app.state.audio_manager, app.state.background_manager)
+        app.state.spotify_manager = SpotifyManager(
+            app.state.audio_manager, app.state.background_manager, app.state.websocket_manager
+        )
         await app.state.spotify_manager.initialize()
 
         app.state.playback_manager = PlaybackManager(
@@ -160,6 +188,12 @@ async def lifespan(app: FastAPI):
         app.include_router(setup_cast_receiver_routes(app.state.cast_receiver_manager))
         app.include_router(setup_output_target_routes(app.state.output_target_manager))
 
+        # Setup WebSocket routes
+        app.include_router(setup_websocket_routes(app.state.websocket_manager, app.state.spotify_manager))
+
+        # Template routes removed - now using React app on port 5173
+        # Chromium points to Vite dev server for hot reload
+
         # Start health monitor for MPV pools
         logging.info("Starting MPV pool health monitor...")
         app.state.health_task = asyncio.create_task(
@@ -187,6 +221,10 @@ async def lifespan(app: FastAPI):
                 await app.state.health_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop Chromium manager
+        if hasattr(app.state, 'chromium_manager') and app.state.chromium_manager:
+            await app.state.chromium_manager.stop()
 
         # Stop background manager
         if hasattr(app.state, 'background_manager') and app.state.background_manager:
