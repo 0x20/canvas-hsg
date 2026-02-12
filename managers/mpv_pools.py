@@ -7,6 +7,7 @@ Includes automatic health checking and crash recovery.
 import asyncio
 import logging
 import os
+import signal
 import subprocess
 import time
 from datetime import datetime
@@ -133,8 +134,8 @@ class MPVProcessPool:
             process = subprocess.Popen(
                 cmd,
                 env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
                 preexec_fn=os.setsid
             )
 
@@ -146,7 +147,22 @@ class MPVProcessPool:
             connected = await controller.connect()
 
             if not connected:
-                process.terminate()
+                # Kill process thoroughly to prevent orphans
+                try:
+                    os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+                except (ProcessLookupError, OSError):
+                    pass
+                try:
+                    process.wait(timeout=3)
+                except:
+                    try:
+                        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+                    try:
+                        process.wait(timeout=2)
+                    except:
+                        pass
                 return False
 
             # Store process and controller

@@ -28,6 +28,7 @@ class AudioManager:
         """
         self.audio_pool = audio_pool
         self.background_manager = background_manager
+        self.playback_manager = None
 
         # Current audio state
         self.audio_controller: Optional[MPVController] = None
@@ -74,6 +75,11 @@ class AudioManager:
     async def start_audio_stream(self, stream_url: str, volume: Optional[int] = None) -> bool:
         """Start audio streaming using IPC-controlled mpv process"""
         try:
+            # Stop video playback to enforce audio exclusivity
+            if self.playback_manager and self.playback_manager.video_controller:
+                logging.info("Stopping video playback before starting audio stream")
+                await self.playback_manager.stop_playback()
+
             # Stop any existing audio stream
             if self.audio_controller:
                 await self.stop_audio_stream()

@@ -47,6 +47,10 @@ class BackgroundManager:
             force_redisplay: If True, redisplay even if already running
         """
         try:
+            # If Chromium is handling display, let React show StaticBackground
+            if self.current_mode in ("now_playing_web", "static_web"):
+                return True
+
             if self.is_running and self.current_mode == "static" and not force_redisplay:
                 return True
 
@@ -66,8 +70,10 @@ class BackgroundManager:
     async def start_static_mode_with_audio_status(self, show_audio_icon: bool = False) -> bool:
         """Start static background mode with audio status icon"""
         try:
-            await self.stop()
-            
+            # If Chromium is handling display, React already shows the right view
+            if self.current_mode in ("now_playing_web", "static_web"):
+                return True
+
             logging.info(f"Starting static background mode (audio icon: {show_audio_icon})")
             await self._start_static_mode(show_audio_icon=show_audio_icon)
             self.is_running = True

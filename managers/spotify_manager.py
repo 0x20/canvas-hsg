@@ -28,6 +28,7 @@ class SpotifyManager:
         self.audio_manager = audio_manager
         self.background_manager = background_manager
         self.websocket_manager = websocket_manager
+        self.playback_manager = None
 
         # Current Spotify state
         self.is_playing = False
@@ -125,10 +126,14 @@ class SpotifyManager:
                 if track_id and position_ms is not None:
                     self.track_info["position_ms"] = position_ms
 
-                # Stop audio playback when Spotify starts playing (only first time)
-                if not was_playing and self.audio_manager:
-                    logging.info("Spotify started playing - stopping audio streams")
-                    await self.audio_manager.stop_audio_stream()
+                # Stop audio and video playback when Spotify starts playing (only first time)
+                if not was_playing:
+                    if self.audio_manager:
+                        logging.info("Spotify started playing - stopping audio streams")
+                        await self.audio_manager.stop_audio_stream()
+                    if self.playback_manager:
+                        logging.info("Spotify started playing - stopping video playback")
+                        await self.playback_manager.stop_playback()
 
                 # Broadcast state change via WebSocket
                 if self.websocket_manager:

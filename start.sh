@@ -17,8 +17,25 @@ pkill -9 -f "mpv.*-mpv-pool" 2>/dev/null || true
 # Clean up stale IPC sockets
 rm -f /tmp/audio-mpv-pool-* /tmp/video-mpv-pool-* 2>/dev/null || true
 
+# Clean up stale display processes from previous crashes
+echo "Cleaning up stale display processes..."
+killall -9 cage labwc 2>/dev/null || true
+killall -9 chromium-browser 2>/dev/null || true
+sudo killall -9 Xorg 2>/dev/null || true
+sudo rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+
+# Free port 80 and wait until it's actually released
+sudo fuser -k 80/tcp 2>/dev/null || true
+for i in $(seq 1 10); do
+    if ! sudo fuser 80/tcp >/dev/null 2>&1; then
+        break
+    fi
+    echo "Waiting for port 80 to be released... ($i)"
+    sleep 1
+done
+
 # Brief pause to ensure cleanup completes
-sleep 0.5
+sleep 1
 
 # Start Vite dev server in background
 echo "Starting Vite dev server on port 5173..."

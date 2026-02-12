@@ -26,16 +26,18 @@ logging.getLogger('pychromecast.discovery').setLevel(logging.ERROR)
 class ChromecastManager:
     """Manages Chromecast device discovery and media casting"""
 
-    def __init__(self, audio_manager=None, playback_manager=None):
+    def __init__(self, audio_manager=None, playback_manager=None, background_manager=None):
         """
         Initialize Chromecast Manager
 
         Args:
             audio_manager: Optional AudioManager to stop audio when casting starts
             playback_manager: Optional PlaybackManager to stop video when casting starts
+            background_manager: Optional BackgroundManager to restore display after cast stops
         """
         self.audio_manager = audio_manager
         self.playback_manager = playback_manager
+        self.background_manager = background_manager
 
         # Chromecast state
         # Store device info as dicts (from subprocess) to avoid FD leaks
@@ -412,6 +414,10 @@ if hasattr(browser, 'zc') and browser.zc:
             self.current_media_type = None
             self.is_casting = False
 
+            # Restore background display
+            if self.background_manager:
+                await self.background_manager.start_static_mode()
+
             logging.info("Cast stopped successfully")
             return True
 
@@ -423,6 +429,14 @@ if hasattr(browser, 'zc') and browser.zc:
             self.current_media_url = None
             self.current_media_type = None
             self.is_casting = False
+
+            # Restore background display even on error
+            if self.background_manager:
+                try:
+                    await self.background_manager.start_static_mode()
+                except Exception as bg_err:
+                    logging.error(f"Failed to restore background after cast error: {bg_err}")
+
             return False
 
     async def pause_cast(self) -> bool:

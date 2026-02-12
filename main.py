@@ -85,9 +85,10 @@ async def lifespan(app: FastAPI):
         app.state.audio_pool = AudioMPVPool(pool_size=AUDIO_POOL_SIZE)
         await app.state.audio_pool.initialize()
 
-        logging.info(f"Initializing video MPV pool (size={VIDEO_POOL_SIZE})...")
+        # Create video pool object but DON'T initialize yet - Chromium needs DRM first
+        logging.info(f"Creating video MPV pool (size={VIDEO_POOL_SIZE}, deferred init)...")
         app.state.video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
-        await app.state.video_pool.initialize()
+        app.state.video_pool.suspended = True  # Suspended until needed
 
         # Initialize WebSocket manager
         logging.info("Initializing WebSocket manager...")
@@ -107,18 +108,19 @@ async def lifespan(app: FastAPI):
         # Start Chromium once - it will stay running, React handles view switching
         logging.info("Starting Chromium with React app...")
         if app.state.chromium_manager:
-            # Stop video pool to free DRM for Chromium
-            if app.state.video_pool:
-                await app.state.video_pool.cleanup()
-            await asyncio.sleep(0.5)
-
             # Start Chromium pointing to root (React app)
             app.state.chromium_manager.video_pool = app.state.video_pool
             success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1:5173/")
 
-            if not success:
+            if success:
+                # Track that Chromium/React is managing the display
+                app.state.background_manager.current_mode = "static_web"
+                app.state.background_manager.is_running = True
+                logging.info("Chromium started - React app managing display")
+            else:
                 logging.error("Failed to start Chromium - falling back to MPV")
-                # Restart video pool and use MPV
+                # Initialize and use video pool for MPV display
+                app.state.video_pool.suspended = False
                 await app.state.video_pool.initialize()
                 await app.state.background_manager.start_static_mode()
 
@@ -137,6 +139,10 @@ async def lifespan(app: FastAPI):
             app.state.video_pool, app.state.display_detector,
             app.state.background_manager, app.state.audio_manager
         )
+
+        # Wire playback_manager into managers that need it (created after them)
+        app.state.spotify_manager.playback_manager = app.state.playback_manager
+        app.state.audio_manager.playback_manager = app.state.playback_manager
         app.state.image_manager = ImageManager(
             app.state.display_detector, app.state.framebuffer_manager, app.state.video_pool
         )
@@ -154,7 +160,7 @@ async def lifespan(app: FastAPI):
         # Initialize chromecast manager
         logging.info("Initializing Chromecast manager...")
         app.state.chromecast_manager = ChromecastManager(
-            app.state.audio_manager, app.state.playback_manager
+            app.state.audio_manager, app.state.playback_manager, app.state.background_manager
         )
 
         # Initialize cast receiver manager (disabled - native phone apps require full Cast protocol)
