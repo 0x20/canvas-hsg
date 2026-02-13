@@ -35,6 +35,8 @@ from models.request_models import (
     WebcastConfigRequest,
     WebcastScrollRequest,
     WebcastJumpRequest,
+    HAConfigUpdateRequest,
+    HAAutomationAddRequest,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +51,7 @@ if TYPE_CHECKING:
     from managers.background_modes import BackgroundManager
     from managers.webcast_manager import WebcastManager, WebcastConfig
     from managers.mpv_pools import AudioMPVPool, VideoMPVPool
+    from managers.homeassistant_manager import HomeAssistantManager
 
 
 # =============================================================================
@@ -1530,6 +1533,9 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
             if isinstance(artists, str):
                 artists = artists.replace('\n', ', ')
 
+            # Build Spotify URL from stored track info
+            spotify_url = spotify_manager.track_info.get("spotify_url")
+
             initial_data = {
                 "event": "track_changed",
                 "data": {
@@ -1537,7 +1543,8 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
                     "artists": artists,
                     "album": spotify_manager.track_info.get("album", ""),
                     "album_art_url": spotify_manager.track_info.get("album_art_url"),
-                    "duration_ms": spotify_manager.track_info.get("duration_ms")
+                    "duration_ms": spotify_manager.track_info.get("duration_ms"),
+                    "spotify_url": spotify_url
                 }
             }
 
@@ -1590,6 +1597,90 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
         return {
             "active_connections": websocket_manager.get_connection_count(),
             "endpoint": "/ws/spotify-events"
+        }
+
+    return router
+
+
+# =============================================================================
+# HOME ASSISTANT ROUTES
+# =============================================================================
+
+def setup_homeassistant_routes(ha_manager: 'HomeAssistantManager') -> APIRouter:
+    """
+    Setup Home Assistant integration routes
+
+    Args:
+        ha_manager: HomeAssistantManager instance
+
+    Returns:
+        Configured APIRouter
+    """
+    router = APIRouter()
+
+    @router.get("/ha/status")
+    async def get_ha_status():
+        """Get Home Assistant integration status"""
+        return ha_manager.get_status()
+
+    @router.get("/ha/config")
+    async def get_ha_config():
+        """Get Home Assistant configuration (token masked)"""
+        return ha_manager.get_config()
+
+    @router.put("/ha/config")
+    async def update_ha_config(request: HAConfigUpdateRequest):
+        """Update Home Assistant connection settings"""
+        return await ha_manager.update_config(
+            ha_url=request.ha_url,
+            ha_token=request.ha_token,
+            entity_id=request.entity_id,
+            enabled=request.enabled,
+        )
+
+    @router.post("/ha/test")
+    async def test_ha_connection():
+        """Test Home Assistant connection"""
+        return await ha_manager.test_connection()
+
+    @router.get("/ha/automations")
+    async def get_ha_automations():
+        """List all automation rules"""
+        return {"automations": ha_manager.automations}
+
+    @router.post("/ha/automations")
+    async def add_ha_automations(request: HAAutomationAddRequest):
+        """Add automation rules"""
+        for rule in request.rules:
+            ha_manager.automations.append(rule.model_dump())
+        ha_manager._save_config()
+        return {
+            "message": f"Added {len(request.rules)} rule(s)",
+            "automations": ha_manager.automations,
+        }
+
+    @router.delete("/ha/automations/{index}")
+    async def delete_ha_automation(index: int):
+        """Remove an automation rule by index"""
+        if index < 0 or index >= len(ha_manager.automations):
+            raise HTTPException(status_code=404, detail=f"Automation index {index} not found")
+        removed = ha_manager.automations.pop(index)
+        ha_manager._save_config()
+        return {
+            "message": f"Removed automation rule",
+            "removed": removed,
+            "automations": ha_manager.automations,
+        }
+
+    @router.post("/ha/push-state")
+    async def force_push_state():
+        """Force immediate state push to Home Assistant"""
+        if not ha_manager.enabled:
+            raise HTTPException(status_code=400, detail="HA integration not enabled")
+        await ha_manager.notify_state_change()
+        return {
+            "message": "State pushed",
+            "state": ha_manager._last_pushed_state,
         }
 
     return router

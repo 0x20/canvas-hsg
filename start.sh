@@ -58,6 +58,9 @@ echo "Audio device: $AUDIO_DEVICE"
 # Add deno to PATH for yt-dlp JavaScript runtime (helps with YouTube extraction)
 export PATH="/home/hsg/.deno/bin:$PATH"
 
+# Disable second HDMI output after cage starts (capture card creates extended desktop)
+(sleep 15 && WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/$(id -u) wlr-randr --output HDMI-A-2 --off 2>/dev/null) &
+
 echo ""
 echo "Starting FastAPI server on port 80..."
 

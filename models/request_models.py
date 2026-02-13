@@ -3,7 +3,7 @@ API Request Models
 
 Pydantic models for API request validation.
 """
-from typing import Optional
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
@@ -115,3 +115,22 @@ class WebcastScrollRequest(BaseModel):
 
 class WebcastJumpRequest(BaseModel):
     position_percent: float = Field(0, ge=0, le=100, description="Position to jump to as percentage")
+
+
+class HAConfigUpdateRequest(BaseModel):
+    ha_url: Optional[str] = Field(None, description="Home Assistant URL (e.g., http://192.168.1.100:8123)")
+    ha_token: Optional[str] = Field(None, description="Long-Lived Access Token")
+    entity_id: Optional[str] = Field(None, description="HA entity ID for this canvas")
+    enabled: Optional[bool] = Field(None, description="Enable/disable the integration")
+
+
+class HAAutomationRule(BaseModel):
+    trigger_entity: str = Field(description="HA entity ID to watch (e.g., binary_sensor.motion)")
+    trigger_from: Optional[str] = Field(None, description="Trigger only when old state matches")
+    trigger_to: Optional[str] = Field(None, description="Trigger only when new state matches")
+    action: str = Field(description="Action to execute (e.g., cec.tv_power_on, audio.start)")
+    action_args: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Arguments for the action")
+
+
+class HAAutomationAddRequest(BaseModel):
+    rules: List[HAAutomationRule] = Field(description="List of automation rules to add")

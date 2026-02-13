@@ -9,6 +9,7 @@ export default defineConfig({
     host: '0.0.0.0', // Allow access from any IP (Chromium on same machine)
     strictPort: true, // Fail if port 5173 is already in use
     cors: true, // Enable CORS for WebSocket connections
+    allowedHosts: ['.local'], // Allow mDNS .local hosts
     hmr: {
       overlay: false // Disable error overlay in kiosk mode
     },

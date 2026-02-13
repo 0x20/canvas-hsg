@@ -1,17 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
+import QRCode from 'qrcode';
 import './NowPlaying.css';
 
 /**
  * Now Playing - Spotify display with WebSocket updates
- * Shows track info with scrolling text and blurred album art background
+ * Shows track info with blurred album art background and centered cover
  */
 export default function NowPlaying() {
   const [track, setTrack] = useState({
     name: 'Waiting for track...',
     artists: 'Play something on Spotify',
     album: '',
-    albumArtUrl: null
+    albumArtUrl: null,
+    durationMs: 0,
+    startTime: null,
+    spotifyUrl: null
   });
+  const [progress, setProgress] = useState(0);
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [showQr, setShowQr] = useState(false);
 
   const trackTextRef = useRef(null);
   const artistTextRef = useRef(null);
@@ -21,7 +28,6 @@ export default function NowPlaying() {
   // WebSocket connection
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Connect to FastAPI WebSocket endpoint
     const wsUrl = `${protocol}//${window.location.hostname}:${window.location.port}/ws/spotify-events`;
 
     console.log('Connecting to WebSocket:', wsUrl);
@@ -45,7 +51,6 @@ export default function NowPlaying() {
             console.log('Received event:', message.event, message.data);
 
             if (message.event === 'track_changed') {
-              // Format artists: handle arrays or newline-separated strings
               let artists = message.data.artists || 'Unknown Artist';
               if (Array.isArray(artists)) {
                 artists = artists.join(', ');
@@ -53,12 +58,17 @@ export default function NowPlaying() {
                 artists = artists.replace(/\n/g, ', ');
               }
 
+              console.log('Track data received:', message.data);
               setTrack({
                 name: message.data.name || 'Unknown Track',
                 artists: artists,
                 album: message.data.album || '',
-                albumArtUrl: message.data.album_art_url || null
+                albumArtUrl: message.data.album_art_url || null,
+                durationMs: message.data.duration_ms || 0,
+                startTime: Date.now(),
+                spotifyUrl: message.data.spotify_url || null
               });
+              console.log('Spotify URL:', message.data.spotify_url);
             }
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
@@ -96,10 +106,82 @@ export default function NowPlaying() {
     };
   }, []);
 
+  // Generate QR code as data URL string (no canvas intermediary)
+  useEffect(() => {
+    const url = track.spotifyUrl || "https://open.spotify.com/";
+
+    const genQR = (lightColor) => {
+      QRCode.toDataURL(url, {
+        width: 58,
+        margin: 0,
+        errorCorrectionLevel: 'L',
+        color: { dark: '#000000', light: lightColor }
+      }).then(dataUrl => setQrDataUrl(dataUrl));
+    };
+
+    if (!track.albumArtUrl) {
+      genQR('#ffffff');
+      return;
+    }
+
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = 16;
+      c.height = 16;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(img, 0, 0, 16, 16);
+      const data = ctx.getImageData(0, 0, 16, 16).data;
+      let bestColor = [255, 255, 255];
+      let bestScore = 0;
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const sat = max === 0 ? 0 : (max - min) / max;
+        const bri = (r + g + b) / 3;
+        const score = sat * 2 + (bri > 100 ? 1 : 0);
+        if (score > bestScore) {
+          bestScore = score;
+          bestColor = [r, g, b];
+        }
+      }
+      genQR(`#${bestColor.map(v => v.toString(16).padStart(2, '0')).join('')}`);
+    };
+    img.src = track.albumArtUrl;
+  }, [track.albumArtUrl, track.spotifyUrl]);
+
+  // Update progress bar and QR code visibility
+  useEffect(() => {
+    if (!track.durationMs || !track.startTime) {
+      setProgress(0);
+      setShowQr(false);
+      return;
+    }
+
+    // Show QR immediately if song is shorter than 10s
+    if (track.durationMs <= 10000) {
+      setShowQr(true);
+    } else {
+      setShowQr(false);
+    }
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - track.startTime;
+      const remaining = track.durationMs - elapsed;
+      const progressPercent = Math.min((elapsed / track.durationMs) * 100, 100);
+      setProgress(progressPercent);
+      if (remaining <= 10000) {
+        setShowQr(true);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [track.durationMs, track.startTime]);
+
   // Check if scrolling is needed for text overflow
   useEffect(() => {
     const checkScrolling = () => {
-      // Remove scroll class first
       if (trackTextRef.current) {
         trackTextRef.current.classList.remove('scroll');
       }
@@ -107,21 +189,16 @@ export default function NowPlaying() {
         artistTextRef.current.classList.remove('scroll');
       }
 
-      // Wait for next frame to get accurate measurements
       requestAnimationFrame(() => {
-        // Check track name
         if (trackTextRef.current && trackContainerRef.current) {
           if (trackTextRef.current.scrollWidth > trackContainerRef.current.clientWidth) {
             trackTextRef.current.classList.add('scroll');
-            console.log('Track name needs scrolling');
           }
         }
 
-        // Check artist name
         if (artistTextRef.current && artistContainerRef.current) {
           if (artistTextRef.current.scrollWidth > artistContainerRef.current.clientWidth) {
             artistTextRef.current.classList.add('scroll');
-            console.log('Artist name needs scrolling');
           }
         }
       });
@@ -129,24 +206,40 @@ export default function NowPlaying() {
 
     checkScrolling();
 
-    // Recheck on window resize
     window.addEventListener('resize', checkScrolling);
     return () => window.removeEventListener('resize', checkScrolling);
   }, [track]);
 
   return (
     <div className="now-playing">
-      {/* Blurred background with album art */}
-      <div
-        className="background"
-        style={track.albumArtUrl ? {
-          backgroundImage: `url('${track.albumArtUrl}')`,
-          opacity: 0.7
-        } : {
-          backgroundImage: 'none',
-          backgroundColor: '#1a1a2e'
-        }}
-      />
+      {/* Blurred full-screen background */}
+      {track.albumArtUrl && (
+        <div
+          className="background-blur"
+          style={{ backgroundImage: `url('${track.albumArtUrl}')` }}
+        />
+      )}
+
+      {/* Centered sharp album art */}
+      <div className="cover-wrapper">
+        {track.albumArtUrl && (
+          <img
+            className="cover-art"
+            src={track.albumArtUrl}
+            alt=""
+          />
+        )}
+      </div>
+
+      {/* Progress bar */}
+      <div className="progress-bar">
+        <div className="progress-fill" style={{ width: `${progress}%` }} />
+      </div>
+
+      {/* Spotify QR Code - fades in for last 10s of song */}
+      {qrDataUrl && (
+        <img className={`qr-code${showQr ? ' qr-visible' : ''}`} src={qrDataUrl} width="58" height="58" alt="" />
+      )}
 
       {/* Content overlay */}
       <div className="content">
@@ -171,7 +264,7 @@ export default function NowPlaying() {
         </div>
 
         {track.album && (
-          <div className="album-name" key={`${track.name}-${track.album}`}>
+          <div className="album-name" key={track.name}>
             {track.album}
           </div>
         )}

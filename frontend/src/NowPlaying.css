@@ -1,5 +1,11 @@
 /* Now Playing Spotify Display Styles */
 
+/* Force continuous compositor frame callbacks on Wayland/cage. */
+@keyframes compositor-keepalive {
+  from { opacity: 0.999; }
+  to { opacity: 1; }
+}
+
 .now-playing {
   position: fixed;
   top: 0;
@@ -11,26 +17,42 @@
   background: #0f0f1a;
   user-select: none;
   -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
+  animation: compositor-keepalive 1s linear infinite;
 }
 
-/* Background album art with blur effect */
-.background {
+/* Blurred full-screen album art background */
+.background-blur {
+  position: fixed;
+  top: -20px;
+  left: -20px;
+  width: calc(100% + 40px);
+  height: calc(100% + 40px);
+  background-size: cover;
+  background-position: center;
+  filter: blur(40px);
+  opacity: 0.6;
+  z-index: 0;
+}
+
+/* Centered sharp album art */
+.cover-wrapper {
   position: fixed;
   top: 0;
   left: 0;
-  width: 100%;
-  height: 100%;
-  background-size: cover;
-  background-position: center;
-  filter: blur(3px);
-  opacity: 1.0;
-  z-index: 0;
-  transition: opacity 1s ease-in-out, background-image 1s ease-in-out;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1;
 }
 
-/* Vignette removed as requested */
+.cover-art {
+  height: 90vh;
+  width: auto;
+  border-radius: 6px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.5);
+}
 
 /* Content container */
 .content {
@@ -49,7 +71,7 @@
 
 /* Track name styling */
 .track-name {
-  font-size: 8vw;
+  font-size: 7vw;
   font-weight: 700;
   line-height: 1.1;
   margin-bottom: 20px;
@@ -62,10 +84,14 @@
   display: inline-block;
   white-space: nowrap;
   text-shadow:
-    0 0 15px rgba(0,0,0,0.6),
-    0 0 30px rgba(0,0,0,0.5),
-    0 0 45px rgba(0,0,0,0.4),
-    2px 2px 6px rgba(0,0,0,0.8);
+    0 0 5px rgba(0,0,0,0.7),
+    0 0 10px rgba(0,0,0,0.65),
+    0 0 25px rgba(0,0,0,0.6),
+    0 0 50px rgba(0,0,0,0.55),
+    0 0 80px rgba(0,0,0,0.5),
+    0 0 120px rgba(0,0,0,0.45),
+    0 0 160px rgba(0,0,0,0.4),
+    0 0 200px rgba(0,0,0,0.35);
 }
 
 /* Scrolling animation for overflow text with pauses */
@@ -91,16 +117,11 @@
   position: absolute;
   left: calc(100% + 80px);
   white-space: nowrap;
-  text-shadow:
-    0 0 15px rgba(0,0,0,0.6),
-    0 0 30px rgba(0,0,0,0.5),
-    0 0 45px rgba(0,0,0,0.4),
-    2px 2px 6px rgba(0,0,0,0.8);
 }
 
 /* Artist name styling */
 .artist-name {
-  font-size: 5vw;
+  font-size: 6vw;
   font-weight: 500;
   line-height: 1.2;
   color: #c8dcff;
@@ -112,22 +133,27 @@
 
 /* Album name styling */
 .album-name {
-  font-size: 3vw;
+  font-size: 4vw;
   font-weight: 400;
   line-height: 1.3;
   color: #a0b0d0;
   margin-top: 10px;
   max-width: 80%;
   text-shadow:
-    0 0 12px rgba(0,0,0,0.6),
-    0 0 24px rgba(0,0,0,0.5),
-    2px 2px 5px rgba(0,0,0,0.8);
-  animation: fade-out-album 6s ease-out forwards;
+    0 0 5px rgba(0,0,0,0.7),
+    0 0 10px rgba(0,0,0,0.65),
+    0 0 25px rgba(0,0,0,0.6),
+    0 0 50px rgba(0,0,0,0.55),
+    0 0 80px rgba(0,0,0,0.5),
+    0 0 120px rgba(0,0,0,0.45),
+    0 0 160px rgba(0,0,0,0.4),
+    0 0 200px rgba(0,0,0,0.35);
+  animation: fade-out-album 8s ease-out forwards;
 }
 
-/* Fade out album name after 5 seconds */
+/* Fade out album name after showing for ~5 seconds */
 @keyframes fade-out-album {
-  0%, 83% {
+  0%, 60% {
     opacity: 1;
   }
   100% {
@@ -135,61 +161,42 @@
   }
 }
 
-/* Fade-in animation for content */
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(20px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/* Progress bar at bottom */
+.progress-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100vw;
+  height: 8px;
+  background: rgba(255,255,255,0.15);
+  z-index: 10;
 }
 
-/* Apply fade-in to all content children */
-.content > * {
-  animation: fade-in 0.8s ease-out;
+.progress-fill {
+  height: 100%;
+  background: rgba(255,255,255,0.5);
+  transition: width 0.1s linear;
 }
 
-/* Album name gets additional fade-out animation */
-.album-name {
-  animation: fade-in 0.8s ease-out, fade-out-album 6s ease-out forwards;
+/* QR code in bottom-right - hidden by default, fades in */
+img.qr-code {
+  position: fixed;
+  bottom: 5vh;
+  right: 40px;
+  z-index: 10;
+  display: block;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 0;
+  background: transparent;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+  opacity: 0;
+  transition: opacity 1.5s ease-in;
 }
 
-/* Responsive adjustments */
-@media (max-width: 1280px) {
-  .content {
-    padding: 60px;
-  }
-
-  .track-name {
-    font-size: 10vw;
-  }
-
-  .artist-name {
-    font-size: 6vw;
-  }
-
-  .album-name {
-    font-size: 4vw;
-  }
-}
-
-@media (max-width: 768px) {
-  .content {
-    padding: 40px;
-  }
-
-  .track-name {
-    font-size: 12vw;
-  }
-
-  .artist-name {
-    font-size: 8vw;
-  }
-
-  .album-name {
-    font-size: 5vw;
-  }
+img.qr-code.qr-visible {
+  opacity: 1;
 }

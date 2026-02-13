@@ -34,6 +34,9 @@ badapple.jpg
 kmsgrab/
 test_*.py
 
+# Home Assistant config (contains token)
+homeassistant.yaml
+
 # Build artifacts
 build/
 dist/

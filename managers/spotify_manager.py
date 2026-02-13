@@ -29,6 +29,7 @@ class SpotifyManager:
         self.background_manager = background_manager
         self.websocket_manager = websocket_manager
         self.playback_manager = None
+        self.ha_manager = None
 
         # Current Spotify state
         self.is_playing = False
@@ -102,13 +103,24 @@ class SpotifyManager:
                     cover_url = covers if covers else None
                     # Format artists: replace newlines with comma-space
                     formatted_artists = artists.replace('\n', ', ') if artists else "Unknown Artist"
-                    logging.info(f"Broadcasting track_changed: {name} by {formatted_artists}, album_art_url={cover_url}")
+                    # Build Spotify URL
+                    spotify_url = None
+                    if track_id:
+                        # Handle both spotify:track:ID and bare ID formats
+                        if track_id.startswith("spotify:track:"):
+                            spotify_id = track_id.split(":")[-1]
+                        else:
+                            spotify_id = track_id
+                        spotify_url = f"https://open.spotify.com/track/{spotify_id}"
+
+                    logging.info(f"Broadcasting track_changed: {name} by {formatted_artists}, album_art_url={cover_url}, spotify_url={spotify_url}")
                     await self.websocket_manager.broadcast("track_changed", {
                         "name": name,
                         "artists": formatted_artists,
                         "album": album or "",
                         "album_art_url": cover_url,
-                        "duration_ms": duration_ms
+                        "duration_ms": duration_ms,
+                        "spotify_url": spotify_url
                     })
                     logging.info("Broadcast complete")
 
@@ -175,6 +187,10 @@ class SpotifyManager:
 
             # Save state after each event
             await self._save_state()
+
+            # Notify Home Assistant of state change
+            if self.ha_manager:
+                asyncio.create_task(self.ha_manager.notify_state_change())
 
             return True
 
@@ -251,8 +267,12 @@ class SpotifyManager:
 
     def _store_spotify_url(self, track_id: Optional[str]) -> None:
         """Extract Spotify URL from track ID"""
-        if track_id and track_id.startswith("spotify:track:"):
-            spotify_id = track_id.split(":")[-1]
+        if track_id:
+            # Handle both spotify:track:ID and bare ID formats
+            if track_id.startswith("spotify:track:"):
+                spotify_id = track_id.split(":")[-1]
+            else:
+                spotify_id = track_id
             self.track_info["spotify_id"] = spotify_id
             self.track_info["spotify_url"] = f"https://open.spotify.com/track/{spotify_id}"
 

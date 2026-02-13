@@ -32,6 +32,7 @@ from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
+from managers.homeassistant_manager import HomeAssistantManager
 
 # API routes
 from routes import (
@@ -47,7 +48,8 @@ from routes import (
     setup_chromecast_routes,
     setup_cast_receiver_routes,
     setup_output_target_routes,
-    setup_websocket_routes
+    setup_websocket_routes,
+    setup_homeassistant_routes
 )
 
 # Config
@@ -179,6 +181,24 @@ async def lifespan(app: FastAPI):
         logging.info("Discovering Chromecast devices...")
         await app.state.output_target_manager.discover_chromecast_targets()
 
+        # Initialize Home Assistant manager
+        logging.info("Initializing Home Assistant manager...")
+        app.state.ha_manager = HomeAssistantManager(
+            spotify_manager=app.state.spotify_manager,
+            audio_manager=app.state.audio_manager,
+            playback_manager=app.state.playback_manager,
+            chromecast_manager=app.state.chromecast_manager,
+            background_manager=app.state.background_manager,
+            cec_manager=app.state.cec_manager,
+            image_manager=app.state.image_manager,
+            webcast_manager=app.state.webcast_manager,
+            chromium_manager=app.state.chromium_manager,
+        )
+        await app.state.ha_manager.initialize()
+
+        # Wire HA manager into SpotifyManager for instant state updates
+        app.state.spotify_manager.ha_manager = app.state.ha_manager
+
         # Setup routers with managers
         logging.info("Setting up API routes...")
         app.include_router(setup_audio_routes(app.state.audio_manager, app.state.spotify_manager))
@@ -193,6 +213,9 @@ async def lifespan(app: FastAPI):
         app.include_router(setup_chromecast_routes(app.state.chromecast_manager))
         app.include_router(setup_cast_receiver_routes(app.state.cast_receiver_manager))
         app.include_router(setup_output_target_routes(app.state.output_target_manager))
+
+        # Setup Home Assistant routes
+        app.include_router(setup_homeassistant_routes(app.state.ha_manager))
 
         # Setup WebSocket routes
         app.include_router(setup_websocket_routes(app.state.websocket_manager, app.state.spotify_manager))
@@ -227,6 +250,10 @@ async def lifespan(app: FastAPI):
                 await app.state.health_task
             except asyncio.CancelledError:
                 pass
+
+        # Stop Home Assistant manager
+        if hasattr(app.state, 'ha_manager') and app.state.ha_manager:
+            await app.state.ha_manager.cleanup()
 
         # Stop Chromium manager
         if hasattr(app.state, 'chromium_manager') and app.state.chromium_manager:
@@ -303,6 +330,16 @@ async def web_interface():
         <p>Please create an index.html file in the same directory as the Python server.</p>
         <p>You can access the API documentation at <a href="/docs">/docs</a></p>
         """
+
+from fastapi import Request
+
+@app.get("/spotify")
+async def spotify_display(request: Request):
+    """Redirect to React now-playing display on Vite port"""
+    from fastapi.responses import RedirectResponse
+    # Redirect to Vite dev server with the same hostname
+    host = request.headers.get("host", "localhost").split(":")[0]
+    return RedirectResponse(url=f"http://{host}:5173/")
 
 
 # Mount static files if directory exists
