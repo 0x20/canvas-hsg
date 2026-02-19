@@ -15,11 +15,14 @@ pip3 install -r requirements.txt
 # Run server (development, port 8000)
 python3 main.py
 
-# Run server (production, port 80)
-sudo python3 main.py --production
+# Run server (production, port 8000 — Angie proxies port 80)
+python3 main.py --production
 
 # Run via start script (kills orphan mpv processes, sets AUDIO_DEVICE, runs production)
 ./start.sh
+
+# One-time setup (installs Angie, systemd services, raspotify config)
+sudo ./setup.sh
 
 # Run tests
 pytest tests/
@@ -53,6 +56,7 @@ Shutdown reverses this order. All managers are global module-level variables set
 - **`models/`** - Pydantic request models (`request_models.py`)
 - **`routes.py`** - Single file with 12 `setup_*_routes()` functions, each returning an `APIRouter`
 - **`config.py`** - All constants: SRS URLs, pool sizes, player command matrix, paths
+- **`config/`** - Deployment config files (Angie, systemd service, raspotify drop-in)
 - **`background_engine/`** - Advanced background image generation (layout, components, generators)
 - **`tests/`** - pytest tests with pytest-asyncio for async testing
 - **`static/`** - CSS/JS for the web interface
@@ -112,6 +116,27 @@ This runs on a Raspberry Pi with:
 - **Process cleanup**: `os.setsid()` used for FFmpeg/player processes so entire process groups can be killed
 - **YouTube codec preference**: H.264 (AVC1) preferred over VP9 for Pi hardware decoding
 - **Audio exclusivity**: Only one audio source at a time (audio stream, Spotify, or video with audio)
+
+## Critical Gotchas
+
+### setup.sh overwrites config files
+`setup.sh` is a full system provisioning script. Running it **replaces** `/etc/raspotify/conf` and systemd service files. If you add config to those files outside of setup.sh, the next setup.sh run will erase it. **Always update setup.sh when changing deployment config.**
+
+Key things setup.sh must preserve:
+- `LIBRESPOT_ONEVENT=/home/hsg/srs_server/raspotify-onevent.sh` in `/etc/raspotify/conf` (without this, Spotify events don't reach FastAPI and the display never updates)
+- Raspotify systemd drop-in at `config/raspotify/onevent.conf` (User=hsg, PrivateUsers=false, ProtectHome=false)
+
+### Raspotify + PipeWire/PulseAudio
+Raspotify's default systemd sandbox has `PrivateUsers=true` (remaps UIDs, breaking socket auth) and `ProtectHome=true` (blocks `/home/hsg`). Both must be overridden in the drop-in for PulseAudio to work. Symptom: `Audio Sink Error Connection Refused: <PulseAudioSink>`.
+
+### Vite base path + Angie proxy
+When proxying a Vite app under a subpath (`/spotify/`), you must:
+1. Set `base: '/spotify/'` in `vite.config.js` (so asset URLs get the prefix)
+2. Use `proxy_pass http://upstream;` (NO trailing slash) in Angie so the `/spotify/` prefix passes through to Vite
+If you strip the prefix (`proxy_pass http://upstream/;` WITH trailing slash), Vite gets `/` but its assets reference `/spotify/...` paths → redirect loop.
+
+### Angie apt repo URL format
+The correct URL is `deb https://download.angie.software/angie/debian/12 bookworm main` (note the `/12` version number). The format without the version number returns 404.
 - **Background restoration**: After playback/image display ends, background image is automatically restored
 
 ## Production Deployment (systemd)
@@ -139,43 +164,33 @@ sudo systemctl enable hsg-canvas
 sudo systemctl disable hsg-canvas
 ```
 
+### Reverse Proxy (Angie)
+
+Angie reverse proxy on port 80 routes all external traffic:
+
+| URL Path | Backend | Content |
+|----------|---------|---------|
+| `/` | FastAPI:8000 | Control panel |
+| `/spotify/` | Vite:5173 | React display app (HMR works) |
+| `/static/*` | FastAPI:8000 | Control panel assets |
+| `/ws/*` | FastAPI:8000 | WebSocket endpoints |
+| `/docs` | FastAPI:8000 | OpenAPI docs |
+| All API routes | FastAPI:8000 | REST API |
+
+Config files (all in repo, symlinked/copied by `setup.sh`):
+- `config/angie/hsg-canvas.conf` → `/etc/angie/http.d/hsg-canvas.conf`
+- `config/hsg-canvas.service` → `/etc/systemd/system/hsg-canvas.service`
+- `config/raspotify/onevent.conf` → `/etc/systemd/system/raspotify.service.d/onevent.conf`
+
 ### Service Configuration
 
-The service file is located at `/etc/systemd/system/hsg-canvas.service`:
-
-```ini
-[Unit]
-Description=HSG Canvas - Media Streaming and Playback Manager
-After=network.target srs-server.service
-Wants=network-online.target srs-server.service
-
-[Service]
-Type=simple
-User=hsg
-Group=hsg
-WorkingDirectory=/home/hsg/srs_server
-ExecStart=/home/hsg/srs_server/start.sh
-Restart=always
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-Environment=DISPLAY=:0
-Environment=HOME=/home/hsg
-Environment=XDG_RUNTIME_DIR=/run/user/1000
-
-# Security settings (relaxed for media playback access)
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-PrivateTmp=false
-
-[Install]
-WantedBy=multi-user.target
-```
+The service file is at `config/hsg-canvas.service` (copied to `/etc/systemd/system/` by setup.sh).
 
 **Key Points**:
 - Runs as user `hsg` (not root)
 - Uses virtual environment via `start.sh`
 - Auto-restarts on crash (10 second delay)
-- Binds to port 80 via `CAP_NET_BIND_SERVICE` capability
+- No longer needs `CAP_NET_BIND_SERVICE` (Angie owns port 80, FastAPI listens on 8000)
 - Logs to systemd journal
 
 ### Updating the Service
@@ -201,15 +216,15 @@ The system uses **Chromium in kiosk mode** for modern, web-based display renderi
 ### Architecture
 
 ```
-Spotify Event (librespot)
-    ↓
+Spotify Event (librespot onevent hook)
+    ↓  POST /audio/spotify/event
 SpotifyManager → broadcasts via WebSocket
     ↓
 WebSocketManager → pushes to all clients
     ↓
-Now-Playing HTML Page (/now-playing)
+React App at /spotify/ (via Angie → Vite:5173)
     ↓
-Chromium Kiosk Mode (Xvfb virtual display)
+Chromium Kiosk Mode (cage Wayland → http://127.0.0.1/spotify/)
     ↓
 Physical Display (HDMI output)
 ```
