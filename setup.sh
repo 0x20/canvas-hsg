@@ -118,8 +118,17 @@ LIBRESPOT_DISABLE_CREDENTIAL_CACHE=
 
 # Temp Directory
 TMPDIR=/tmp
+
+# Onevent hook - forward Spotify events to HSG Canvas API
+LIBRESPOT_ONEVENT=/home/hsg/srs_server/raspotify-onevent.sh
 EOF
 
+# Install systemd drop-in for PipeWire/PulseAudio access
+# Raspotify's default sandbox (PrivateUsers, ProtectHome) blocks PulseAudio sockets
+mkdir -p /etc/systemd/system/raspotify.service.d
+cp "$SCRIPT_DIR/config/raspotify/onevent.conf" /etc/systemd/system/raspotify.service.d/onevent.conf
+
+systemctl daemon-reload
 systemctl enable raspotify.service
 systemctl restart raspotify.service || true
 
@@ -208,16 +217,41 @@ echo -e "${GREEN}✓ SRS Server image pulled${NC}"
 echo ""
 
 # ============================================
-# 7. Install Systemd Services
+# 7. Install Angie Reverse Proxy
 # ============================================
-echo -e "${BLUE}[7/8] Installing systemd services...${NC}"
+echo -e "${BLUE}[7/9] Installing Angie reverse proxy...${NC}"
+
+if ! command -v angie &> /dev/null; then
+    curl -o /etc/apt/trusted.gpg.d/angie-signing.gpg https://angie.software/keys/angie-signing.gpg
+    echo "deb https://download.angie.software/angie/$(. /etc/os-release && echo "$ID/$VERSION_ID $VERSION_CODENAME") main" \
+        > /etc/apt/sources.list.d/angie.list
+    apt-get update && apt-get install -y angie
+    echo -e "${GREEN}  ✓ Angie installed${NC}"
+else
+    echo -e "${GREEN}  ✓ Angie already installed${NC}"
+fi
+
+# Remove default config, symlink ours
+rm -f /etc/angie/http.d/default.conf
+ln -sf "$SCRIPT_DIR/config/angie/hsg-canvas.conf" /etc/angie/http.d/hsg-canvas.conf
+
+systemctl enable angie
+systemctl start angie || systemctl restart angie
+
+echo -e "${GREEN}✓ Angie configured and running${NC}"
+echo ""
+
+# ============================================
+# 8. Install Systemd Services
+# ============================================
+echo -e "${BLUE}[8/9] Installing systemd services...${NC}"
 
 # Install SRS Server service
 cp "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/
 echo "  ✓ srs-server.service"
 
-# Install HSG Canvas service
-cp "$SCRIPT_DIR/hsg-canvas.service" /etc/systemd/system/
+# Install HSG Canvas service (from config/ directory)
+cp "$SCRIPT_DIR/config/hsg-canvas.service" /etc/systemd/system/
 echo "  ✓ hsg-canvas.service"
 
 # Reload systemd
@@ -232,9 +266,9 @@ echo -e "${GREEN}✓ Services installed and enabled${NC}"
 echo ""
 
 # ============================================
-# 8. Set Permissions
+# 9. Set Permissions
 # ============================================
-echo -e "${BLUE}[8/8] Setting permissions...${NC}"
+echo -e "${BLUE}[9/9] Setting permissions...${NC}"
 
 # Make scripts executable
 chmod +x "$SCRIPT_DIR/start.sh"

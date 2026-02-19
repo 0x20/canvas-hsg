@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: '/spotify/',
   server: {
     port: 5173,
     host: '0.0.0.0', // Allow access from any IP (Chromium on same machine)
@@ -16,11 +17,11 @@ export default defineConfig({
     proxy: {
       // Proxy API and static file requests to backend
       '/static': {
-        target: 'http://127.0.0.1:80',
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true
       },
       '/ws': {
-        target: 'http://127.0.0.1:80',
+        target: 'http://127.0.0.1:8000',
         ws: true,
         changeOrigin: true
       }

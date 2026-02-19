@@ -41,7 +41,7 @@ METADATA_UPDATE_INTERVAL = 15  # seconds
 
 # Server Configuration
 DEFAULT_PORT = 8000
-PRODUCTION_PORT = 80
+PRODUCTION_PORT = 8000
 
 # Player command generation
 def _build_mpv_command(drm_mode: str, extra_flags: list = None, hwdec: bool = True) -> list:

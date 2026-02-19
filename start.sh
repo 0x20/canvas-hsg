@@ -2,7 +2,8 @@
 #
 # HSG Canvas Startup Script with React Hot Reload
 # - Starts Vite dev server on port 5173 (React now-playing display)
-# - Starts FastAPI server on port 80
+# - Starts FastAPI server on port 8000
+# - Angie reverse proxy on port 80 handles external routing
 #
 
 set -e
@@ -23,16 +24,6 @@ killall -9 cage labwc 2>/dev/null || true
 killall -9 chromium-browser 2>/dev/null || true
 sudo killall -9 Xorg 2>/dev/null || true
 sudo rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
-
-# Free port 80 and wait until it's actually released
-sudo fuser -k 80/tcp 2>/dev/null || true
-for i in $(seq 1 10); do
-    if ! sudo fuser 80/tcp >/dev/null 2>&1; then
-        break
-    fi
-    echo "Waiting for port 80 to be released... ($i)"
-    sleep 1
-done
 
 # Brief pause to ensure cleanup completes
 sleep 1
@@ -62,17 +53,10 @@ export PATH="/home/hsg/.deno/bin:$PATH"
 (sleep 15 && WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/$(id -u) wlr-randr --output HDMI-A-2 --off 2>/dev/null) &
 
 echo ""
-echo "Starting FastAPI server on port 80..."
+echo "Starting FastAPI server on port 8000..."
 
-# Start the application
-# Note: When run via systemd, we're already the correct user, so no sudo needed
-if [ -n "$INVOCATION_ID" ]; then
-    # Running under systemd
-    exec .venv/bin/python main.py --production
-else
-    # Running manually, use sudo
-    sudo -E .venv/bin/python main.py --production
-fi
+# Start the application (Angie handles port 80, FastAPI listens on 8000)
+exec .venv/bin/python main.py --production
 
 # Cleanup: kill Vite dev server when FastAPI exits
 echo ""

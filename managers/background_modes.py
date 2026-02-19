@@ -270,7 +270,7 @@ class BackgroundManager:
 
             # Point to Vite dev server for React app with hot reload
             # Start directly on now-playing path
-            url = "http://127.0.0.1:5173/now-playing"
+            url = "http://127.0.0.1/spotify/now-playing"
             logging.info(f"Using URL for Chromium: {url}")
 
             logging.info(f"Starting web-based now-playing mode: {url}")
@@ -315,8 +315,8 @@ class BackgroundManager:
             return False
 
         try:
-            # URL for Vite dev server - React router will handle path
-            url = "http://127.0.0.1:5173/now-playing"
+            # URL for React app via Angie reverse proxy
+            url = "http://127.0.0.1/spotify/now-playing"
 
             # Restart Chromium with new URL (navigation via xdotool is unreliable)
             logging.info("Restarting Chromium for now-playing view")
@@ -358,8 +358,8 @@ class BackgroundManager:
             return False
 
         try:
-            # URL for Vite dev server - React router will show static background
-            url = "http://127.0.0.1:5173/"
+            # URL for React app via Angie reverse proxy
+            url = "http://127.0.0.1/spotify/"
 
             # Restart Chromium with new URL (navigation via xdotool is unreliable)
             logging.info("Restarting Chromium for static background view")

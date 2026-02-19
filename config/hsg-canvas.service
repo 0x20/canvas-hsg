@@ -1,0 +1,24 @@
+[Unit]
+Description=HSG Canvas - Media Streaming and Playback Manager
+After=network.target srs-server.service
+Wants=network-online.target srs-server.service
+
+[Service]
+Type=simple
+User=hsg
+Group=hsg
+WorkingDirectory=/home/hsg/srs_server
+ExecStart=/home/hsg/srs_server/start.sh
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+Environment=DISPLAY=:0
+Environment=HOME=/home/hsg
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+
+# Security settings (relaxed for media playback access)
+PrivateTmp=false
+
+[Install]
+WantedBy=multi-user.target

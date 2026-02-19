@@ -112,7 +112,7 @@ async def lifespan(app: FastAPI):
         if app.state.chromium_manager:
             # Start Chromium pointing to root (React app)
             app.state.chromium_manager.video_pool = app.state.video_pool
-            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1:5173/")
+            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/spotify/")
 
             if success:
                 # Track that Chromium/React is managing the display
@@ -330,17 +330,6 @@ async def web_interface():
         <p>Please create an index.html file in the same directory as the Python server.</p>
         <p>You can access the API documentation at <a href="/docs">/docs</a></p>
         """
-
-from fastapi import Request
-
-@app.get("/spotify")
-async def spotify_display(request: Request):
-    """Redirect to React now-playing display on Vite port"""
-    from fastapi.responses import RedirectResponse
-    # Redirect to Vite dev server with the same hostname
-    host = request.headers.get("host", "localhost").split(":")[0]
-    return RedirectResponse(url=f"http://{host}:5173/")
-
 
 # Mount static files if directory exists
 if os.path.exists("static"):
