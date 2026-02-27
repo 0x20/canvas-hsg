@@ -134,3 +134,24 @@ class HAAutomationRule(BaseModel):
 
 class HAAutomationAddRequest(BaseModel):
     rules: List[HAAutomationRule] = Field(description="List of automation rules to add")
+
+
+# Display Stack models
+
+class DisplayPushRequest(BaseModel):
+    type: str = Field(description="Display type: static, spotify, image, qrcode, youtube, website, video")
+    content: Dict[str, Any] = Field(default_factory=dict, description="Type-specific content dict")
+    duration: Optional[int] = Field(None, gt=0, le=86400, description="Auto-expire duration in seconds")
+    item_id: Optional[str] = Field(None, description="Fixed item ID for idempotent pushes")
+
+
+class WebsiteDisplayRequest(BaseModel):
+    url: str = Field(description="Website URL to display")
+    zoom: Optional[float] = Field(None, gt=0, le=5.0, description="CSS zoom level")
+    duration: Optional[int] = Field(None, gt=0, le=86400, description="Auto-expire duration in seconds")
+
+
+class VideoDisplayRequest(BaseModel):
+    video_url: str = Field(description="Video file URL to display")
+    mute: Optional[bool] = Field(False, description="Mute audio on the video")
+    duration: Optional[int] = Field(None, gt=0, le=86400, description="Auto-expire duration in seconds")

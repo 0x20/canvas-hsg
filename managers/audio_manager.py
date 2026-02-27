@@ -1,7 +1,8 @@
 """
 Audio Manager
 
-Handles audio streaming via MPV pool with metadata extraction and volume control.
+Handles audio streaming via browser <audio> element controlled by WebSocket.
+Replaces MPV audio pool with WebSocket commands to the React AudioPlayer component.
 """
 import asyncio
 import logging
@@ -10,30 +11,23 @@ from datetime import datetime
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
-from managers.mpv_pools import AudioMPVPool
-from managers.mpv_controller import MPVController
-from config import AUDIO_DEVICE, METADATA_UPDATE_INTERVAL
+from config import METADATA_UPDATE_INTERVAL
 
 
 class AudioManager:
-    """Manages audio streaming using the audio MPV pool"""
+    """Manages audio streaming via browser WebSocket"""
 
-    def __init__(self, audio_pool: AudioMPVPool, background_manager=None):
-        """
-        Initialize Audio Manager
-
-        Args:
-            audio_pool: AudioMPVPool instance for audio playback
-            background_manager: Optional BackgroundManager for updating display
-        """
-        self.audio_pool = audio_pool
-        self.background_manager = background_manager
+    def __init__(self, audio_ws_manager):
+        self.audio_ws_manager = audio_ws_manager
         self.playback_manager = None
 
         # Current audio state
-        self.audio_controller: Optional[MPVController] = None
         self.current_audio_stream: Optional[str] = None
         self.audio_volume: int = 80
+        self._is_playing: bool = False
+
+        # Cached status from browser reports
+        self._browser_status: Dict[str, Any] = {}
 
         # Metadata
         self.current_metadata: Dict[str, Any] = {}
@@ -43,7 +37,6 @@ class AudioManager:
         """Resolve PLS/M3U playlist URLs to direct stream URLs"""
         try:
             if stream_url.endswith('.pls'):
-                # Parse PLS playlist format
                 async with aiohttp.ClientSession() as session:
                     async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                         if response.status == 200:
@@ -53,8 +46,8 @@ class AudioManager:
                                     direct_url = line.split('=', 1)[1].strip()
                                     logging.info(f"Resolved PLS URL {stream_url} to {direct_url}")
                                     return direct_url
-            elif stream_url.endswith('.m3u') or stream_url.endswith('.m3u8'):
-                # Parse M3U playlist format
+            elif stream_url.endswith('.m3u') and not stream_url.endswith('.m3u8'):
+                # M3U playlist (not HLS) - resolve to first stream URL
                 async with aiohttp.ClientSession() as session:
                     async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
                         if response.status == 200:
@@ -65,7 +58,7 @@ class AudioManager:
                                     logging.info(f"Resolved M3U URL {stream_url} to {line}")
                                     return line
 
-            # Return original URL if not a playlist or parsing failed
+            # Return original URL for direct streams and .m3u8 (HLS handled by browser)
             return stream_url
 
         except Exception as e:
@@ -73,15 +66,15 @@ class AudioManager:
             return stream_url
 
     async def start_audio_stream(self, stream_url: str, volume: Optional[int] = None) -> bool:
-        """Start audio streaming using IPC-controlled mpv process"""
+        """Start audio streaming via browser WebSocket"""
         try:
             # Stop video playback to enforce audio exclusivity
-            if self.playback_manager and self.playback_manager.video_controller:
+            if self.playback_manager and self.playback_manager.current_stream:
                 logging.info("Stopping video playback before starting audio stream")
                 await self.playback_manager.stop_playback()
 
             # Stop any existing audio stream
-            if self.audio_controller:
+            if self.current_audio_stream:
                 await self.stop_audio_stream()
 
             # Use provided volume or current setting
@@ -91,120 +84,51 @@ class AudioManager:
             # Resolve playlist URLs to direct stream URLs
             resolved_url = await self._resolve_audio_url(stream_url)
 
-            # Get an available mpv controller from the pool
-            controller = await self.audio_pool.get_available_controller()
-            if not controller:
-                logging.error(f"No available mpv processes in pool for audio stream: {stream_url}")
-                logging.error(f"Pool status: {len(self.audio_pool.processes)} total processes, "
-                            f"{len([p for p in self.audio_pool.controllers.values() if p.in_use])} in use")
-                return False
+            logging.info(f"Starting audio stream via browser: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
 
-            logging.info(f"Starting audio stream: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
+            # Send play command to browser via WebSocket
+            await self.audio_ws_manager.broadcast("audio_play", {
+                "type": "audio_play",
+                "url": resolved_url,
+                "volume": self.audio_volume,
+            })
 
-            # Configure for audio-only playback
-            await controller.send_command(["set", "video", "no"])
-            await controller.send_command(["set", "audio-device", AUDIO_DEVICE])
+            self.current_audio_stream = stream_url
+            self._is_playing = True
 
-            # Load the audio stream
-            result = await controller.send_command(["loadfile", resolved_url])
-            if result.get("error") and result.get("error") != "success":
-                error_msg = result.get("error", "Unknown loadfile error")
-                logging.error(f"Failed to load audio stream {resolved_url}: {error_msg}")
-                await self.audio_pool.release_controller(controller)
-                return False
+            logging.info(f"Audio stream command sent: {stream_url}")
 
-            # Give it a moment to load
-            await asyncio.sleep(0.5)
+            # Start metadata updates
+            self.start_metadata_updates()
 
-            # Set volume before starting playback
-            await controller.send_command(["set", "volume", str(self.audio_volume)])
-
-            # CRITICAL: Explicitly unpause to start playback in idle mode
-            # MPV in idle mode doesn't auto-play after loadfile - we must explicitly unpause
-            await controller.send_command(["set_property", "pause", False])
-
-            # Verify playback started
-            pause_response = await controller.get_property("pause")
-            is_paused = pause_response.get("data", True) if pause_response else True
-
-            if pause_response and pause_response.get("error") and pause_response.get("error") != "success":
-                error_msg = pause_response.get("error", "Unknown pause property error")
-                logging.error(f"Failed to check playback status for {stream_url}: {error_msg}")
-
-            if not is_paused:
-                self.current_audio_stream = stream_url
-                self.audio_controller = controller
-
-                logging.info(f"Audio stream started successfully: {stream_url}")
-                logging.info(f"Using mpv process ID: {controller.process_id}, volume: {self.audio_volume}")
-
-                # Start metadata updates
-                self.start_metadata_updates()
-
-                # Update background to show audio icon
-                if self.background_manager:
-                    await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=True)
-
-                return True
-            else:
-                logging.error(f"Audio stream failed to start playing: {stream_url} (is_paused: {is_paused})")
-                if pause_response:
-                    logging.error(f"Pause response details: {pause_response}")
-                await self.audio_pool.release_controller(controller)
-                return False
+            return True
 
         except Exception as e:
-            logging.error(f"Failed to start audio stream {stream_url}: {type(e).__name__}: {e}")
-            logging.error(f"Audio stream error details - resolved_url: {resolved_url if 'resolved_url' in locals() else 'N/A'}, volume: {self.audio_volume}")
-            if 'controller' in locals():
-                try:
-                    await self.audio_pool.release_controller(controller)
-                    logging.info(f"Released mpv controller {controller.process_id} after error")
-                except Exception as release_error:
-                    logging.error(f"Failed to release mpv controller after audio stream error: {release_error}")
+            logging.error(f"Failed to start audio stream {stream_url}: {e}")
             return False
 
     async def stop_audio_stream(self) -> bool:
-        """Stop the current audio stream using IPC"""
+        """Stop the current audio stream via WebSocket"""
         try:
-            if self.audio_controller:
+            if self.current_audio_stream or self._is_playing:
                 logging.info("Stopping audio stream")
 
-                # Stop playback via IPC
-                await self.audio_controller.send_command(["stop"])
+                await self.audio_ws_manager.broadcast("audio_stop", {
+                    "type": "audio_stop",
+                })
 
-                # Release the controller back to the pool
-                await self.audio_pool.release_controller(self.audio_controller)
-
-                # Clean up references
-                self.audio_controller = None
                 self.current_audio_stream = None
+                self._is_playing = False
 
+                self.stop_metadata_updates()
                 logging.info("Audio stream stopped")
 
-                # Stop metadata updates
-                self.stop_metadata_updates()
-
-                # Update background to remove audio icon
-                if self.background_manager:
-                    await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=False)
-
-                return True
-            else:
-                logging.info("No audio stream to stop")
-                return True
+            return True
 
         except Exception as e:
-            logging.error(f"Failed to stop audio stream: {type(e).__name__}: {e}")
-            logging.error(f"Current stream: {self.current_audio_stream}")
-            if self.audio_controller:
-                try:
-                    await self.audio_pool.release_controller(self.audio_controller)
-                    logging.info(f"Released mpv controller {self.audio_controller.process_id} after stop error")
-                except Exception as release_error:
-                    logging.error(f"Failed to release mpv process after stop error: {release_error}")
-            self.audio_controller = None
+            logging.error(f"Failed to stop audio stream: {e}")
             self.current_audio_stream = None
+            self._is_playing = False
             return False
 
     async def set_volume(self, volume: int) -> bool:
@@ -212,20 +136,37 @@ class AudioManager:
         try:
             self.audio_volume = max(0, min(100, volume))
 
-            if self.audio_controller:
-                await self.audio_controller.send_command(["set", "volume", str(self.audio_volume)])
-                logging.info(f"Set audio volume to {self.audio_volume}")
+            await self.audio_ws_manager.broadcast("audio_volume", {
+                "type": "audio_volume",
+                "volume": self.audio_volume,
+            })
 
+            logging.info(f"Set audio volume to {self.audio_volume}")
             return True
         except Exception as e:
             logging.error(f"Failed to set volume: {e}")
             return False
 
+    async def toggle_pause(self) -> bool:
+        """Toggle audio pause/play"""
+        try:
+            await self.audio_ws_manager.broadcast("audio_pause", {
+                "type": "audio_pause",
+            })
+            return True
+        except Exception as e:
+            logging.error(f"Failed to toggle pause: {e}")
+            return False
+
+    def handle_browser_status(self, status: Dict[str, Any]):
+        """Handle status update from browser AudioPlayer component"""
+        self._browser_status = status
+        self._is_playing = status.get("playing", False)
+
     def get_audio_status(self) -> Dict[str, Any]:
         """Get current audio streaming status"""
-        is_playing = self.audio_controller is not None
+        is_playing = self._is_playing
 
-        # Get a user-friendly stream name
         stream_name = None
         if is_playing and self.current_audio_stream:
             stream_name = self._get_friendly_stream_name(self.current_audio_stream)
@@ -235,10 +176,9 @@ class AudioManager:
             "current_stream": self.current_audio_stream if is_playing else None,
             "stream_name": stream_name,
             "volume": self.audio_volume,
-            "process_id": self.audio_controller.process_id if is_playing else None
+            "engine": "browser",
         }
 
-        # Add metadata if available
         if is_playing and self.current_metadata:
             status["metadata"] = self.current_metadata
 
@@ -249,9 +189,7 @@ class AudioManager:
         if not stream_url:
             return "Unknown Stream"
 
-        # Handle common streaming services
         if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
-            # Extract station name from soma.fm URLs
             parts = stream_url.split('/')
             for part in parts:
                 if part and not part.startswith('http') and '.' not in part:
@@ -260,7 +198,6 @@ class AudioManager:
         elif "radio" in stream_url.lower():
             return "Radio Stream"
         elif stream_url.startswith("http"):
-            # Try to extract hostname
             try:
                 parsed = urlparse(stream_url)
                 hostname = parsed.hostname or "Unknown"
@@ -275,18 +212,14 @@ class AudioManager:
         if not stream_url:
             return None
 
-        # SomaFM detection
         if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
-            # Extract station name
             parts = stream_url.split('/')
             for part in parts:
                 if part and not part.startswith('http') and '.' not in part and part not in ['pls', 'm3u', 'mp3']:
                     return {"type": "somafm", "station": part.lower()}
-            return {"type": "somafm", "station": "groovesalad"}  # default
+            return {"type": "somafm", "station": "groovesalad"}
 
-        # Radio Paradise detection
         if "radioparadise.com" in stream_url.lower():
-            # Detect channel from URL
             if "mellow" in stream_url.lower():
                 channel = 1
             elif "rock" in stream_url.lower():
@@ -294,12 +227,10 @@ class AudioManager:
             elif "global" in stream_url.lower():
                 channel = 3
             else:
-                channel = 0  # main mix
+                channel = 0
             return {"type": "radioparadise", "channel": channel}
 
-        # Icecast detection
         if "icecast" in stream_url.lower() or ":8000" in stream_url:
-            # Extract server URL
             try:
                 parsed = urlparse(stream_url)
                 server = f"{parsed.scheme}://{parsed.netloc}"
@@ -347,7 +278,6 @@ class AudioManager:
                     async with session.get(url) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            # Find active stream with title info
                             for source in data.get('icestats', {}).get('source', []):
                                 if source.get('title') and source.get('server_description'):
                                     return {
@@ -365,7 +295,7 @@ class AudioManager:
 
     async def _update_metadata_loop(self):
         """Background task to periodically update metadata"""
-        while self.audio_controller:
+        while self._is_playing:
             try:
                 if self.current_audio_stream:
                     stream_info = self._detect_stream_type(self.current_audio_stream)
@@ -378,15 +308,16 @@ class AudioManager:
 
                 await asyncio.sleep(METADATA_UPDATE_INTERVAL)
 
+            except asyncio.CancelledError:
+                break
             except Exception as e:
                 logging.warning(f"Metadata update failed: {e}")
-                await asyncio.sleep(30)  # Wait longer on error
+                await asyncio.sleep(30)
 
     def start_metadata_updates(self):
         """Start the metadata update background task"""
         if self.metadata_task:
             self.metadata_task.cancel()
-
         self.metadata_task = asyncio.create_task(self._update_metadata_loop())
 
     def stop_metadata_updates(self):

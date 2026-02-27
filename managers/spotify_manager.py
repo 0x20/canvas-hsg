@@ -30,6 +30,7 @@ class SpotifyManager:
         self.websocket_manager = websocket_manager
         self.playback_manager = None
         self.ha_manager = None
+        self.display_stack = None  # Set after creation in main.py
 
         # Current Spotify state
         self.is_playing = False
@@ -46,12 +47,16 @@ class SpotifyManager:
         """Initialize and restore state from disk if available"""
         await self._restore_state()
 
-        # Broadcast initial state to WebSocket clients (React will handle view switching)
+        # Push to display stack if Spotify was playing when we last shut down
         if self.is_playing and self.track_info.get("name"):
             logging.info(f"Restored Spotify state: {self.track_info['name']} by {self.track_info.get('artists')}")
-            logging.info(f"Spotify is playing - React will show now-playing view")
+            logging.info(f"Spotify is playing - pushing to display stack")
 
-            # Broadcast state so React switches to now-playing view
+            # Push spotify onto display stack so React shows now-playing
+            if self.display_stack:
+                await self.display_stack.push("spotify", {}, item_id="spotify")
+
+            # Also broadcast track data and state for existing WebSocket listeners
             if self.websocket_manager:
                 await self.websocket_manager.broadcast("spotify_state", {
                     "is_playing": True
@@ -124,8 +129,28 @@ class SpotifyManager:
                     })
                     logging.info("Broadcast complete")
 
-                # View switching is now handled by React via WebSocket
-                # Chromium stays running, React switches between StaticBackground and NowPlaying
+                # Also mark as playing and push to display stack
+                # (the "playing" event sometimes arrives late or not at all)
+                if not self.is_playing:
+                    self.is_playing = True
+                    if self.audio_manager:
+                        await self.audio_manager.stop_audio_stream()
+                    if self.playback_manager:
+                        await self.playback_manager.stop_playback()
+
+                    # Reset system volume to 100% — Spotify has its own volume via Raspotify
+                    import subprocess
+                    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"],
+                                   capture_output=True, timeout=5)
+
+                # Push spotify onto display stack
+                if self.display_stack:
+                    await self.display_stack.push("spotify", {}, item_id="spotify")
+
+                if self.websocket_manager:
+                    await self.websocket_manager.broadcast("spotify_state", {
+                        "is_playing": True
+                    })
 
                 logging.info(f"Spotify track changed: {name} - {artists}")
 
@@ -147,6 +172,10 @@ class SpotifyManager:
                         logging.info("Spotify started playing - stopping video playback")
                         await self.playback_manager.stop_playback()
 
+                    # Push spotify onto display stack
+                    if self.display_stack:
+                        await self.display_stack.push("spotify", {}, item_id="spotify")
+
                 # Broadcast state change via WebSocket
                 if self.websocket_manager:
                     await self.websocket_manager.broadcast("spotify_state", {
@@ -158,6 +187,10 @@ class SpotifyManager:
             elif event == "paused":
                 self.is_playing = False
                 logging.info("Spotify playback paused")
+
+                # Remove spotify from display stack
+                if self.display_stack:
+                    await self.display_stack.remove_by_type("spotify")
 
                 # Broadcast state change via WebSocket (React will switch views)
                 if self.websocket_manager:
@@ -172,6 +205,10 @@ class SpotifyManager:
                 self.current_track_id = None
                 self.track_info = {}
                 logging.info(f"Spotify {event}")
+
+                # Remove spotify from display stack
+                if self.display_stack:
+                    await self.display_stack.remove_by_type("spotify")
 
                 # Broadcast state change via WebSocket (React will switch views)
                 if self.websocket_manager:

@@ -25,12 +25,7 @@ YOUTUBE_COOKIES_PATH = os.path.join(_BASE_DIR, "youtube-cookies.txt")
 TEMP_IMAGE_DIR = "/tmp/stream_images"
 SOCKET_DIR = "/tmp"
 
-# MPV Pool Configuration
-AUDIO_POOL_SIZE = 2
-VIDEO_POOL_SIZE = 1
-
-# Health Monitor Configuration
-HEALTH_CHECK_INTERVAL = 30  # seconds
+# (MPV pools removed — all playback now in browser)
 
 # Network/Discovery Constants
 SSDP_MULTICAST_ADDR = "239.255.255.250"

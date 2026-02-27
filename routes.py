@@ -15,20 +15,17 @@ from typing import TYPE_CHECKING, Optional
 import yaml
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import Response
-from utils.route_helpers import require_video_controller, manager_operation
+from utils.route_helpers import manager_operation
 
 from models.request_models import (
     AudioStreamRequest,
     AudioVolumeRequest,
     YoutubePlayRequest,
-    PlaybackStartRequest,
     QRCodeRequest,
     ImageDisplayRequest,
     ChromecastStartRequest,
     ChromecastVolumeRequest,
-    CastReceiveRequest,
     SpotifyEventRequest,
-    PlaybackVolumeRequest,
     BackgroundModeRequest,
     SpotifyVolumeRequest,
     WebcastStartRequest,
@@ -42,16 +39,14 @@ from models.request_models import (
 if TYPE_CHECKING:
     from managers.audio_manager import AudioManager
     from managers.playback_manager import PlaybackManager
-    from managers.stream_manager import StreamManager
-    from managers.screen_stream_manager import ScreenStreamManager
     from managers.image_manager import ImageManager
     from managers.chromecast_manager import ChromecastManager
-    from managers.cast_receiver_manager import CastReceiverManager
     from managers.spotify_manager import SpotifyManager
     from managers.background_modes import BackgroundManager
     from managers.webcast_manager import WebcastManager, WebcastConfig
-    from managers.mpv_pools import AudioMPVPool, VideoMPVPool
     from managers.homeassistant_manager import HomeAssistantManager
+    from managers.websocket_manager import WebSocketManager
+    from managers.display_stack import DisplayStack
 
 
 # =============================================================================
@@ -97,10 +92,10 @@ def setup_audio_routes(audio_manager: 'AudioManager', spotify_manager: Optional[
 
     @router.post("/audio/pause")
     async def toggle_audio_pause():
-        """Toggle audio pause/play via IPC"""
-        if audio_manager.audio_controller:
-            result = await audio_manager.audio_controller.send_command(["cycle", "pause"])
-            if result.get('error') == 'success':
+        """Toggle audio pause/play via WebSocket"""
+        if audio_manager.current_audio_stream:
+            success = await audio_manager.toggle_pause()
+            if success:
                 return {"message": "Audio pause toggled"}
             else:
                 raise HTTPException(status_code=500, detail="Failed to toggle audio pause")
@@ -269,42 +264,57 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
 
     @router.post("/playback/youtube")
     async def play_youtube_video(request: YoutubePlayRequest):
-        """Play a YouTube video with DRM acceleration"""
+        """Play a YouTube video via browser (YouTube IFrame API)"""
         try:
             success = await playback_manager.play_youtube(request.youtube_url, request.duration, request.mute)
             if success:
                 duration_text = f" for {request.duration}s" if request.duration else ""
                 mute_text = " (muted)" if request.mute else ""
-                return {"message": f"Playing YouTube video with DRM acceleration{duration_text}{mute_text}"}
+                return {"message": f"Playing YouTube video{duration_text}{mute_text}"}
             else:
                 raise HTTPException(status_code=500, detail="Failed to play YouTube video")
         except Exception as e:
-            # Extract meaningful error details from mpv/youtube-dl failures
             error_msg = str(e)
-            if "Requested format is not available" in error_msg:
-                detail = "This video format is not supported. Try a different video or check if the video is available in your region."
-            elif "youtube" in error_msg.lower() and "error" in error_msg.lower():
-                detail = f"YouTube error: {error_msg}"
-            elif "No video ID" in error_msg:
+            if "No video ID" in error_msg or "Could not extract" in error_msg:
                 detail = "Invalid YouTube URL. Please check the video URL and try again."
-            elif "private" in error_msg.lower() or "authentication" in error_msg.lower() or "unavailable" in error_msg.lower():
-                detail = "This video is private or unavailable. Please try a different video."
             else:
                 detail = f"Playback failed: {error_msg}"
-
             raise HTTPException(status_code=400, detail=detail)
 
-    @router.post("/playback/{stream_key}/start")
-    async def start_playback(stream_key: str, player: str = "mpv", mode: str = "optimized", protocol: str = "rtmp"):
-        """
-        Start playback of a stream (placeholder - will use unified manager in main.py)
+    @router.put("/playback/volume")
+    async def set_playback_volume(request: dict):
+        """Set system audio volume via PulseAudio (0-100)"""
+        volume = request.get("volume")
+        if volume is None:
+            raise HTTPException(status_code=400, detail="Missing 'volume' field")
+        volume = max(0, min(100, int(volume)))
 
-        Note: This endpoint is kept for API compatibility but actual implementation
-        will depend on the unified visual content manager in main.py
-        """
-        # This will be handled by a higher-level manager that coordinates
-        # playback_manager, background_manager, etc.
-        raise HTTPException(status_code=501, detail="Stream playback will be implemented in main.py with unified manager")
+        try:
+            result = subprocess.run(
+                ["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{volume}%"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0:
+                return {"volume": volume}
+            else:
+                raise HTTPException(status_code=500, detail=f"pactl error: {result.stderr}")
+        except subprocess.TimeoutExpired:
+            raise HTTPException(status_code=500, detail="Timeout setting volume")
+
+    @router.get("/playback/volume")
+    async def get_playback_volume():
+        """Get current system audio volume"""
+        try:
+            result = subprocess.run(
+                ["pactl", "get-sink-volume", "@DEFAULT_SINK@"],
+                capture_output=True, text=True, timeout=5
+            )
+            import re
+            match = re.search(r'(\d+)%', result.stdout)
+            volume = int(match.group(1)) if match else 100
+            return {"volume": volume}
+        except Exception:
+            return {"volume": 100}
 
     @router.delete("/playback/stop")
     async def stop_playback():
@@ -315,254 +325,10 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
         else:
             raise HTTPException(status_code=500, detail="Failed to stop playback")
 
-    @router.post("/playback/youtube/volume")
-    async def set_youtube_volume(request: PlaybackVolumeRequest):
-        """Set volume for YouTube playback"""
-        controller = require_video_controller(playback_manager)
-        volume = request.volume
-
-        result = await controller.set_property("volume", volume)
-        if result.get('error') == 'success':
-            return {"message": f"YouTube volume set to {volume}%", "volume": volume}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to set volume: {result}")
-
-    @router.post("/playback/{stream_key}/volume")
-    async def set_volume(stream_key: str, volume: int):
-        """Set volume for current playback"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        # Clamp volume to valid range
-        volume = max(0, min(130, volume))
-
-        result = await controller.set_property("volume", volume)
-        if result.get('error') == 'success':
-            return {"message": f"Volume set to {volume}%", "volume": volume}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to set volume: {result}")
-
-    @router.post("/playback/{stream_key}/volume/adjust")
-    async def adjust_volume(stream_key: str, adjustment: int):
-        """Adjust volume by relative amount"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        result = await controller.add_property("volume", adjustment)
-        if result.get('error') == 'success':
-            # Get current volume for response
-            vol_result = await controller.get_property("volume")
-            current_volume = vol_result.get('data', 'unknown')
-            return {"message": f"Volume adjusted by {adjustment}", "current_volume": current_volume}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to adjust volume: {result}")
-
-    @router.post("/playback/{stream_key}/pause")
-    async def toggle_pause(stream_key: str, pause: bool = None):
-        """Toggle pause/play or set specific pause state"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        result = await controller.pause(pause)
-        if result.get('error') == 'success':
-            action = "paused" if pause else ("unpaused" if pause is False else "toggled")
-            return {"message": f"Playback {action}"}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to pause/unpause: {result}")
-
-    @router.post("/playback/{stream_key}/seek")
-    async def seek_playback(stream_key: str, position: float, mode: str = "absolute"):
-        """Seek to position in playback"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        result = await controller.seek(position, mode)
-        if result.get('error') == 'success':
-            return {"message": f"Seeked to {position} ({mode})", "position": position, "mode": mode}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to seek: {result}")
-
-    @router.get("/playback/{stream_key}/status")
-    async def get_playback_status(stream_key: str):
-        """Get detailed playback status via IPC"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        # Gather stats from mpv via IPC
-        stats = {}
-        try:
-            # Get various playback properties
-            properties = ["duration", "time-pos", "volume", "pause", "speed", "filename"]
-            for prop in properties:
-                result = await controller.get_property(prop)
-                if result.get('error') == 'success':
-                    stats[prop.replace('-', '_')] = result.get('data')
-        except Exception as e:
-            logging.warning(f"Error getting playback stats: {e}")
-
-        return {
-            "stream_key": stream_key,
-            "process_id": controller.process_id,
-            "protocol": playback_manager.current_protocol,
-            "player": playback_manager.current_player,
-            **stats
-        }
-
-    @router.post("/playback/{stream_key}/speed")
-    async def set_playback_speed(stream_key: str, speed: float):
-        """Set playback speed multiplier"""
-        if stream_key != playback_manager.current_stream:
-            raise HTTPException(status_code=404, detail="Stream not currently playing")
-
-        controller = require_video_controller(playback_manager)
-
-        # Clamp speed to reasonable range
-        speed = max(0.1, min(4.0, speed))
-
-        result = await controller.set_property("speed", speed)
-        if result.get('error') == 'success':
-            return {"message": f"Playback speed set to {speed}x", "speed": speed}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to set speed: {result}")
-
-    @router.post("/playback/switch/{stream_key}")
-    async def switch_stream(stream_key: str):
-        """
-        Quickly switch to different stream (placeholder)
-
-        Note: Stream switching requires unified manager - will be implemented in main.py
-        """
-        raise HTTPException(status_code=501, detail="Stream switching will be implemented in main.py with unified manager")
-
-    @router.post("/playback/player/{player}")
-    async def switch_player(player: str, mode: str = "optimized"):
-        """
-        Switch to different player (placeholder)
-
-        Note: Player switching requires unified manager - will be implemented in main.py
-        """
-        raise HTTPException(status_code=501, detail="Player switching will be implemented in main.py with unified manager")
-
-    return router
-
-
-# =============================================================================
-# STREAM ROUTES
-# =============================================================================
-
-def setup_stream_routes(stream_manager: 'StreamManager') -> APIRouter:
-    """
-    Setup stream routes with dependency injection
-
-    Args:
-        stream_manager: StreamManager instance for stream republishing
-
-    Returns:
-        Configured APIRouter
-    """
-    router = APIRouter()
-
-    @router.post("/streams/{stream_key}/start")
-    async def start_stream(stream_key: str, source_url: str, protocol: str = "rtmp"):
-        """Start publishing a GPU-accelerated stream using specified protocol"""
-        success = await stream_manager.start_stream(stream_key, source_url, protocol)
-        if success:
-            return {"message": f"GPU-accelerated stream {stream_key} started via {protocol.upper()}"}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to start {protocol} stream")
-
-    @router.delete("/streams/{stream_key}")
-    async def stop_stream(stream_key: str):
-        """Stop a specific stream"""
-        success = await stream_manager.stop_stream(stream_key)
-        if success:
-            return {"message": f"Stream {stream_key} stopped"}
-        else:
-            raise HTTPException(status_code=404, detail="Stream not found")
-
-    @router.get("/streams")
-    async def list_streams():
-        """List all active streams"""
-        streams = {}
-        for key, info in stream_manager.active_streams.items():
-            streams[key] = {
-                "source_url": info["source_url"],
-                "protocol": info["protocol"],
-                "started_at": info["started_at"],
-                "status": info["status"]
-            }
-
-        return {
-            "active_streams": streams,
-            "stream_count": len(streams)
-        }
-
-    return router
-
-
-# =============================================================================
-# SCREEN ROUTES
-# =============================================================================
-
-def setup_screen_routes(screen_stream_manager: 'ScreenStreamManager') -> APIRouter:
-    """
-    Setup screen streaming routes with dependency injection
-
-    Args:
-        screen_stream_manager: ScreenStreamManager instance for screen capture
-
-    Returns:
-        Configured APIRouter
-    """
-    router = APIRouter()
-
-    @router.post("/screen-stream/{stream_key}/start")
-    async def start_screen_stream(stream_key: str, protocol: str = "rtmp"):
-        """Start streaming the display output"""
-        success = await screen_stream_manager.start_screen_stream(stream_key, protocol)
-        if success:
-            return {"message": f"Screen streaming started: {stream_key} via {protocol.upper()}"}
-        else:
-            raise HTTPException(status_code=500, detail=f"Failed to start screen streaming via {protocol}")
-
-    @router.delete("/screen-stream/stop")
-    async def stop_screen_stream():
-        """Stop screen streaming"""
-        success = await screen_stream_manager.stop_screen_stream()
-        if success:
-            return {"message": "Screen streaming stopped"}
-        else:
-            raise HTTPException(status_code=404, detail="No active screen stream")
-
-    @router.get("/screen-stream/status")
-    async def get_screen_stream_status():
-        """Get screen streaming status"""
-        return screen_stream_manager.get_screen_stream_info()
-
-    @router.get("/screen-stream/capabilities")
-    async def get_screen_capture_capabilities():
-        """
-        Check FFmpeg and DRM capabilities for screen capture
-
-        Note: This is a placeholder - actual implementation depends on
-        access to display_detector and other system components
-        """
-        # This will be implemented when we have access to display_detector
-        # and can check FFmpeg capabilities
-        return {
-            "message": "Capability detection will be implemented in main.py",
-            "methods_supported": ["framebuffer", "kmsgrab"]
-        }
+    @router.get("/playback/status")
+    async def get_playback_status():
+        """Get current playback status"""
+        return playback_manager.get_playback_status()
 
     return router
 
@@ -737,7 +503,7 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
         """Navigate the web display to a different URL/mode
 
         Args:
-            request: {"url": "now-playing" or "static"}
+            request: {"url": "now-playing", "static", or a full URL (http/https)}
         """
         try:
             url_mode = request.get("url", "static")
@@ -746,11 +512,13 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
                 success = await background_manager.switch_to_now_playing()
             elif url_mode == "static":
                 success = await background_manager.switch_to_static()
+            elif url_mode.startswith(("http://", "https://")):
+                success = await background_manager.switch_to_url(url_mode)
             else:
-                raise HTTPException(status_code=400, detail=f"Invalid URL mode: {url_mode}")
+                raise HTTPException(status_code=400, detail=f"Invalid URL: {url_mode}. Use 'now-playing', 'static', or a full http(s) URL.")
 
             if success:
-                return {"status": "success", "mode": url_mode}
+                return {"status": "success", "url": url_mode}
             else:
                 raise HTTPException(status_code=500, detail="Failed to switch display mode")
         except Exception as e:
@@ -837,16 +605,12 @@ def load_media_sources():
 
 
 def setup_system_routes(
-    audio_pool: Optional['AudioMPVPool'] = None,
-    video_pool: Optional['VideoMPVPool'] = None,
     display_detector=None
 ) -> APIRouter:
     """
     Setup system routes with dependency injection
 
     Args:
-        audio_pool: Optional AudioMPVPool for pool status
-        video_pool: Optional VideoMPVPool for pool status
         display_detector: Optional DisplayDetector for resolution info
 
     Returns:
@@ -860,41 +624,19 @@ def setup_system_routes(
         return {
             "status": "healthy",
             "timestamp": datetime.now().isoformat(),
-            "version": "3.0.0-refactored",
-            "architecture": "modular"
+            "version": "4.0.0-all-react",
+            "architecture": "display-stack"
         }
 
     @router.get("/status")
     async def get_status():
-        """
-        Get overall system and streaming status
-
-        Note: This endpoint aggregates data from multiple managers.
-        Full implementation requires access to all managers in main.py.
-        """
-        # This will be fully implemented in main.py where all managers are available
-        status = {
+        """Get overall system status"""
+        return {
             "timestamp": datetime.now().isoformat(),
-            "audio_pool": {},
-            "video_pool": {},
-            "message": "Status endpoint requires unified manager integration"
+            "engine": "browser",
+            "display": "react",
+            "audio": "browser-websocket",
         }
-
-        if audio_pool:
-            status["audio_pool"] = {
-                "pool_size": audio_pool.pool_size,
-                "total_processes": len(audio_pool.processes),
-                "active": sum(1 for s in audio_pool.process_status.values() if s.get("status") == "busy")
-            }
-
-        if video_pool:
-            status["video_pool"] = {
-                "pool_size": video_pool.pool_size,
-                "total_processes": len(video_pool.processes),
-                "active": sum(1 for s in video_pool.process_status.values() if s.get("status") == "busy")
-            }
-
-        return status
 
     @router.get("/diagnostics")
     async def get_diagnostics():
@@ -942,110 +684,25 @@ def setup_system_routes(
                 "message": "Display detector not available"
             }
 
-    @router.get("/debug/mpv-pool-status")
-    async def debug_mpv_pool_status():
-        """Debug endpoint to check MPV pool status"""
-        try:
-            status = {
-                "audio_pool": {},
-                "video_pool": {}
-            }
-
-            if audio_pool:
-                status["audio_pool"] = {
-                    "initialized": len(audio_pool.processes) > 0,
-                    "pool_size": audio_pool.pool_size,
-                    "total_processes": len(audio_pool.processes),
-                    "processes": {}
-                }
-
-                for process_id, proc_status in audio_pool.process_status.items():
-                    process = audio_pool.processes.get(process_id)
-                    controller = audio_pool.controllers.get(process_id)
-
-                    status["audio_pool"]["processes"][process_id] = {
-                        "status": proc_status.get("status"),
-                        "content_type": proc_status.get("content_type"),
-                        "process_alive": process.poll() is None if process else False,
-                        "controller_connected": controller.connected if controller else False,
-                        "controller_in_use": controller.in_use if controller else False
-                    }
-
-            if video_pool:
-                status["video_pool"] = {
-                    "initialized": len(video_pool.processes) > 0,
-                    "pool_size": video_pool.pool_size,
-                    "total_processes": len(video_pool.processes),
-                    "processes": {}
-                }
-
-                for process_id, proc_status in video_pool.process_status.items():
-                    process = video_pool.processes.get(process_id)
-                    controller = video_pool.controllers.get(process_id)
-
-                    status["video_pool"]["processes"][process_id] = {
-                        "status": proc_status.get("status"),
-                        "content_type": proc_status.get("content_type"),
-                        "process_alive": process.poll() is None if process else False,
-                        "controller_connected": controller.connected if controller else False,
-                        "controller_in_use": controller.in_use if controller else False
-                    }
-
-            return status
-        except Exception as e:
-            logging.error(f"Failed to get MPV pool status: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to get pool status: {str(e)}")
-
-    @router.post("/debug/init-mpv-pool")
-    async def debug_init_mpv_pool():
-        """Debug endpoint to manually initialize MPV pools"""
-        try:
-            results = {}
-
-            if audio_pool:
-                await audio_pool.initialize()
-                results["audio_pool"] = "initialized"
-
-            if video_pool:
-                await video_pool.initialize()
-                results["video_pool"] = "initialized"
-
-            return {"success": True, **results}
-        except Exception as e:
-            logging.error(f"Failed to initialize MPV pools: {e}")
-            raise HTTPException(status_code=500, detail=f"Failed to initialize: {str(e)}")
-
-    @router.get("/docs/quick-start")
-    async def quick_start_docs():
-        """API quick start documentation"""
-        return {
-            "message": "HSG Canvas API Quick Start",
-            "version": "3.0.0-refactored",
-            "architecture": "Modular design with specialized managers",
-            "endpoints": {
-                "audio": "/audio/* - Audio streaming endpoints",
-                "playback": "/playback/* - Video playback endpoints",
-                "streams": "/streams/* - Stream republishing endpoints",
-                "display": "/display/* - Image and QR display",
-                "background": "/background/* - Background mode control",
-                "cec": "/cec/* - HDMI-CEC TV control",
-                "system": "/status, /health, /diagnostics - System info"
-            },
-            "recommended_workflow": [
-                "1. Check /health to verify system is running",
-                "2. Use /audio/start to play audio streams",
-                "3. Use /playback/youtube to play YouTube videos",
-                "4. Use /background/show to display background"
-            ]
-        }
-
-    @router.get("/test/drm")
-    async def test_drm():
-        """Test DRM/KMS capabilities (placeholder)"""
-        return {
-            "message": "DRM test requires display_detector",
-            "status": "pending_integration"
-        }
+    @router.get("/dd.xml")
+    async def get_device_description():
+        """DIAL device description XML for Chromecast discovery"""
+        from config import DEVICE_NAME
+        xml_content = f"""<?xml version="1.0"?>
+<root xmlns="urn:schemas-upnp-org:device-1-0">
+  <specVersion>
+    <major>1</major>
+    <minor>0</minor>
+  </specVersion>
+  <device>
+    <deviceType>urn:dial-multiscreen-org:device:dial:1</deviceType>
+    <friendlyName>{DEVICE_NAME}</friendlyName>
+    <manufacturer>Hackerspace Gent</manufacturer>
+    <modelName>HSG Canvas</modelName>
+    <UDN>uuid:hsg-canvas-receiver</UDN>
+  </device>
+</root>"""
+        return Response(content=xml_content, media_type="application/xml")
 
     return router
 
@@ -1213,20 +870,24 @@ def setup_chromecast_routes(chromecast_manager: 'ChromecastManager') -> APIRoute
     @router.post("/chromecast/pause")
     async def pause_chromecast():
         """Pause the current cast"""
+        if not chromecast_manager.media_controller:
+            raise HTTPException(status_code=409, detail="No active cast to pause")
         return await manager_operation(
             chromecast_manager.pause_cast(),
             {"message": "Cast paused"},
-            "No active cast to pause",
+            "Failed to pause cast",
             "pause cast",
         )
 
     @router.post("/chromecast/play")
     async def play_chromecast():
         """Resume/play the current cast"""
+        if not chromecast_manager.media_controller:
+            raise HTTPException(status_code=409, detail="No active cast to play")
         return await manager_operation(
             chromecast_manager.play_cast(),
             {"message": "Cast resumed"},
-            "No active cast to play",
+            "Failed to play cast",
             "play cast",
         )
 
@@ -1252,101 +913,6 @@ def setup_chromecast_routes(chromecast_manager: 'ChromecastManager') -> APIRoute
             return chromecast_manager.get_cast_status()
         except Exception as e:
             logging.error(f"Failed to get cast status: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    return router
-
-
-# =============================================================================
-# CAST RECEIVER ROUTES (for receiving casts FROM phones/tablets)
-# =============================================================================
-
-def setup_cast_receiver_routes(cast_receiver: 'CastReceiverManager') -> APIRouter:
-    """
-    Setup Cast Receiver routes with dependency injection
-
-    Args:
-        cast_receiver: CastReceiverManager instance for receiving casts
-
-    Returns:
-        Configured APIRouter
-    """
-    router = APIRouter()
-
-    @router.get("/dd.xml")
-    async def get_device_description():
-        """DIAL device description XML for discovery"""
-        try:
-            xml_content = cast_receiver.get_device_description_xml()
-            return Response(content=xml_content, media_type="application/xml")
-        except Exception as e:
-            logging.error(f"Failed to get device description: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.post("/cast-receiver/start")
-    async def start_receiver():
-        """Start the cast receiver (makes Canvas discoverable)"""
-        try:
-            success = await cast_receiver.start_receiver()
-            if success:
-                return {
-                    "message": "Cast receiver started",
-                    "device_name": cast_receiver.device_name,
-                    "local_ip": cast_receiver.local_ip
-                }
-            else:
-                raise HTTPException(status_code=500, detail="Failed to start cast receiver")
-        except Exception as e:
-            logging.error(f"Failed to start cast receiver: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.post("/cast-receiver/stop")
-    async def stop_receiver():
-        """Stop the cast receiver"""
-        return await manager_operation(
-            cast_receiver.stop_receiver(),
-            {"message": "Cast receiver stopped"},
-            "Failed to stop cast receiver",
-            "stop cast receiver",
-        )
-
-    @router.post("/cast-receiver/receive")
-    async def receive_cast(request: CastReceiveRequest):
-        """Receive a cast from a phone/tablet"""
-        try:
-            success = await cast_receiver.receive_cast(
-                media_url=request.media_url,
-                content_type=request.content_type,
-                title=request.title
-            )
-            if success:
-                return {
-                    "message": "Cast received and playing",
-                    "session_id": cast_receiver.session_id
-                }
-            else:
-                raise HTTPException(status_code=500, detail="Failed to play cast")
-        except Exception as e:
-            logging.error(f"Failed to receive cast: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
-
-    @router.post("/cast-receiver/stop-session")
-    async def stop_cast_session():
-        """Stop the current cast session"""
-        return await manager_operation(
-            cast_receiver.stop_session(),
-            {"message": "Cast session stopped"},
-            "Failed to stop session",
-            "stop cast session",
-        )
-
-    @router.get("/cast-receiver/status")
-    async def get_receiver_status():
-        """Get cast receiver status"""
-        try:
-            return cast_receiver.get_receiver_status()
-        except Exception as e:
-            logging.error(f"Failed to get receiver status: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     return router
@@ -1509,31 +1075,41 @@ def setup_output_target_routes(output_target_manager: 'OutputTargetManager') -> 
 # WEBSOCKET ROUTES (for real-time events)
 # =============================================================================
 
-def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manager=None) -> APIRouter:
+def setup_websocket_routes(
+    websocket_manager: 'WebSocketManager',
+    spotify_manager=None,
+    display_ws_manager: 'WebSocketManager' = None,
+    display_stack: 'DisplayStack' = None,
+    audio_ws_manager: 'WebSocketManager' = None,
+    audio_manager=None,
+) -> APIRouter:
     """
     Setup WebSocket routes for real-time event broadcasting
 
     Args:
-        websocket_manager: WebSocketManager instance for connection management
+        websocket_manager: WebSocketManager for Spotify events
+        spotify_manager: SpotifyManager for initial state
+        display_ws_manager: WebSocketManager for display state broadcasts
+        display_stack: DisplayStack for initial display state
+        audio_ws_manager: WebSocketManager for audio commands
+        audio_manager: AudioManager for audio status updates from browser
 
     Returns:
         Configured APIRouter
     """
     from fastapi import WebSocket, WebSocketDisconnect
+    import json
     router = APIRouter()
 
     @router.websocket("/ws/spotify-events")
     async def spotify_events_websocket(websocket: WebSocket):
         """WebSocket endpoint for real-time Spotify track updates"""
-        # Send current track data - better to show something than nothing
         initial_data = None
         if spotify_manager and spotify_manager.track_info.get("name"):
-            # Format artists with commas
             artists = spotify_manager.track_info.get("artists", "Unknown Artist")
             if isinstance(artists, str):
                 artists = artists.replace('\n', ', ')
 
-            # Build Spotify URL from stored track info
             spotify_url = spotify_manager.track_info.get("spotify_url")
 
             initial_data = {
@@ -1550,16 +1126,11 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
 
         await websocket_manager.connect(websocket, initial_data)
         try:
-            # Keep connection alive and handle incoming messages
             while True:
-                # Wait for messages from client (ping/pong, etc.)
                 data = await websocket.receive_text()
                 logging.debug(f"Received WebSocket message: {data}")
-
-                # Echo back for ping/pong
                 if data == "ping":
                     await websocket.send_text("pong")
-
         except WebSocketDisconnect:
             logging.info("WebSocket client disconnected")
         except Exception as e:
@@ -1570,7 +1141,6 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
     @router.websocket("/ws/spotify-state")
     async def spotify_state_websocket(websocket: WebSocket):
         """WebSocket endpoint for Spotify playing/paused state changes"""
-        # Send current state immediately
         initial_data = {
             "event": "spotify_state",
             "data": {
@@ -1580,10 +1150,8 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
 
         await websocket_manager.connect(websocket, initial_data)
         try:
-            # Keep connection alive
             while True:
                 data = await websocket.receive_text()
-                # Echo back or handle messages if needed
         except WebSocketDisconnect:
             logging.info("Spotify state WebSocket disconnected")
         except Exception as e:
@@ -1591,12 +1159,75 @@ def setup_websocket_routes(websocket_manager: 'WebSocketManager', spotify_manage
         finally:
             await websocket_manager.disconnect(websocket)
 
+    @router.websocket("/ws/display")
+    async def display_websocket(websocket: WebSocket):
+        """WebSocket endpoint for display state changes.
+
+        On connect: sends current display item.
+        On change: broadcasts new display item to all clients.
+        """
+        # Send current display state immediately
+        initial_data = None
+        if display_stack:
+            initial_data = {
+                "event": "display_state",
+                "data": display_stack.current.to_dict()
+            }
+
+        await display_ws_manager.connect(websocket, initial_data)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                if data == "ping":
+                    await websocket.send_text("pong")
+        except WebSocketDisconnect:
+            logging.info("Display WebSocket client disconnected")
+        except Exception as e:
+            logging.error(f"Display WebSocket error: {e}")
+        finally:
+            await display_ws_manager.disconnect(websocket)
+
+    @router.websocket("/ws/audio")
+    async def audio_websocket(websocket: WebSocket):
+        """WebSocket endpoint for audio commands (backend -> browser) and status (browser -> backend).
+
+        Backend sends: audio_play, audio_stop, audio_volume, audio_pause
+        Browser sends: audio_status (periodic state reports)
+        """
+        # Send current audio state on connect
+        initial_data = None
+        if audio_manager and audio_manager.current_audio_stream:
+            initial_data = {
+                "type": "audio_play",
+                "url": audio_manager.current_audio_stream,
+                "volume": audio_manager.audio_volume,
+            }
+
+        await audio_ws_manager.connect(websocket, initial_data)
+        try:
+            while True:
+                data = await websocket.receive_text()
+                try:
+                    msg = json.loads(data)
+                    if msg.get("type") == "audio_status" and audio_manager:
+                        audio_manager.handle_browser_status(msg)
+                except json.JSONDecodeError:
+                    if data == "ping":
+                        await websocket.send_text("pong")
+        except WebSocketDisconnect:
+            logging.info("Audio WebSocket client disconnected")
+        except Exception as e:
+            logging.error(f"Audio WebSocket error: {e}")
+        finally:
+            await audio_ws_manager.disconnect(websocket)
+
     @router.get("/ws/status")
     async def websocket_status():
         """Get WebSocket connection status"""
         return {
-            "active_connections": websocket_manager.get_connection_count(),
-            "endpoint": "/ws/spotify-events"
+            "spotify_events": websocket_manager.get_connection_count(),
+            "display": display_ws_manager.get_connection_count() if display_ws_manager else 0,
+            "audio": audio_ws_manager.get_connection_count() if audio_ws_manager else 0,
         }
 
     return router
@@ -1687,7 +1318,72 @@ def setup_homeassistant_routes(ha_manager: 'HomeAssistantManager') -> APIRouter:
 
 
 # =============================================================================
-# TEMPLATE ROUTES - REMOVED (Now using React app on port 5173)
+# DISPLAY STACK ROUTES (unified display management)
 # =============================================================================
-# Old now-playing template route removed - Chromium now points directly to
-# Vite dev server at http://127.0.0.1:5173 for React hot reload
+
+def setup_display_stack_routes(display_stack: 'DisplayStack') -> APIRouter:
+    """
+    Setup display stack API routes for pushing/removing display items.
+
+    Args:
+        display_stack: DisplayStack instance
+
+    Returns:
+        Configured APIRouter
+    """
+    from models.request_models import DisplayPushRequest, WebsiteDisplayRequest, VideoDisplayRequest
+    router = APIRouter()
+
+    @router.post("/display/push")
+    async def push_display_item(request: DisplayPushRequest):
+        """Push a generic display item onto the stack"""
+        item = await display_stack.push(
+            request.type,
+            request.content,
+            duration=request.duration,
+            item_id=request.item_id,
+        )
+        return {"message": f"Pushed {request.type} to display stack", "item": item.to_dict()}
+
+    @router.post("/display/website")
+    async def push_website(request: WebsiteDisplayRequest):
+        """Push a website URL onto the display stack"""
+        content = {"url": request.url}
+        if request.zoom:
+            content["zoom"] = request.zoom
+        item = await display_stack.push("website", content, duration=request.duration)
+        return {"message": f"Displaying website: {request.url}", "item": item.to_dict()}
+
+    @router.post("/display/video")
+    async def push_video(request: VideoDisplayRequest):
+        """Push a video URL onto the display stack"""
+        content = {"video_url": request.video_url}
+        if request.mute is not None:
+            content["mute"] = request.mute
+        item = await display_stack.push("video", content, duration=request.duration)
+        return {"message": f"Displaying video: {request.video_url}", "item": item.to_dict()}
+
+    @router.get("/display/stack")
+    async def get_display_stack():
+        """Get the current display stack state"""
+        return {
+            "current": display_stack.current.to_dict(),
+            "stack": display_stack.get_stack(),
+        }
+
+    @router.delete("/display/{item_id}")
+    async def remove_display_item(item_id: str):
+        """Remove a specific item from the display stack"""
+        removed = await display_stack.remove(item_id)
+        if removed:
+            return {"message": f"Removed item {item_id}", "current": display_stack.current.to_dict()}
+        else:
+            raise HTTPException(status_code=404, detail=f"Item {item_id} not found in stack")
+
+    @router.delete("/display/clear")
+    async def clear_display_stack():
+        """Clear all items from the display stack (back to static background)"""
+        await display_stack.clear()
+        return {"message": "Display stack cleared", "current": display_stack.current.to_dict()}
+
+    return router

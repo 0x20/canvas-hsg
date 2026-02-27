@@ -14,20 +14,15 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # Managers
-from managers.mpv_pools import AudioMPVPool, VideoMPVPool
-from managers.health_monitor import mpv_pool_health_monitor
+from managers.display_stack import DisplayStack
 from managers.audio_manager import AudioManager
 from managers.playback_manager import PlaybackManager
 from managers.image_manager import ImageManager
-from managers.stream_manager import StreamManager
-from managers.screen_stream_manager import ScreenStreamManager
 from managers.display_detector import DisplayCapabilityDetector
-from managers.framebuffer_manager import FramebufferManager
 from managers.hdmi_cec import HDMICECManager
 from managers.background_modes import BackgroundManager
 from managers.webcast_manager import WebcastManager
 from managers.chromecast_manager import ChromecastManager
-from managers.cast_receiver_manager import CastReceiverManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
 from managers.websocket_manager import WebSocketManager
@@ -38,22 +33,20 @@ from managers.homeassistant_manager import HomeAssistantManager
 from routes import (
     setup_audio_routes,
     setup_playback_routes,
-    setup_stream_routes,
-    setup_screen_routes,
     setup_display_routes,
     setup_background_routes,
     setup_cec_routes,
     setup_system_routes,
     setup_webcast_routes,
     setup_chromecast_routes,
-    setup_cast_receiver_routes,
     setup_output_target_routes,
     setup_websocket_routes,
-    setup_homeassistant_routes
+    setup_homeassistant_routes,
+    setup_display_stack_routes,
 )
 
 # Config
-from config import AUDIO_POOL_SIZE, VIDEO_POOL_SIZE, DEFAULT_PORT, PRODUCTION_PORT
+from config import DEFAULT_PORT, PRODUCTION_PORT
 
 # Logging setup
 logging.basicConfig(
@@ -77,79 +70,68 @@ async def lifespan(app: FastAPI):
         app.state.display_detector = DisplayCapabilityDetector()
         await app.state.display_detector.initialize()
 
-        # Initialize framebuffer
-        logging.info("Initializing framebuffer...")
-        app.state.framebuffer_manager = FramebufferManager()
-        app.state.framebuffer_manager.initialize()
+        # Initialize WebSocket managers (3 separate instances)
+        logging.info("Initializing WebSocket managers...")
+        app.state.websocket_manager = WebSocketManager()      # Spotify events
+        app.state.display_ws_manager = WebSocketManager()      # Display state
+        app.state.audio_ws_manager = WebSocketManager()        # Audio commands
 
-        # Initialize MPV pools
-        logging.info(f"Initializing audio MPV pool (size={AUDIO_POOL_SIZE})...")
-        app.state.audio_pool = AudioMPVPool(pool_size=AUDIO_POOL_SIZE)
-        await app.state.audio_pool.initialize()
+        # Initialize display stack
+        logging.info("Initializing display stack...")
 
-        # Create video pool object but DON'T initialize yet - Chromium needs DRM first
-        logging.info(f"Creating video MPV pool (size={VIDEO_POOL_SIZE}, deferred init)...")
-        app.state.video_pool = VideoMPVPool(pool_size=VIDEO_POOL_SIZE)
-        app.state.video_pool.suspended = True  # Suspended until needed
+        async def broadcast_display_state(item):
+            """Callback: broadcast display state change to all connected clients"""
+            await app.state.display_ws_manager.broadcast("display_state", item.to_dict())
 
-        # Initialize WebSocket manager
-        logging.info("Initializing WebSocket manager...")
-        app.state.websocket_manager = WebSocketManager()
+        app.state.display_stack = DisplayStack(on_change=broadcast_display_state)
 
         # Initialize Chromium manager
         logging.info("Initializing Chromium manager...")
         app.state.chromium_manager = ChromiumManager(app.state.display_detector)
 
-        # Initialize background manager with video pool and chromium manager
+        # Initialize background manager with display stack
         logging.info("Initializing background manager...")
         app.state.background_manager = BackgroundManager(
-            app.state.display_detector, app.state.framebuffer_manager,
-            app.state.video_pool, app.state.chromium_manager
+            app.state.display_detector,
+            app.state.display_stack
         )
 
         # Start Chromium once - it will stay running, React handles view switching
         logging.info("Starting Chromium with React app...")
         if app.state.chromium_manager:
-            # Start Chromium pointing to root (React app)
-            app.state.chromium_manager.video_pool = app.state.video_pool
-            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/spotify/")
+            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/canvas/")
 
             if success:
-                # Track that Chromium/React is managing the display
                 app.state.background_manager.current_mode = "static_web"
                 app.state.background_manager.is_running = True
                 logging.info("Chromium started - React app managing display")
             else:
-                logging.error("Failed to start Chromium - falling back to MPV")
-                # Initialize and use video pool for MPV display
-                app.state.video_pool.suspended = False
-                await app.state.video_pool.initialize()
-                await app.state.background_manager.start_static_mode()
+                logging.error("Failed to start Chromium kiosk mode")
 
         # Initialize managers
         logging.info("Initializing managers...")
-        app.state.audio_manager = AudioManager(app.state.audio_pool)
+        app.state.audio_manager = AudioManager(app.state.audio_ws_manager)
 
-        # Initialize Spotify manager with audio manager, background manager, and websocket integration
+        # Initialize Spotify manager
         logging.info("Initializing Spotify manager...")
         app.state.spotify_manager = SpotifyManager(
             app.state.audio_manager, app.state.background_manager, app.state.websocket_manager
         )
+        app.state.spotify_manager.display_stack = app.state.display_stack
         await app.state.spotify_manager.initialize()
 
         app.state.playback_manager = PlaybackManager(
-            app.state.video_pool, app.state.display_detector,
+            app.state.display_stack, app.state.display_detector,
             app.state.background_manager, app.state.audio_manager
         )
 
-        # Wire playback_manager into managers that need it (created after them)
+        # Wire playback_manager into managers that need it
         app.state.spotify_manager.playback_manager = app.state.playback_manager
         app.state.audio_manager.playback_manager = app.state.playback_manager
+
         app.state.image_manager = ImageManager(
-            app.state.display_detector, app.state.framebuffer_manager, app.state.video_pool
+            app.state.display_detector, app.state.display_stack
         )
-        app.state.stream_manager = StreamManager()
-        app.state.screen_stream_manager = ScreenStreamManager(app.state.display_detector)
 
         # Initialize CEC manager
         logging.info("Initializing HDMI-CEC manager...")
@@ -163,12 +145,6 @@ async def lifespan(app: FastAPI):
         logging.info("Initializing Chromecast manager...")
         app.state.chromecast_manager = ChromecastManager(
             app.state.audio_manager, app.state.playback_manager, app.state.background_manager
-        )
-
-        # Initialize cast receiver manager (disabled - native phone apps require full Cast protocol)
-        logging.info("Initializing Cast Receiver manager...")
-        app.state.cast_receiver_manager = CastReceiverManager(
-            app.state.playback_manager, app.state.audio_manager
         )
 
         # Initialize output target manager (unified target management)
@@ -193,6 +169,7 @@ async def lifespan(app: FastAPI):
             image_manager=app.state.image_manager,
             webcast_manager=app.state.webcast_manager,
             chromium_manager=app.state.chromium_manager,
+            display_stack=app.state.display_stack,
         )
         await app.state.ha_manager.initialize()
 
@@ -203,31 +180,29 @@ async def lifespan(app: FastAPI):
         logging.info("Setting up API routes...")
         app.include_router(setup_audio_routes(app.state.audio_manager, app.state.spotify_manager))
         app.include_router(setup_playback_routes(app.state.playback_manager))
-        app.include_router(setup_stream_routes(app.state.stream_manager))
-        app.include_router(setup_screen_routes(app.state.screen_stream_manager))
         app.include_router(setup_display_routes(app.state.image_manager, app.state.background_manager))
         app.include_router(setup_background_routes(app.state.background_manager))
         app.include_router(setup_cec_routes(app.state.cec_manager))
-        app.include_router(setup_system_routes(app.state.audio_pool, app.state.video_pool, app.state.display_detector))
+        app.include_router(setup_system_routes(display_detector=app.state.display_detector))
         app.include_router(setup_webcast_routes(app.state.webcast_manager))
         app.include_router(setup_chromecast_routes(app.state.chromecast_manager))
-        app.include_router(setup_cast_receiver_routes(app.state.cast_receiver_manager))
         app.include_router(setup_output_target_routes(app.state.output_target_manager))
 
         # Setup Home Assistant routes
         app.include_router(setup_homeassistant_routes(app.state.ha_manager))
 
-        # Setup WebSocket routes
-        app.include_router(setup_websocket_routes(app.state.websocket_manager, app.state.spotify_manager))
+        # Setup WebSocket routes (display + audio + spotify)
+        app.include_router(setup_websocket_routes(
+            app.state.websocket_manager,
+            app.state.spotify_manager,
+            app.state.display_ws_manager,
+            app.state.display_stack,
+            app.state.audio_ws_manager,
+            app.state.audio_manager,
+        ))
 
-        # Template routes removed - now using React app on port 5173
-        # Chromium points to Vite dev server for hot reload
-
-        # Start health monitor for MPV pools
-        logging.info("Starting MPV pool health monitor...")
-        app.state.health_task = asyncio.create_task(
-            mpv_pool_health_monitor(app.state.audio_pool, app.state.video_pool)
-        )
+        # Setup display stack API routes
+        app.include_router(setup_display_stack_routes(app.state.display_stack))
 
         logging.info("HSG Canvas application started successfully!")
 
@@ -243,14 +218,6 @@ async def lifespan(app: FastAPI):
     logging.info("Shutting down HSG Canvas application...")
 
     try:
-        # Stop health monitor
-        if hasattr(app.state, 'health_task') and app.state.health_task:
-            app.state.health_task.cancel()
-            try:
-                await app.state.health_task
-            except asyncio.CancelledError:
-                pass
-
         # Stop Home Assistant manager
         if hasattr(app.state, 'ha_manager') and app.state.ha_manager:
             await app.state.ha_manager.cleanup()
@@ -271,37 +238,17 @@ async def lifespan(app: FastAPI):
         if hasattr(app.state, 'chromecast_manager') and app.state.chromecast_manager:
             await app.state.chromecast_manager.cleanup()
 
-        # Stop Cast Receiver
-        if hasattr(app.state, 'cast_receiver_manager') and app.state.cast_receiver_manager:
-            await app.state.cast_receiver_manager.cleanup()
-
         # Stop Output Target Manager
         if hasattr(app.state, 'output_target_manager') and app.state.output_target_manager:
             await app.state.output_target_manager.cleanup()
 
-        # Cleanup managers
+        # Cleanup audio manager
         if hasattr(app.state, 'audio_manager') and app.state.audio_manager:
             await app.state.audio_manager.stop_audio_stream()
 
+        # Cleanup playback manager
         if hasattr(app.state, 'playback_manager') and app.state.playback_manager:
             await app.state.playback_manager.stop_playback()
-
-        if hasattr(app.state, 'stream_manager') and app.state.stream_manager:
-            await app.state.stream_manager.cleanup()
-
-        if hasattr(app.state, 'screen_stream_manager') and app.state.screen_stream_manager:
-            await app.state.screen_stream_manager.stop_screen_stream()
-
-        # Cleanup MPV pools
-        if hasattr(app.state, 'audio_pool') and app.state.audio_pool:
-            await app.state.audio_pool.cleanup()
-
-        if hasattr(app.state, 'video_pool') and app.state.video_pool:
-            await app.state.video_pool.cleanup()
-
-        # Cleanup framebuffer
-        if hasattr(app.state, 'framebuffer_manager') and app.state.framebuffer_manager:
-            app.state.framebuffer_manager.cleanup()
 
         logging.info("HSG Canvas application shut down successfully!")
 
@@ -313,7 +260,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="HSG Canvas",
     description="Media streaming and display management for Raspberry Pi",
-    version="3.0.0-refactored",
+    version="4.0.0-all-react",
     lifespan=lifespan
 )
 

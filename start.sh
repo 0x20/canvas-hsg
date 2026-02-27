@@ -11,13 +11,6 @@ set -e
 echo "=== HSG Canvas with React Hot Reload ==="
 echo ""
 
-# Clean up orphaned mpv processes from previous runs
-echo "Cleaning up orphaned mpv processes..."
-pkill -9 -f "mpv.*-mpv-pool" 2>/dev/null || true
-
-# Clean up stale IPC sockets
-rm -f /tmp/audio-mpv-pool-* /tmp/video-mpv-pool-* 2>/dev/null || true
-
 # Clean up stale display processes from previous crashes
 echo "Cleaning up stale display processes..."
 killall -9 cage labwc 2>/dev/null || true
@@ -46,11 +39,8 @@ cd /home/hsg/srs_server
 export AUDIO_DEVICE="pulse"
 echo "Audio device: $AUDIO_DEVICE"
 
-# Add deno to PATH for yt-dlp JavaScript runtime (helps with YouTube extraction)
-export PATH="/home/hsg/.deno/bin:$PATH"
-
-# Disable second HDMI output after cage starts (capture card creates extended desktop)
-(sleep 15 && WAYLAND_DISPLAY=wayland-0 XDG_RUNTIME_DIR=/run/user/$(id -u) wlr-randr --output HDMI-A-2 --off 2>/dev/null) &
+# Add venv bin and deno to PATH
+export PATH="/home/hsg/srs_server/.venv/bin:/home/hsg/.deno/bin:$PATH"
 
 echo ""
 echo "Starting FastAPI server on port 8000..."

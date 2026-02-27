@@ -44,6 +44,8 @@ class ChromiumManager:
             compositor_env = os.environ.copy()
             compositor_env.pop('DISPLAY', None)
             compositor_env.pop('WAYLAND_DISPLAY', None)
+            # HDMI-A-2 is disabled at kernel level (video=HDMI-A-2:d in cmdline.txt)
+            # so cage only sees HDMI-A-1 and renders fullscreen on it.
             compositor_env.update({
                 'WLR_BACKENDS': 'drm',
                 'WLR_DRM_DEVICES': '/dev/dri/card1',
@@ -55,6 +57,9 @@ class ChromiumManager:
 
             # cage runs a single application fullscreen - perfect for kiosk mode
             # cage -- chromium-browser [flags] [url]
+            # Only zoom external sites — our React app handles its own layout
+            is_local = url.startswith("http://127.0.0.1") or url.startswith("http://localhost")
+
             chromium_args = [
                 "chromium-browser",
                 "--kiosk",
@@ -79,8 +84,13 @@ class ChromiumManager:
                 "--disable-popup-blocking",
                 "--user-data-dir=/tmp/chromium-hsg-canvas",
                 "--start-fullscreen",
-                url,
+                "--autoplay-policy=no-user-gesture-required",
             ]
+
+            if not is_local:
+                chromium_args.append("--force-device-scale-factor=1.5")
+
+            chromium_args.append(url)
 
             # Start cage compositor with Chromium as its application
             log_file = open("/tmp/cage-kiosk.log", "w")

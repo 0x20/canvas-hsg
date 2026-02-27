@@ -41,12 +41,14 @@ pytest tests/test_mpv_pools.py -v
 `main.py` uses FastAPI's lifespan context manager to initialize everything in order:
 
 1. **DisplayCapabilityDetector** - detects connected display resolution via DRM
-2. **FramebufferManager** - direct framebuffer access (mostly legacy)
-3. **AudioMPVPool** (size=2) and **VideoMPVPool** (size=1) - persistent mpv processes with IPC sockets
-4. **BackgroundManager** - shows default background image on startup
-5. **All other managers** - each receives its dependencies via constructor injection
-6. **API routes** - each `setup_*_routes()` function creates an `APIRouter` with manager references
-7. **Health monitor** - background asyncio task checking pool health every 30s
+2. **WebSocket managers** (3 instances) - for Spotify events, display state, and audio commands
+3. **DisplayStack** - core display abstraction (base layer + stack of items)
+4. **ChromiumManager** - starts Chromium once at boot, never stops
+5. **BackgroundManager** - thin wrapper around DisplayStack
+6. **AudioManager** - controls browser `<audio>` via WebSocket (no MPV)
+7. **PlaybackManager** - pushes YouTube to DisplayStack (browser renders via IFrame API)
+8. **All other managers** - each receives its dependencies via constructor injection
+9. **API routes** - each `setup_*_routes()` function creates an `APIRouter` with manager references
 
 Shutdown reverses this order. All managers are global module-level variables set during lifespan.
 

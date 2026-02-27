@@ -24,7 +24,8 @@ class HomeAssistantManager:
 
     def __init__(self, spotify_manager=None, audio_manager=None, playback_manager=None,
                  chromecast_manager=None, background_manager=None, cec_manager=None,
-                 image_manager=None, webcast_manager=None, chromium_manager=None):
+                 image_manager=None, webcast_manager=None, chromium_manager=None,
+                 display_stack=None):
         self.spotify_manager = spotify_manager
         self.audio_manager = audio_manager
         self.playback_manager = playback_manager
@@ -34,6 +35,7 @@ class HomeAssistantManager:
         self.image_manager = image_manager
         self.webcast_manager = webcast_manager
         self.chromium_manager = chromium_manager
+        self.display_stack = display_stack
 
         # Config
         self.ha_url: str = ""
@@ -350,8 +352,8 @@ class HomeAssistantManager:
                 if self.background_manager:
                     await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=False)
             elif action == "display.url":
-                if self.chromium_manager:
-                    await self.chromium_manager.start_kiosk(args.get("url", ""))
+                if self.display_stack:
+                    await self.display_stack.push("website", {"url": args.get("url", "")})
             elif action == "display.qrcode":
                 if self.image_manager:
                     await self.image_manager.display_qr_code(
@@ -367,12 +369,12 @@ class HomeAssistantManager:
                         self.background_manager
                     )
             elif action == "display.navigate":
-                if self.background_manager:
+                if self.display_stack:
                     mode = args.get("mode", "static")
                     if mode == "now-playing":
-                        await self.background_manager.switch_to_now_playing()
+                        await self.display_stack.push("spotify", {}, item_id="spotify")
                     else:
-                        await self.background_manager.switch_to_static()
+                        await self.display_stack.clear()
             elif action == "webcast.start":
                 if self.webcast_manager:
                     from managers.webcast_manager import WebcastConfig
