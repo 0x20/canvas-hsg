@@ -8,6 +8,7 @@ import asyncio
 import logging
 import os
 import signal
+import subprocess
 from typing import Optional
 
 
@@ -50,7 +51,7 @@ class ChromiumManager:
                 'WLR_BACKENDS': 'drm',
                 'WLR_DRM_DEVICES': '/dev/dri/card1',
                 'SEATD_SOCK': '/run/seatd.sock',
-                'WLR_RENDERER': 'pixman',  # Software rendering - reliable on Pi
+                'WLR_RENDERER': 'gles2',  # GPU-accelerated via v3d
                 'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', '/run/user/1000'),
                 'WLR_LIBINPUT_NO_DEVICES': '1',
             })
@@ -177,6 +178,55 @@ class ChromiumManager:
             logging.debug("Compositor process has terminated")
             self.compositor_process = None
             self.current_url = None
+            return False
+
+        return True
+
+    def _has_zombie_children(self) -> bool:
+        """Check if the Chromium process tree has zombie (defunct) children.
+
+        A zombie GPU process means Chromium can't render and needs a restart.
+        """
+        if not self.compositor_process or not self.compositor_process.pid:
+            return False
+
+        try:
+            result = subprocess.run(
+                ["ps", "--ppid", str(self.compositor_process.pid), "-o", "pid="],
+                capture_output=True, text=True, timeout=5
+            )
+            # Get all descendant PIDs (cage -> chromium -> children)
+            pids = result.stdout.split()
+            for pid in pids:
+                pid = pid.strip()
+                if not pid:
+                    continue
+                # Check children of each direct child too
+                result2 = subprocess.run(
+                    ["ps", "--ppid", pid, "-o", "pid=,stat="],
+                    capture_output=True, text=True, timeout=5
+                )
+                for line in result2.stdout.strip().split('\n'):
+                    parts = line.split()
+                    if len(parts) >= 2 and 'Z' in parts[1]:
+                        logging.warning(f"Zombie child process detected: PID {parts[0]} (stat={parts[1]})")
+                        return True
+        except Exception as e:
+            logging.warning(f"Error checking for zombie children: {e}")
+
+        return False
+
+    async def check_health(self) -> bool:
+        """Check if Chromium is healthy. Returns True if healthy, False if restart needed."""
+        if not self.is_running():
+            return False
+
+        if self._has_zombie_children():
+            logging.error("Chromium has zombie child processes (GPU crash) — restarting")
+            url = self.current_url
+            await self.stop()
+            if url:
+                await self.start_kiosk(url)
             return False
 
         return True

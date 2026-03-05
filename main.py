@@ -204,6 +204,19 @@ async def lifespan(app: FastAPI):
         # Setup display stack API routes
         app.include_router(setup_display_stack_routes(app.state.display_stack))
 
+        # Start periodic Chromium health check
+        async def chromium_health_loop():
+            await asyncio.sleep(30)  # Initial delay
+            while True:
+                try:
+                    if app.state.chromium_manager and app.state.chromium_manager.is_running():
+                        await app.state.chromium_manager.check_health()
+                except Exception as e:
+                    logging.error(f"Chromium health check error: {e}")
+                await asyncio.sleep(30)
+
+        app.state._chromium_health_task = asyncio.create_task(chromium_health_loop())
+
         logging.info("HSG Canvas application started successfully!")
 
     except Exception as e:
@@ -218,6 +231,10 @@ async def lifespan(app: FastAPI):
     logging.info("Shutting down HSG Canvas application...")
 
     try:
+        # Cancel health check task
+        if hasattr(app.state, '_chromium_health_task'):
+            app.state._chromium_health_task.cancel()
+
         # Stop Home Assistant manager
         if hasattr(app.state, 'ha_manager') and app.state.ha_manager:
             await app.state.ha_manager.cleanup()
