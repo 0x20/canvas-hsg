@@ -18,7 +18,7 @@ python3 main.py
 # Run server (production, port 8000 — Angie proxies port 80)
 python3 main.py --production
 
-# Run via start script (kills orphan mpv processes, sets AUDIO_DEVICE, runs production)
+# Run via start script (starts Vite + FastAPI in production)
 ./start.sh
 
 # One-time setup (installs Angie, systemd services, raspotify config)
@@ -26,12 +26,6 @@ sudo ./setup.sh
 
 # Run tests
 pytest tests/
-
-# Run a single test file
-pytest tests/test_mpv_pools.py
-
-# Run with verbose output
-pytest tests/test_mpv_pools.py -v
 ```
 
 ## Architecture
@@ -54,34 +48,24 @@ Shutdown reverses this order. All managers are global module-level variables set
 
 ### Key Directories
 
-- **`managers/`** - All business logic including MPV pools, controllers, and health monitoring (there is no separate `core/` directory)
+- **`managers/`** - All business logic (there is no separate `core/` directory)
 - **`models/`** - Pydantic request models (`request_models.py`)
 - **`routes.py`** - Single file with 12 `setup_*_routes()` functions, each returning an `APIRouter`
-- **`config.py`** - All constants: SRS URLs, pool sizes, player command matrix, paths
+- **`config.py`** - Constants: paths, network/discovery, server ports
 - **`config/`** - Deployment config files (Angie, systemd service, raspotify drop-in)
 - **`background_engine/`** - Advanced background image generation (layout, components, generators)
 - **`tests/`** - pytest tests with pytest-asyncio for async testing
 - **`static/`** - CSS/JS for the web interface
 - **`index.html`** - Synthwave-themed web control panel (served at `/`)
 
-### MPV Pool System (`managers/mpv_pools.py`, `managers/mpv_controller.py`)
-
-The core playback infrastructure. MPV processes are long-lived and controlled via JSON IPC over Unix sockets in `/tmp/`:
-
-- **MPVProcessPool** (base) → **AudioMPVPool** (audio-only, no video output) and **VideoMPVPool** (DRM output, hardware decoding)
-- Each pool manages N mpv subprocesses, tracks which controllers are available
-- **MPVController** handles async socket communication: `loadfile`, `set_property`, `get_property`, pause/seek
-- Health monitor (`managers/health_monitor.py`) auto-restarts crashed processes
-
 ### Manager Interactions
 
 Managers reference each other for coordinated behavior:
-- **PlaybackManager** depends on: VideoMPVPool, DisplayCapabilityDetector, BackgroundManager, AudioManager
+- **PlaybackManager** depends on: DisplayStack, DisplayCapabilityDetector, BackgroundManager, AudioManager
 - **ChromecastManager** depends on: AudioManager, PlaybackManager (stops local playback when casting)
-- **CastReceiverManager** depends on: PlaybackManager, AudioManager (routes received casts)
 - **OutputTargetManager** depends on: AudioManager, PlaybackManager, ChromecastManager (unified target interface)
 - **SpotifyManager** depends on: AudioManager (stops audio streams when Spotify plays)
-- **BackgroundManager** depends on: DisplayCapabilityDetector, FramebufferManager, VideoMPVPool
+- **BackgroundManager** depends on: DisplayStack, DisplayCapabilityDetector
 
 ### Route Pattern
 
@@ -97,27 +81,25 @@ Routes are included in the app during lifespan startup via `app.include_router()
 
 ## Configuration (`config.py`)
 
-- **SRS URLs**: RTMP on `localhost:1935`, HTTP-FLV/HLS on `localhost:8080`, API on `localhost:1985`
-- **AUDIO_DEVICE**: Defaults to `pulse` (PipeWire), overridable via environment variable
-- **Pool sizes**: Audio=2, Video=1
-- **OPTIMAL_PLAYER_COMMANDS**: Resolution-specific mpv/ffplay/vlc command arrays with hardware acceleration flags
+- **DEFAULT_BACKGROUND_PATH**: Path to default background image
+- **DEVICE_NAME**: "HSG Canvas" (used in SSDP/Chromecast discovery)
+- **CHROMECAST_CACHE_DURATION**: 24 hours
+- **METADATA_UPDATE_INTERVAL**: 15 seconds
+- **DEFAULT_PORT / PRODUCTION_PORT**: Both 8000 (Angie proxies port 80)
 
 ## Hardware Context
 
 This runs on a Raspberry Pi with:
-- DRM/KMS display output (no X11 in production)
-- v4l2m2m hardware video decoding
+- Chromium kiosk mode for display output
 - PipeWire/PulseAudio for audio (shared with Raspotify service)
 - Temperature monitoring via `/sys/class/thermal/thermal_zone0/temp`
 - HDMI-CEC for TV power control
-- yt-dlp with Deno runtime for YouTube extraction (PATH includes `~/.deno/bin`)
 
 ## Important Patterns
 
 - **Subprocess isolation**: Chromecast discovery runs in a subprocess to prevent zeroconf file descriptor leaks
-- **Process cleanup**: `os.setsid()` used for FFmpeg/player processes so entire process groups can be killed
-- **YouTube codec preference**: H.264 (AVC1) preferred over VP9 for Pi hardware decoding
 - **Audio exclusivity**: Only one audio source at a time (audio stream, Spotify, or video with audio)
+- **YouTube via IFrame API**: Video ID extracted by regex, rendered in browser (no yt-dlp)
 
 ## Critical Gotchas
 
@@ -270,18 +252,13 @@ The system supports multiple **mutually exclusive** display modes:
 
 | Mode | Renderer | Manager | Notes |
 |------|----------|---------|-------|
-| YouTube Video | MPV (video pool) | PlaybackManager | Hardware-decoded |
-| Audio Streams | MPV (audio pool) | AudioManager | PulseAudio/PipeWire |
-| Static Background | MPV (video pool) | BackgroundManager | Default mode |
-| **Spotify Now-Playing** | **Chromium kiosk** | **SpotifyManager** | Web-based ✨ |
-| Image Display | MPV (video pool) | BackgroundManager | QR codes, etc. |
+| YouTube Video | Chromium (IFrame API) | PlaybackManager | Browser-rendered |
+| Audio Streams | Browser `<audio>` | AudioManager | WebSocket-controlled |
+| Static Background | Chromium | BackgroundManager | Default mode |
+| Spotify Now-Playing | Chromium (React) | SpotifyManager | Real-time via WebSocket |
+| Image Display | Chromium | BackgroundManager | QR codes, etc. |
 
-**Switching Logic**:
-- Starting YouTube → stops Chromium (if running), uses MPV
-- Starting Spotify → stops MPV, launches Chromium to `/now-playing`
-- Stopping Spotify → stops Chromium, returns to static background
-
-**Backward Compatibility**: All existing features (YouTube, audio, Chromecast) work unchanged. MPV pools remain initialized for instant switching.
+**Switching Logic**: All display modes go through the DisplayStack. Only one mode is active at a time. Stopping playback returns to the static background.
 
 ### Web Mode Flow (Spotify Example)
 
@@ -363,18 +340,15 @@ ws.onmessage = (e) => console.log(e.data);
 
 **Display not showing**:
 - Xvfb renders to virtual display `:99` (not physical output)
-- For actual HDMI output, may need display routing (see `WEB_DISPLAY_IMPLEMENTATION.md`)
+- For actual HDMI output, may need display routing
 
 ## Dependencies
 
 ### System Packages
 
 ```bash
-# Core media playback
-sudo apt-get install mpv ffmpeg
-
-# Web-based display (Phase 1)
-sudo apt-get install xvfb chromium-browser
+# Web-based display
+sudo apt-get install chromium-browser
 
 # Optional: CEC control
 sudo apt-get install cec-utils
@@ -387,15 +361,6 @@ All Python dependencies are in `requirements.txt` and installed in `.venv/`:
 ```bash
 # Install/update dependencies
 .venv/bin/pip install -r requirements.txt --break-system-packages
-
-# Key packages:
-# - fastapi==0.128.4 (upgraded Feb 2026 for lifespan support)
-# - uvicorn==0.40.0
-# - jinja2==3.1.6 (for template rendering)
-# - pychromecast==13.1.0
-# - yt-dlp==2025.09.26
-# - Pillow==10.1.0
-# - playwright==1.40.0 (webcast feature)
 ```
 
 **Note**: Raspberry Pi requires `--break-system-packages` flag for pip installs
