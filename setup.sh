@@ -57,6 +57,7 @@ apt-get install -y \
     wireplumber \
     alsa-utils \
     pulseaudio-utils \
+    libportaudio2 \
     feh \
     jq \
     bc \
@@ -136,6 +137,69 @@ echo -e "${GREEN}✓ Raspotify configured${NC}"
 echo ""
 
 # ============================================
+# 3.5. Sendspin Daemon Installation
+# ============================================
+echo -e "${BLUE}[3.5/9] Installing Sendspin audio daemon...${NC}"
+
+# Install uv if not present
+if ! command -v uv &> /dev/null; then
+    echo "Installing uv..."
+    sudo -u $ACTUAL_USER curl -LsSf https://astral.sh/uv/install.sh | sudo -u $ACTUAL_USER sh
+fi
+
+# Install Python 3.13 via uv (prebuilt binary, no compilation)
+echo "Ensuring Python 3.13 is available..."
+sudo -u $ACTUAL_USER uv python install 3.13
+
+# Install sendspin CLI via uv tool (runs as hsg user)
+echo "Installing sendspin CLI..."
+sudo -u $ACTUAL_USER uv tool install sendspin --python 3.13
+
+# Create sendspin config directory and settings
+mkdir -p "$USER_HOME/.config/sendspin"
+cat > "$USER_HOME/.config/sendspin/settings-daemon.json" << EOF
+{
+    "name": "HSG Canvas",
+    "client_id": "hsg-canvas-player"
+}
+EOF
+chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/sendspin"
+
+# Install systemd service for sendspin daemon
+SENDSPIN_BIN=$(sudo -u $ACTUAL_USER bash -c 'which sendspin 2>/dev/null || echo ""')
+if [ -n "$SENDSPIN_BIN" ]; then
+    cat > /etc/systemd/system/sendspin.service << SVCEOF
+[Unit]
+Description=Sendspin Multi-Room Audio Client
+After=network-online.target sound.target pipewire.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$ACTUAL_USER
+Environment=XDG_RUNTIME_DIR=/run/user/$(id -u $ACTUAL_USER)
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u $ACTUAL_USER)/bus
+ExecStart=$SENDSPIN_BIN daemon --name "HSG Canvas Speaker" --id "hsg-canvas-speaker" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+    systemctl daemon-reload
+    systemctl enable sendspin.service
+    systemctl start sendspin.service || true
+    echo -e "${GREEN}✓ Sendspin daemon installed and started${NC}"
+else
+    echo -e "${YELLOW}⚠ sendspin binary not found, skipping systemd service${NC}"
+fi
+
+echo ""
+
+# ============================================
 # 4. Audio Configuration (PipeWire/PulseAudio)
 # ============================================
 echo -e "${BLUE}[4/8] Configuring audio system...${NC}"
@@ -183,26 +247,26 @@ echo -e "${BLUE}[5/8] Setting up Python virtual environment...${NC}"
 
 cd "$SCRIPT_DIR"
 
-# Create venv if it doesn't exist
-if [ ! -d ".venv" ]; then
-    sudo -u $ACTUAL_USER python3 -m venv .venv
-    echo -e "${GREEN}✓ Virtual environment created${NC}"
+# Create venv with Python 3.13 via uv (required for aiosendspin)
+if [ -d ".venv" ]; then
+    VENV_PY=$(.venv/bin/python --version 2>/dev/null || echo "")
+    if echo "$VENV_PY" | grep -q "3.13"; then
+        echo -e "${GREEN}✓ Virtual environment already exists (Python 3.13)${NC}"
+    else
+        echo "Recreating venv with Python 3.13 (was: $VENV_PY)..."
+        rm -rf .venv
+        sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+        echo -e "${GREEN}✓ Virtual environment recreated with Python 3.13${NC}"
+    fi
 else
-    echo -e "${GREEN}✓ Virtual environment already exists${NC}"
+    sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+    echo -e "${GREEN}✓ Virtual environment created (Python 3.13)${NC}"
 fi
 
-# Install Python dependencies
-sudo -u $ACTUAL_USER bash << 'USEREOF'
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-# Upgrade yt-dlp to latest version (critical for YouTube playback with anti-bot measures)
-pip install --upgrade yt-dlp
-deactivate
-USEREOF
+# Install Python dependencies via uv
+sudo -u $ACTUAL_USER uv pip install --python .venv/bin/python -r requirements.txt
 
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
-echo -e "${GREEN}✓ yt-dlp upgraded to latest version${NC}"
 echo ""
 
 # ============================================
@@ -293,6 +357,7 @@ echo -e "${YELLOW}Installed Services:${NC}"
 echo "  1. srs-server.service   - SRS RTMP/HTTP-FLV server (Docker)"
 echo "  2. hsg-canvas.service   - HSG Canvas web app"
 echo "  3. raspotify.service    - Spotify Connect client"
+echo "  4. sendspin.service     - Sendspin multi-room audio receiver"
 echo ""
 
 echo -e "${YELLOW}Next Steps:${NC}"
@@ -304,6 +369,7 @@ echo "2. ${BLUE}After reboot, verify services are running:${NC}"
 echo "   sudo systemctl status srs-server"
 echo "   sudo systemctl status hsg-canvas"
 echo "   sudo systemctl status raspotify"
+echo "   sudo systemctl status sendspin"
 echo ""
 echo "3. ${BLUE}Monitor system status:${NC}"
 echo "   ./monitor.sh          # Run once"

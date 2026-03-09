@@ -30,6 +30,7 @@ class SpotifyManager:
         self.websocket_manager = websocket_manager
         self.playback_manager = None
         self.ha_manager = None
+        self.audio_conflict = None  # Set after creation in main.py
         self.display_stack = None  # Set after creation in main.py
 
         # Current Spotify state
@@ -138,6 +139,10 @@ class SpotifyManager:
                     if self.playback_manager:
                         await self.playback_manager.stop_playback()
 
+                    # Mute Sendspin (last-in wins)
+                    if self.audio_conflict:
+                        await self.audio_conflict.mute_source("sendspin")
+
                     # Reset system volume to 100% — Spotify has its own volume via Raspotify
                     import subprocess
                     subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"],
@@ -172,6 +177,10 @@ class SpotifyManager:
                         logging.info("Spotify started playing - stopping video playback")
                         await self.playback_manager.stop_playback()
 
+                    # Mute Sendspin (last-in wins)
+                    if self.audio_conflict:
+                        await self.audio_conflict.mute_source("sendspin")
+
                     # Push spotify onto display stack
                     if self.display_stack:
                         await self.display_stack.push("spotify", {}, item_id="spotify")
@@ -187,6 +196,10 @@ class SpotifyManager:
             elif event == "paused":
                 self.is_playing = False
                 logging.info("Spotify playback paused")
+
+                # Unmute Sendspin
+                if self.audio_conflict:
+                    await self.audio_conflict.unmute_source("sendspin")
 
                 # Remove spotify from display stack
                 if self.display_stack:
@@ -205,6 +218,10 @@ class SpotifyManager:
                 self.current_track_id = None
                 self.track_info = {}
                 logging.info(f"Spotify {event}")
+
+                # Unmute Sendspin
+                if self.audio_conflict:
+                    await self.audio_conflict.unmute_source("sendspin")
 
                 # Remove spotify from display stack
                 if self.display_stack:

@@ -9,6 +9,7 @@ import AudioPlayer from './AudioPlayer';
 
 function App() {
   const [displayItem, setDisplayItem] = useState({ type: 'static', content: {}, id: 'base' });
+  const [spotifySeen, setSpotifySeen] = useState(false);
   const wsRef = useRef(null);
 
   useEffect(() => {
@@ -35,6 +36,9 @@ function App() {
 
             if (message.event === 'display_state') {
               setDisplayItem(message.data);
+              if (message.data.type === 'spotify' || message.data.type === 'sendspin') {
+                setSpotifySeen(true);
+              }
             }
           } catch (error) {
             console.error('App: Failed to parse WebSocket message:', error);
@@ -65,10 +69,21 @@ function App() {
     };
   }, []);
 
-  const renderDisplay = () => {
+  // Reset spotifySeen when static becomes current (spotify was actually removed from stack)
+  useEffect(() => {
+    if (displayItem.type === 'static') {
+      setSpotifySeen(false);
+    }
+  }, [displayItem.type]);
+
+  const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin';
+  const keepNowPlayingMounted = spotifySeen && !isNowPlayingActive && displayItem.type !== 'static';
+
+  const renderOverlay = () => {
     switch (displayItem.type) {
       case 'spotify':
-        return <NowPlaying />;
+      case 'sendspin':
+        return null; // NowPlaying rendered separately below
       case 'image':
       case 'qrcode':
         return <ImageDisplay item={displayItem} />;
@@ -86,7 +101,8 @@ function App() {
 
   return (
     <>
-      {renderDisplay()}
+      {(isNowPlayingActive || keepNowPlayingMounted) && <NowPlaying />}
+      {!isNowPlayingActive && renderOverlay()}
       <AudioPlayer />
     </>
   );

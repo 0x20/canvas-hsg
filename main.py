@@ -25,6 +25,8 @@ from managers.webcast_manager import WebcastManager
 from managers.chromecast_manager import ChromecastManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
+from managers.sendspin_manager import SendspinManager
+from managers.audio_conflict import AudioConflictManager
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
 from managers.homeassistant_manager import HomeAssistantManager
@@ -43,6 +45,7 @@ from routes import (
     setup_websocket_routes,
     setup_homeassistant_routes,
     setup_display_stack_routes,
+    setup_sendspin_routes,
 )
 
 # Config
@@ -112,13 +115,27 @@ async def lifespan(app: FastAPI):
         logging.info("Initializing managers...")
         app.state.audio_manager = AudioManager(app.state.audio_ws_manager)
 
+        # Initialize audio conflict manager (shared between Spotify and Sendspin)
+        logging.info("Initializing audio conflict manager...")
+        app.state.audio_conflict = AudioConflictManager()
+
         # Initialize Spotify manager
         logging.info("Initializing Spotify manager...")
         app.state.spotify_manager = SpotifyManager(
             app.state.audio_manager, app.state.background_manager, app.state.websocket_manager
         )
         app.state.spotify_manager.display_stack = app.state.display_stack
+        app.state.spotify_manager.audio_conflict = app.state.audio_conflict
         await app.state.spotify_manager.initialize()
+
+        # Initialize Sendspin manager
+        logging.info("Initializing Sendspin manager...")
+        app.state.sendspin_manager = SendspinManager(
+            audio_manager=app.state.audio_manager,
+            websocket_manager=app.state.websocket_manager,
+            audio_conflict=app.state.audio_conflict,
+        )
+        app.state.sendspin_manager.display_stack = app.state.display_stack
 
         app.state.playback_manager = PlaybackManager(
             app.state.display_stack, app.state.display_detector,
@@ -128,6 +145,11 @@ async def lifespan(app: FastAPI):
         # Wire playback_manager into managers that need it
         app.state.spotify_manager.playback_manager = app.state.playback_manager
         app.state.audio_manager.playback_manager = app.state.playback_manager
+        app.state.sendspin_manager.playback_manager = app.state.playback_manager
+        app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
+
+        # Start Sendspin listener (after all cross-refs are wired)
+        await app.state.sendspin_manager.initialize()
 
         app.state.image_manager = ImageManager(
             app.state.display_detector, app.state.display_stack
@@ -191,7 +213,10 @@ async def lifespan(app: FastAPI):
         # Setup Home Assistant routes
         app.include_router(setup_homeassistant_routes(app.state.ha_manager))
 
-        # Setup WebSocket routes (display + audio + spotify)
+        # Setup Sendspin routes
+        app.include_router(setup_sendspin_routes(app.state.sendspin_manager))
+
+        # Setup WebSocket routes (display + audio + spotify + sendspin)
         app.include_router(setup_websocket_routes(
             app.state.websocket_manager,
             app.state.spotify_manager,
@@ -199,6 +224,7 @@ async def lifespan(app: FastAPI):
             app.state.display_stack,
             app.state.audio_ws_manager,
             app.state.audio_manager,
+            app.state.sendspin_manager,
         ))
 
         # Setup display stack API routes
@@ -234,6 +260,14 @@ async def lifespan(app: FastAPI):
         # Cancel health check task
         if hasattr(app.state, '_chromium_health_task'):
             app.state._chromium_health_task.cancel()
+
+        # Stop Sendspin manager
+        if hasattr(app.state, 'sendspin_manager') and app.state.sendspin_manager:
+            await app.state.sendspin_manager.cleanup()
+
+        # Restore any muted audio sources
+        if hasattr(app.state, 'audio_conflict') and app.state.audio_conflict:
+            await app.state.audio_conflict.unmute_all()
 
         # Stop Home Assistant manager
         if hasattr(app.state, 'ha_manager') and app.state.ha_manager:

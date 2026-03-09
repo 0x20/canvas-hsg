@@ -107,8 +107,13 @@ export default function NowPlaying() {
   }, []);
 
   // Generate QR code as data URL string (no canvas intermediary)
+  // Skip QR generation entirely if no URL (e.g. Sendspin tracks)
   useEffect(() => {
-    const url = track.spotifyUrl || "https://open.spotify.com/";
+    if (!track.spotifyUrl) {
+      setQrDataUrl('');
+      return;
+    }
+    const url = track.spotifyUrl;
 
     const genQR = (lightColor) => {
       QRCode.toDataURL(url, {

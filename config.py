@@ -16,6 +16,10 @@ DEVICE_NAME = "HSG Canvas"
 CHROMECAST_CACHE_DURATION = 86400  # 24 hours
 METADATA_UPDATE_INTERVAL = 15  # seconds
 
+# Sendspin Protocol
+# Listener port kept for status API (daemon uses 8928, display used 8929)
+SENDSPIN_LISTENER_PORT = 8928
+
 # Server Configuration
 DEFAULT_PORT = 8000
 PRODUCTION_PORT = 8000

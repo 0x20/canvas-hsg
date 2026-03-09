@@ -3,41 +3,53 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HSG Canvas - Synthwave Edition</title>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/styles.css">
+    <title>HSG Canvas</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
 </head>
 <body>
     <div class="container">
-        <!-- Synthwave Header -->
         <div class="header">
-            <h1>HSG CANVAS</h1>
-            <p><span class="status-indicator"></span>SYNTHWAVE EDITION | <span id="resolution-display">DETECTING RESOLUTION...</span></p>
+            <h1>HSG Canvas</h1>
+            <p><span class="status-indicator"></span> <span id="resolution-display">Detecting resolution...</span></p>
+        </div>
+
+        <nav class="nav-bar">
+            <a href="/canvas/">Canvas Screen</a>
+            <a href="/docs">API Docs</a>
+            <a href="/static/json-viewer.html?endpoint=/status&title=Status">Status</a>
+            <a href="/static/json-viewer.html?endpoint=/diagnostics&title=Diagnostics">Diagnostics</a>
+        </nav>
+
+        <!-- System Volume -->
+        <div class="volume-bar">
+            <span class="label">Volume:</span>
+            <input type="range" id="systemVolume" min="0" max="100" value="100">
+            <span id="systemVolumeDisplay" class="volume-display">100%</span>
         </div>
 
         <!-- Hero Section: YouTube & Audio (Primary Focus) -->
         <div class="hero">
             <!-- Unified Video Playback -->
             <div class="card">
-                <h2>📺 VIDEO PLAYBACK</h2>
+                <h2>Video Playback</h2>
                 <p>Stream YouTube videos with or without audio</p>
 
                 <!-- Output Target Selection -->
-                <div style="margin-bottom: 15px; padding: 12px; background: rgba(114, 9, 183, 0.1); border-radius: 8px; border: 1px solid var(--neon-purple);">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                        <label style="font-weight: bold; margin: 0; flex-shrink: 0;">Output Target:</label>
-                        <select id="videoTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
+                <div class="inset-panel">
+                    <div class="control-row">
+                        <label>Output Target:</label>
+                        <select id="videoTargetSelect">
                             <option value="">Loading targets...</option>
                         </select>
-                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">🔄</button>
+                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">↻</button>
                     </div>
-                    <div id="videoTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
+                    <div id="videoTargetStatus" class="target-status"></div>
                 </div>
 
                 <!-- Preset Selection -->
-                <div style="margin-bottom: 10px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Quick select (auto-starts):</label>
-                    <select id="videoPresets" style="width: 100%; max-width: 400px;">
+                <div class="field-group">
+                    <label>Quick select (auto-starts):</label>
+                    <select id="videoPresets" class="full-width-input">
                         <option value="">Choose preset...</option>
                         <optgroup label="24/7 Live Streams">
                             <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
@@ -51,61 +63,58 @@
                     </select>
                 </div>
 
-                <!-- URL Input (Always Visible) -->
-                <div style="margin-bottom: 15px;">
-                    <label style="display: block; margin-bottom: 5px; font-weight: bold;">Or enter any URL:</label>
-                    <input type="url" id="customVideoUrl" placeholder="https://www.youtube.com/watch?v=..." style="width: 100%; max-width: 400px;">
+                <!-- URL Input -->
+                <div class="field-group">
+                    <label>Or enter any URL:</label>
+                    <input type="url" id="customVideoUrl" placeholder="https://www.youtube.com/watch?v=..." class="full-width-input">
                 </div>
 
-                <!-- Audio Toggle and Duration (Same Line) -->
-                <div style="margin: 20px 0; padding: 15px; background: rgba(114, 9, 183, 0.1); border-radius: 8px;">
-                    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
-                        <!-- Audio Toggle -->
-                        <div style="display: flex; align-items: center; gap: 15px;">
-                            <span style="font-weight: bold; font-size: 1rem; color: #888;">MUTED</span>
+                <!-- Audio Toggle and Duration -->
+                <div class="inset-panel">
+                    <div class="toggle-row">
+                        <div class="toggle-group">
+                            <span class="muted-label">Muted</span>
                             <label class="audio-toggle-switch">
                                 <input type="checkbox" id="videoAudioEnabled">
                                 <span class="toggle-slider"></span>
                             </label>
-                            <span style="font-weight: bold; font-size: 1rem;">AUDIO</span>
+                            <span class="audio-label">Audio</span>
                         </div>
-
-                        <!-- Duration Input -->
-                        <div style="display: flex; align-items: center; gap: 10px;">
-                            <label style="font-weight: bold; white-space: nowrap;">Duration (s):</label>
-                            <input type="number" id="videoDuration" placeholder="blank = continuous" min="1" max="7200" style="width: 150px;">
+                        <div class="duration-group">
+                            <label>Duration (s):</label>
+                            <input type="number" id="videoDuration" placeholder="blank = continuous" min="1" max="7200">
                         </div>
                     </div>
                 </div>
 
                 <!-- Controls -->
-                <div style="margin-top: 15px; display: flex; justify-content: space-between; align-items: center;">
-                    <button id="playVideoBtn" style="font-size: 1.1rem; padding: 12px 24px;">▶ PLAY VIDEO</button>
-                    <button id="stopVideoBtn" class="danger" style="font-size: 1.1rem; padding: 12px 24px;">⏹ STOP</button>
+                <div class="button-row">
+                    <button id="playVideoBtn">Play Video</button>
+                    <button id="stopVideoBtn" class="danger">Stop</button>
                 </div>
-                <div id="videoStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
+                <div id="videoStatus" class="status-text"></div>
             </div>
 
             <!-- Audio Streaming -->
             <div class="card">
-                <h2>🎵 AUDIO STREAMING</h2>
+                <h2>Audio Streaming</h2>
                 <p>Stream from Soma.FM, web radio, or any audio URL</p>
 
                 <!-- Output Target Selection -->
-                <div style="margin-bottom: 15px; padding: 12px; background: rgba(114, 9, 183, 0.1); border-radius: 8px; border: 1px solid var(--neon-purple);">
-                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px;">
-                        <label style="font-weight: bold; margin: 0; flex-shrink: 0;">Output Target:</label>
-                        <select id="audioTargetSelect" style="flex: 1; max-width: 300px; margin: 0;">
+                <div class="inset-panel">
+                    <div class="control-row">
+                        <label>Output Target:</label>
+                        <select id="audioTargetSelect">
                             <option value="">Loading targets...</option>
                         </select>
-                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">🔄</button>
+                        <button class="small-btn refresh-targets-btn" title="Refresh Chromecasts">↻</button>
                     </div>
-                    <div id="audioTargetStatus" style="font-size: 12px; color: var(--neon-cyan); margin-top: 5px;"></div>
+                    <div id="audioTargetStatus" class="target-status"></div>
                 </div>
 
                 <!-- Quick Stream Selection -->
-                <div style="margin-bottom: 15px;">
-                    <select id="quickStreamSelect" style="width: 100%; max-width: 400px;" >
+                <div class="field-group">
+                    <select id="quickStreamSelect" class="full-width-input">
                         <option value="">Select a stream...</option>
                         <optgroup label="soma.fm Stations">
                             <option value="https://somafm.com/groovesalad.pls">Groove Salad</option>
@@ -117,72 +126,67 @@
                     </select>
                 </div>
 
-                <input type="url" id="audioStreamUrl" placeholder="Or enter custom URL..." style="width: 100%; max-width: 400px;">
-                <br>
-                <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
-                    <input type="range" id="audioVolume" min="0" max="100" value="80" style="width: 200px;">
-                    <label style="margin: 0;">Volume: <span id="volumeDisplay">80</span>%</label>
+                <input type="url" id="audioStreamUrl" placeholder="Or enter custom URL..." class="full-width-input">
+                <div class="button-row">
+                    <button id="startAudioBtn">Start Audio</button>
+                    <button id="stopAudioBtn" class="danger">Stop</button>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <button id="startAudioBtn">▶ START AUDIO</button>
-                    <button id="stopAudioBtn" class="danger">⏹ STOP</button>
-                </div>
-                <div id="audioStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
+                <div id="audioStatus" class="status-text"></div>
             </div>
 
             <!-- Chromecast -->
             <div class="card">
-                <h2>📺 CHROMECAST</h2>
+                <h2>Chromecast</h2>
                 <p>Cast media to Chromecast devices on your network</p>
 
-                <!-- Device Discovery -->
-                <div style="margin-bottom: 15px;">
-                    <button id="discoverChromecastBtn">DISCOVER</button>
-                    <select id="chromecastDevice" style="width: 100%; max-width: 400px; margin-top: 10px; display: none;">
+                <div class="field-group">
+                    <button id="discoverChromecastBtn">Discover</button>
+                    <select id="chromecastDevice" class="full-width-input" style="display: none;">
                         <option value="">Select a device...</option>
                     </select>
                 </div>
 
-                <input type="url" id="chromecastUrl" placeholder="Enter media URL to cast..." style="width: 100%; max-width: 400px;">
-                <br>
-                <div style="display: flex; align-items: center; gap: 10px; margin: 10px 0;">
+                <input type="url" id="chromecastUrl" placeholder="Enter media URL to cast..." class="full-width-input">
+
+                <div class="control-row" style="margin: 8px 0;">
                     <input type="range" id="chromecastVolume" min="0" max="100" value="50" style="width: 200px;">
                     <label style="margin: 0;">Volume: <span id="chromecastVolumeDisplay">50</span>%</label>
                 </div>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
+
+                <div class="button-row">
                     <div>
-                        <button id="startChromecastBtn">▶ START CAST</button>
-                        <button id="pauseChromecastBtn">⏸ PAUSE</button>
+                        <button id="startChromecastBtn">Start Cast</button>
+                        <button id="pauseChromecastBtn">Pause</button>
                     </div>
-                    <button id="stopChromecastBtn" class="danger">⏹ STOP</button>
+                    <button id="stopChromecastBtn" class="danger">Stop</button>
                 </div>
-                <div id="chromecastStatus" style="margin-top: 15px; font-size: 14px; color: var(--neon-cyan);"></div>
+                <div id="chromecastStatus" class="status-text"></div>
             </div>
 
             <!-- Cast Receiver -->
             <div class="card">
-                <h2>📱 RECEIVE CASTS</h2>
+                <h2>Receive Casts</h2>
                 <p>Cast FROM your phone/tablet TO this Canvas</p>
 
-                <div id="castReceiverStatus" style="margin: 15px 0; padding: 15px; background: rgba(0, 245, 255, 0.1); border-radius: 8px;">
-                    <span style="text-shadow: 0 0 10px var(--neon-cyan);">⏳ Checking receiver status...</span>
+                <div id="castReceiverStatus" class="status-box">
+                    Checking receiver status...
                 </div>
 
-                <p style="font-size: 0.9rem; color: rgba(255,255,255,0.7); margin-top: 10px;">
-                    📌 To cast to this Canvas:<br>
+                <div class="info-box">
+                    To cast to this Canvas:<br>
                     1. Open a cast-enabled app on your phone<br>
                     2. Look for "HSG Canvas" in the cast menu<br>
                     3. Select it to start casting<br>
                     <br>
                     Supported: YouTube, audio streams, video URLs
-                </p>
+                </div>
             </div>
         </div>
 
         <!-- Toggle Button for Advanced Features -->
         <div class="toggle-advanced">
             <button class="toggle-btn" id="toggleAdvancedBtn">
-                <span id="toggleText">⚙️ SHOW ADVANCED FEATURES</span>
+                <span id="toggleText">Show Advanced Features</span>
             </button>
         </div>
 
@@ -191,10 +195,10 @@
 
             <!-- Tabs for Advanced Features -->
             <div class="tabs">
-                <button class="tab-btn active" id="tab-btn-streams">🌊 STREAMS</button>
-                <button class="tab-btn" id="tab-btn-display">🖼️ DISPLAY</button>
-                <button class="tab-btn" id="tab-btn-system">📊 SYSTEM</button>
-                <button class="tab-btn" id="tab-btn-advanced">⚙️ ADVANCED</button>
+                <button class="tab-btn active" id="tab-btn-streams">Streams</button>
+                <button class="tab-btn" id="tab-btn-display">Display</button>
+                <button class="tab-btn" id="tab-btn-system">System</button>
+                <button class="tab-btn" id="tab-btn-advanced">Advanced</button>
             </div>
 
             <!-- Tab Content: Streams -->
@@ -202,7 +206,7 @@
             <div class="grid">
                 <!-- Playback Control -->
                 <div class="card">
-                    <h2>▶️ PLAY STREAM</h2>
+                    <h2>Play Stream</h2>
                     <p>Watch RTMP/HTTP-FLV/HLS streams</p>
                     <input type="text" id="playbackKey" placeholder="Stream Key" value="oke">
                     <select id="player">
@@ -221,29 +225,28 @@
                         <option value="http_flv">HTTP-FLV (Lower latency)</option>
                         <option value="hls">HLS</option>
                     </select>
-                    <br>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button id="startPlaybackBtn">START PLAYBACK</button>
-                        <button id="stopPlaybackBtn" class="danger">STOP</button>
+                    <div class="button-row">
+                        <button id="startPlaybackBtn">Start Playback</button>
+                        <button id="stopPlaybackBtn" class="danger">Stop</button>
                     </div>
                 </div>
 
                 <!-- Start Stream -->
                 <div class="card">
-                    <h2>📡 START STREAM</h2>
+                    <h2>Start Stream</h2>
                     <p>Republish files or cameras to SRS</p>
                     <input type="text" id="streamKey" placeholder="Stream Key" value="mystream">
-                    <input type="text" id="sourceUrl" placeholder="Source URL or file path" style="width: 100%; max-width: 300px;">
+                    <input type="text" id="sourceUrl" placeholder="Source URL or file path" class="full-width-input">
                     <select id="streamProtocol">
                         <option value="rtmp">RTMP</option>
                     </select>
                     <br>
-                    <button id="startStreamBtn">START STREAM</button>
+                    <button id="startStreamBtn">Start Stream</button>
                 </div>
 
                 <!-- Screen Streaming -->
                 <div class="card">
-                    <h2>📡 SCREEN STREAM</h2>
+                    <h2>Screen Stream</h2>
                     <p>Stream display output (META)</p>
                     <input type="text" id="screenStreamKey" placeholder="Stream key" value="desktop">
                     <select id="screenStreamProtocol">
@@ -252,13 +255,13 @@
                         <option value="hls">HLS</option>
                     </select>
                     <br>
-                    <button id="screenStreamButton">START SCREEN STREAM</button>
-                    <div id="screenStreamStatus" style="margin-top: 10px;"></div>
+                    <button id="screenStreamButton">Start Screen Stream</button>
+                    <div id="screenStreamStatus" class="status-text"></div>
                 </div>
 
                 <!-- Active Streams -->
                 <div class="card">
-                    <h2>🔴 ACTIVE STREAMS</h2>
+                    <h2>Active Streams</h2>
                     <div id="activeStreams" class="streams-list">No active streams</div>
                 </div>
             </div>
@@ -269,47 +272,45 @@
             <div class="grid">
                 <!-- Image Display -->
                 <div class="card">
-                    <h2>🖼️ DISPLAY IMAGE</h2>
+                    <h2>Display Image</h2>
                     <p>Show fullscreen images</p>
                     <input type="file" id="imageFile" accept="image/*" style="width: 100%;">
                     <input type="number" id="imageDuration" placeholder="Duration (seconds)" value="10" min="1" max="300">
-                    <br>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button id="displayImageBtn">DISPLAY IMAGE</button>
-                        <button id="stopDisplayImageBtn" class="danger">STOP</button>
+                    <div class="button-row">
+                        <button id="displayImageBtn">Display Image</button>
+                        <button id="stopDisplayImageBtn" class="danger">Stop</button>
                     </div>
                 </div>
 
                 <!-- QR Code -->
                 <div class="card">
-                    <h2>📱 QR CODE</h2>
+                    <h2>QR Code</h2>
                     <p>Generate and display QR codes</p>
-                    <input type="text" id="qrContent" placeholder="URL or text..." style="width: 100%; max-width: 300px;">
+                    <input type="text" id="qrContent" placeholder="URL or text..." class="full-width-input">
                     <input type="number" id="qrDuration" placeholder="Duration (seconds)" min="1" max="300">
-                    <br>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button id="displayQRCodeBtn">GENERATE QR CODE</button>
-                        <button id="stopQRCodeBtn" class="danger">STOP</button>
+                    <div class="button-row">
+                        <button id="displayQRCodeBtn">Generate QR Code</button>
+                        <button id="stopQRCodeBtn" class="danger">Stop</button>
                     </div>
                 </div>
 
                 <!-- Background Control -->
                 <div class="card">
-                    <h2>🖼️ BACKGROUND</h2>
+                    <h2>Background</h2>
                     <p>Manage background display</p>
-                    <div style="margin-bottom: 15px;">
+                    <div style="margin-bottom: 10px;">
                         <button id="staticModeBtn" class="mode-button active">
-                            STATIC BACKGROUND
+                            Static Background
                         </button>
                     </div>
                     <div id="staticControls">
                         <input type="file" id="backgroundFile" accept="image/*" style="width: 100%;">
                         <br>
-                        <button id="setBackgroundBtn">SET BACKGROUND</button>
+                        <button id="setBackgroundBtn">Set Background</button>
                     </div>
-                    <button id="refreshBackgroundBtn">🔄 REFRESH</button>
-                    <button id="showBackgroundBtn">SHOW NOW</button>
-                    <div id="backgroundStatus" style="margin-top: 10px; color: var(--neon-cyan);"></div>
+                    <button id="refreshBackgroundBtn">Refresh</button>
+                    <button id="showBackgroundBtn">Show Now</button>
+                    <div id="backgroundStatus" class="status-text"></div>
                 </div>
             </div>
         </div>
@@ -319,36 +320,26 @@
             <div class="grid">
                 <!-- System Status -->
                 <div class="card">
-                    <h2>📊 SYSTEM STATUS</h2>
+                    <h2>System Status</h2>
                     <div id="status" class="status">Click refresh to load...</div>
                     <div id="systemStats" class="stats"></div>
-                    <button id="refreshStatusBtn">🔄 REFRESH STATUS</button>
+                    <button id="refreshStatusBtn">Refresh Status</button>
                 </div>
 
                 <!-- Current Playback -->
                 <div class="card">
-                    <h2>🎬 CURRENT PLAYBACK</h2>
-                    <div id="currentPlayback" style="color: rgba(255,255,255,0.8);">No active playback</div>
+                    <h2>Current Playback</h2>
+                    <div id="currentPlayback" style="color: var(--text-muted);">No active playback</div>
                 </div>
 
                 <!-- Quick Actions -->
                 <div class="card">
-                    <h2>⚡ QUICK ACTIONS</h2>
+                    <h2>Quick Actions</h2>
                     <input type="text" id="switchKey" placeholder="New stream key">
                     <br>
-                    <button id="switchStreamBtn">SWITCH STREAM</button>
+                    <button id="switchStreamBtn">Switch Stream</button>
                     <button id="switchPlayerMpvBtn" class="small-btn">MPV</button>
-                    <button id="switchPlayerFfplayBtn" class="small-btn">FFPLAY</button>
-                </div>
-
-                <!-- Navigation Links -->
-                <div class="card">
-                    <h2>📚 DOCUMENTATION</h2>
-                    <a href="/docs" style="color: var(--neon-cyan); text-decoration: none; display: block; margin: 10px 0;">→ API Documentation</a>
-                    <a href="/docs/quick-start" style="color: var(--neon-cyan); text-decoration: none; display: block; margin: 10px 0;">→ Quick Start Guide</a>
-                    <a href="/diagnostics" style="color: var(--neon-pink); text-decoration: none; display: block; margin: 10px 0;">→ System Diagnostics</a>
-                    <a href="/status" style="color: var(--neon-cyan); text-decoration: none; display: block; margin: 10px 0;">→ Server Status JSON</a>
-                    <a href="/health" style="color: var(--neon-cyan); text-decoration: none; display: block; margin: 10px 0;">→ Health Check</a>
+                    <button id="switchPlayerFfplayBtn" class="small-btn">FFplay</button>
                 </div>
             </div>
         </div>
@@ -358,25 +349,25 @@
             <div class="grid">
                 <!-- Spotify Connect -->
                 <div class="card">
-                    <h2>🎧 SPOTIFY CONNECT</h2>
+                    <h2>Spotify Connect</h2>
                     <p>Cast Spotify Premium from your phone</p>
-                    <div id="spotifyStatus" style="margin-bottom: 15px; padding: 15px; background: rgba(0,245,255,0.1); border-radius: 10px; border: 1px solid var(--neon-cyan);">
+                    <div id="spotifyStatus" class="status-box">
                         <div><strong>Device:</strong> <span id="spotifyDeviceName">HSG Canvas</span></div>
                         <div><strong>Status:</strong> <span id="spotifyServiceStatus">Checking...</span></div>
                     </div>
 
                     <!-- Now Playing Info -->
-                    <div id="spotifyPlaybackInfo" style="display: none; margin-bottom: 15px; padding: 15px; background: rgba(29,185,84,0.1); border-radius: 10px; border: 1px solid #1DB954;">
-                        <div style="font-size: 1.1em; margin-bottom: 10px;"><strong>🎵 Now Playing</strong></div>
-                        <div style="margin-bottom: 5px;"><strong>Track:</strong> <span id="spotifyTrackId">-</span></div>
-                        <div style="margin-bottom: 5px;"><strong>Duration:</strong> <span id="spotifyDuration">-</span></div>
+                    <div id="spotifyPlaybackInfo" class="status-box spotify-playing" style="display: none;">
+                        <div style="margin-bottom: 8px;"><strong>Now Playing</strong></div>
+                        <div><strong>Track:</strong> <span id="spotifyTrackId">-</span></div>
+                        <div><strong>Duration:</strong> <span id="spotifyDuration">-</span></div>
                         <div style="font-size: 0.85em; opacity: 0.7;"><span id="spotifyLastEvent">-</span></div>
                     </div>
 
-                    <button id="refreshSpotifyBtn" style="background: #1DB954;">🔄 REFRESH</button>
-                    <div style="margin-top: 15px; padding: 15px; background: rgba(114,9,183,0.1); border-radius: 10px; font-size: 0.9em;">
-                        <strong>HOW TO USE:</strong>
-                        <ol style="margin: 10px 0 0 20px;">
+                    <button id="refreshSpotifyBtn" class="spotify-btn">Refresh</button>
+                    <div class="info-box">
+                        <strong>How to use:</strong>
+                        <ol style="margin: 8px 0 0 20px;">
                             <li>Open Spotify on your phone</li>
                             <li>Start playing music</li>
                             <li>Tap "Devices Available" icon</li>
@@ -387,14 +378,14 @@
 
                 <!-- TV Control (HDMI-CEC) -->
                 <div class="card">
-                    <h2>📺 TV CONTROL</h2>
+                    <h2>TV Control</h2>
                     <p>HDMI-CEC power control</p>
-                    <div style="margin-bottom: 15px;">
-                        <button id="tvPowerOnBtn" style="background: #28a745;">⚡ POWER ON</button>
-                        <button id="tvPowerOffBtn" class="danger">💤 POWER OFF</button>
-                        <button id="refreshCECBtn">🔄 REFRESH</button>
+                    <div style="margin-bottom: 12px;">
+                        <button id="tvPowerOnBtn" style="background: #388e3c; border-color: #388e3c;">Power On</button>
+                        <button id="tvPowerOffBtn" class="danger">Power Off</button>
+                        <button id="refreshCECBtn">Refresh</button>
                     </div>
-                    <div id="cecStatus">
+                    <div id="cecStatus" class="cec-status">
                         <div><strong>CEC:</strong> <span id="cecAvailability">Checking...</span></div>
                         <div><strong>TV Power:</strong> <span id="tvPowerStatus">Unknown</span></div>
                         <div><strong>TV Address:</strong> <span id="tvAddress">-</span></div>
@@ -403,39 +394,37 @@
 
                 <!-- Website Casting -->
                 <div class="card">
-                    <h2>🌐 WEBSITE CASTING</h2>
+                    <h2>Website Casting</h2>
                     <p>Cast websites with auto-scroll</p>
-                    <input type="url" id="webcastUrl" placeholder="https://example.com" style="width: 100%; max-width: 400px;">
-                    <br>
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 15px 0;">
+                    <input type="url" id="webcastUrl" placeholder="https://example.com" class="full-width-input">
+                    <div class="webcast-grid">
                         <div>
                             <label>Scroll Delay (s):</label>
-                            <input type="number" id="scrollDelay" value="5" min="1" max="60" style="width: 100%;">
+                            <input type="number" id="scrollDelay" value="5" min="1" max="60">
                         </div>
                         <div>
                             <label>Scroll %:</label>
-                            <input type="number" id="scrollPercentage" value="30" min="10" max="90" style="width: 100%;">
+                            <input type="number" id="scrollPercentage" value="30" min="10" max="90">
                         </div>
                         <div>
                             <label>Overlap %:</label>
-                            <input type="number" id="overlapPercentage" value="5" min="0" max="20" style="width: 100%;">
+                            <input type="number" id="overlapPercentage" value="5" min="0" max="20">
                         </div>
                         <div>
                             <label>Loops:</label>
-                            <input type="number" id="loopCount" value="3" min="1" max="20" style="width: 100%;">
+                            <input type="number" id="loopCount" value="3" min="1" max="20">
                         </div>
                     </div>
-                    <select id="viewportSize" style="width: 100%; max-width: 400px;">
+                    <select id="viewportSize" class="full-width-input">
                         <option value="1920x1080">1920x1080 (Full HD)</option>
                         <option value="1280x720">1280x720 (HD)</option>
                         <option value="800x600">800x600 (4:3)</option>
                     </select>
-                    <br>
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <button id="webcastStartBtn">▶ START</button>
-                        <button id="webcastStopBtn" class="danger">⏹ STOP</button>
+                    <div class="button-row">
+                        <button id="webcastStartBtn">Start</button>
+                        <button id="webcastStopBtn" class="danger">Stop</button>
                     </div>
-                    <div id="webcastStatus" style="margin-top: 10px;">
+                    <div id="webcastStatus" class="status-text">
                         <div><strong>Status:</strong> <span id="webcastState">Stopped</span></div>
                     </div>
                 </div>
@@ -444,6 +433,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v=2"></script>
 </body>
 </html>

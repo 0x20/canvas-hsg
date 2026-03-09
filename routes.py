@@ -1082,17 +1082,19 @@ def setup_websocket_routes(
     display_stack: 'DisplayStack' = None,
     audio_ws_manager: 'WebSocketManager' = None,
     audio_manager=None,
+    sendspin_manager=None,
 ) -> APIRouter:
     """
     Setup WebSocket routes for real-time event broadcasting
 
     Args:
-        websocket_manager: WebSocketManager for Spotify events
+        websocket_manager: WebSocketManager for Spotify/Sendspin events
         spotify_manager: SpotifyManager for initial state
         display_ws_manager: WebSocketManager for display state broadcasts
         display_stack: DisplayStack for initial display state
         audio_ws_manager: WebSocketManager for audio commands
         audio_manager: AudioManager for audio status updates from browser
+        sendspin_manager: SendspinManager for initial state
 
     Returns:
         Configured APIRouter
@@ -1103,14 +1105,13 @@ def setup_websocket_routes(
 
     @router.websocket("/ws/spotify-events")
     async def spotify_events_websocket(websocket: WebSocket):
-        """WebSocket endpoint for real-time Spotify track updates"""
+        """WebSocket endpoint for real-time track updates (Spotify + Sendspin)"""
         initial_data = None
-        if spotify_manager and spotify_manager.track_info.get("name"):
+        # Send initial track data from whichever source is active
+        if spotify_manager and spotify_manager.is_playing and spotify_manager.track_info.get("name"):
             artists = spotify_manager.track_info.get("artists", "Unknown Artist")
             if isinstance(artists, str):
                 artists = artists.replace('\n', ', ')
-
-            spotify_url = spotify_manager.track_info.get("spotify_url")
 
             initial_data = {
                 "event": "track_changed",
@@ -1120,7 +1121,19 @@ def setup_websocket_routes(
                     "album": spotify_manager.track_info.get("album", ""),
                     "album_art_url": spotify_manager.track_info.get("album_art_url"),
                     "duration_ms": spotify_manager.track_info.get("duration_ms"),
-                    "spotify_url": spotify_url
+                    "spotify_url": spotify_manager.track_info.get("spotify_url"),
+                }
+            }
+        elif sendspin_manager and sendspin_manager.is_playing and sendspin_manager.track_info.get("name"):
+            initial_data = {
+                "event": "track_changed",
+                "data": {
+                    "name": sendspin_manager.track_info.get("name"),
+                    "artists": sendspin_manager.track_info.get("artists", "Unknown Artist"),
+                    "album": sendspin_manager.track_info.get("album", ""),
+                    "album_art_url": sendspin_manager.track_info.get("album_art_url"),
+                    "duration_ms": sendspin_manager.track_info.get("duration_ms", 0),
+                    "spotify_url": None,
                 }
             }
 
@@ -1313,6 +1326,42 @@ def setup_homeassistant_routes(ha_manager: 'HomeAssistantManager') -> APIRouter:
             "message": "State pushed",
             "state": ha_manager._last_pushed_state,
         }
+
+    return router
+
+
+# =============================================================================
+# SENDSPIN ROUTES
+# =============================================================================
+
+def setup_sendspin_routes(sendspin_manager) -> APIRouter:
+    """
+    Setup Sendspin protocol routes
+
+    Args:
+        sendspin_manager: SendspinManager instance
+
+    Returns:
+        Configured APIRouter
+    """
+    router = APIRouter(prefix="/sendspin", tags=["sendspin"])
+
+    @router.get("/status")
+    async def get_sendspin_status():
+        """Get Sendspin connection and playback status"""
+        return sendspin_manager.get_status()
+
+    @router.post("/hook/start")
+    async def sendspin_hook_start():
+        """Called by sendspin daemon --hook-start when audio stream starts."""
+        await sendspin_manager.handle_hook_start()
+        return {"status": "ok"}
+
+    @router.post("/hook/stop")
+    async def sendspin_hook_stop():
+        """Called by sendspin daemon --hook-stop when audio stream stops."""
+        await sendspin_manager.handle_hook_stop()
+        return {"status": "ok"}
 
     return router
 

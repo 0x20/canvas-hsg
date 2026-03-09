@@ -52,10 +52,12 @@ function cacheDOMElements() {
 
     // Audio
     DOM.audioStreamUrl = document.getElementById('audioStreamUrl');
-    DOM.audioVolume = document.getElementById('audioVolume');
-    DOM.volumeDisplay = document.getElementById('volumeDisplay');
     DOM.audioStatus = document.getElementById('audioStatus');
     DOM.quickStreamSelect = document.getElementById('quickStreamSelect');
+
+    // System volume
+    DOM.systemVolume = document.getElementById('systemVolume');
+    DOM.systemVolumeDisplay = document.getElementById('systemVolumeDisplay');
 
     // Chromecast
     DOM.chromecastUrl = document.getElementById('chromecastUrl');
@@ -572,7 +574,6 @@ async function startAudioStream(e) {
     clearValidationErrors(audioCard);
 
     const streamUrl = DOM.audioStreamUrl.value.trim();
-    const volume = DOM.audioVolume.value;
 
     if (!streamUrl) {
         showValidationError(audioCard, 'Please enter an audio stream URL');
@@ -586,8 +587,7 @@ async function startAudioStream(e) {
         const selectedTarget = DOM.audioTargetSelect.value;
 
         const data = {
-            stream_url: streamUrl,
-            volume: parseInt(volume)
+            stream_url: streamUrl
         };
 
         let endpoint = '/targets/play/audio';
@@ -1490,16 +1490,16 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.chromecastVolume.addEventListener('change', updateChromecastVolumeDisplay);
     DOM.chromecastVolume.addEventListener('input', updateChromecastVolumeDisplay);
 
-    if (DOM.audioVolume && DOM.volumeDisplay) {
-        DOM.audioVolume.addEventListener('input', function() {
-            DOM.volumeDisplay.textContent = this.value;
+    if (DOM.systemVolume && DOM.systemVolumeDisplay) {
+        DOM.systemVolume.addEventListener('input', function() {
+            DOM.systemVolumeDisplay.textContent = this.value + '%';
         });
 
-        DOM.audioVolume.addEventListener('change', async function() {
+        DOM.systemVolume.addEventListener('change', async function() {
             try {
-                await apiCall('PUT', '/audio/volume', { volume: parseInt(this.value) });
+                await apiCall('PUT', '/playback/volume', { volume: parseInt(this.value) });
             } catch (error) {
-                console.error('Failed to set volume:', error);
+                console.error('Failed to set system volume:', error);
             }
         });
     }
@@ -1520,4 +1520,14 @@ document.addEventListener('DOMContentLoaded', function() {
     refreshBackgroundStatus();
     refreshCECStatus();
     refreshSpotifyStatus();
+
+    // Load current system volume
+    if (DOM.systemVolume && DOM.systemVolumeDisplay) {
+        apiCall('GET', '/playback/volume').then(data => {
+            if (data && data.volume !== undefined) {
+                DOM.systemVolume.value = data.volume;
+                DOM.systemVolumeDisplay.textContent = data.volume + '%';
+            }
+        }).catch(() => {});
+    }
 });
