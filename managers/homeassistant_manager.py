@@ -43,6 +43,7 @@ class HomeAssistantManager:
         self.entity_id: str = "media_player.hsg_canvas"
         self.enabled: bool = False
         self.automations: List[Dict[str, Any]] = []
+        self.custom_events: Dict[str, Dict[str, Any]] = {}  # event_type -> {action, action_args}
 
         # Runtime state
         self._last_pushed_state: Optional[Dict[str, Any]] = None
@@ -72,7 +73,8 @@ class HomeAssistantManager:
             self.entity_id = config.get("entity_id", "media_player.hsg_canvas")
             self.enabled = config.get("enabled", False)
             self.automations = config.get("automations", [])
-            logging.info(f"Loaded HA config: url={self.ha_url}, enabled={self.enabled}, automations={len(self.automations)}")
+            self.custom_events = config.get("custom_events", {})
+            logging.info(f"Loaded HA config: url={self.ha_url}, enabled={self.enabled}, automations={len(self.automations)}, custom_events={len(self.custom_events)}")
         except Exception as e:
             logging.error(f"Failed to load HA config: {e}")
 
@@ -85,6 +87,7 @@ class HomeAssistantManager:
                 "entity_id": self.entity_id,
                 "enabled": self.enabled,
                 "automations": self.automations,
+                "custom_events": self.custom_events,
             }
             with open(CONFIG_PATH, "w") as f:
                 yaml.dump(config, f, default_flow_style=False)
@@ -259,8 +262,9 @@ class HomeAssistantManager:
                         logging.info("HA WebSocket authenticated")
 
                         # Step 3: subscribe to state_changed events
+                        sub_id = 1
                         await ws.send_json({
-                            "id": 1,
+                            "id": sub_id,
                             "type": "subscribe_events",
                             "event_type": "state_changed",
                         })
@@ -271,12 +275,33 @@ class HomeAssistantManager:
 
                         logging.info("Subscribed to HA state_changed events")
 
+                        # Step 3b: subscribe to custom event types
+                        custom_event_sub_ids = {}
+                        for event_type in self.custom_events:
+                            sub_id += 1
+                            await ws.send_json({
+                                "id": sub_id,
+                                "type": "subscribe_events",
+                                "event_type": event_type,
+                            })
+                            msg = await ws.receive_json()
+                            if msg.get("success"):
+                                custom_event_sub_ids[sub_id] = event_type
+                                logging.info(f"Subscribed to HA custom event: {event_type}")
+                            else:
+                                logging.error(f"HA WS subscribe to {event_type} failed: {msg}")
+
                         # Step 4: listen for events
                         async for msg in ws:
                             if msg.type == aiohttp.WSMsgType.TEXT:
                                 data = json.loads(msg.data)
                                 if data.get("type") == "event":
-                                    await self._handle_ha_event(data.get("event", {}))
+                                    sub = data.get("id")
+                                    if sub == 1:
+                                        await self._handle_ha_event(data.get("event", {}))
+                                    elif sub in custom_event_sub_ids:
+                                        event_type = custom_event_sub_ids[sub]
+                                        await self._handle_custom_event(event_type)
                             elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                                 logging.warning("HA WebSocket closed/error")
                                 break
@@ -317,10 +342,31 @@ class HomeAssistantManager:
             logging.info(f"HA automation matched: {entity_id} {old_val}->{new_val}, action={rule.get('action')}")
             await self._execute_action(rule.get("action", ""), rule.get("action_args", {}))
 
+    async def _handle_custom_event(self, event_type: str):
+        """Handle a custom HA event by executing its configured action(s)"""
+        config = self.custom_events.get(event_type)
+        if not config:
+            return
+
+        logging.info(f"HA custom event fired: {event_type}")
+        actions = config.get("actions", [])
+        if not actions:
+            # Single action format
+            await self._execute_action(config.get("action", ""), config.get("action_args", {}))
+            return
+
+        # Multi-action: run sequentially
+        for act in actions:
+            await self._execute_action(act.get("action", ""), act.get("action_args", {}))
+
     async def _execute_action(self, action: str, args: Dict[str, Any]):
         """Execute a local manager action"""
         try:
-            if action == "cec.tv_power_on":
+            if action == "delay":
+                seconds = args.get("seconds", 1)
+                logging.info(f"HA action delay: {seconds}s")
+                await asyncio.sleep(seconds)
+            elif action == "cec.tv_power_on":
                 if self.cec_manager:
                     await self.cec_manager.power_on_tv()
             elif action == "cec.tv_power_off":
@@ -367,6 +413,14 @@ class HomeAssistantManager:
                         args.get("image_url", ""),
                         args.get("duration", 10),
                         self.background_manager
+                    )
+            elif action == "display.push":
+                if self.display_stack:
+                    await self.display_stack.push(
+                        args.get("type", "image"),
+                        args.get("content", {}),
+                        duration=args.get("duration"),
+                        item_id=args.get("item_id"),
                     )
             elif action == "display.navigate":
                 if self.display_stack:

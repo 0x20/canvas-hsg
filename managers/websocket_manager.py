@@ -69,6 +69,23 @@ class WebSocketManager:
 
         logging.debug(f"Broadcasted {event_type} to {len(self.active_connections)} clients")
 
+    async def broadcast_raw(self, data: Dict[str, Any]):
+        """Broadcast a raw message (no event/data wrapping) to all connected clients"""
+        if not self.active_connections:
+            return
+
+        message = json.dumps(data)
+        dead_connections = set()
+        for websocket in self.active_connections:
+            try:
+                await websocket.send_text(message)
+            except Exception as e:
+                logging.warning(f"Failed to send to WebSocket client: {e}")
+                dead_connections.add(websocket)
+
+        for websocket in dead_connections:
+            self.active_connections.discard(websocket)
+
     def get_connection_count(self) -> int:
         """Get the number of active WebSocket connections"""
         return len(self.active_connections)

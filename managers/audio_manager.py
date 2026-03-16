@@ -87,7 +87,7 @@ class AudioManager:
             logging.info(f"Starting audio stream via browser: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
 
             # Send play command to browser via WebSocket
-            await self.audio_ws_manager.broadcast("audio_play", {
+            await self.audio_ws_manager.broadcast_raw({
                 "type": "audio_play",
                 "url": resolved_url,
                 "volume": self.audio_volume,
@@ -113,7 +113,7 @@ class AudioManager:
             if self.current_audio_stream or self._is_playing:
                 logging.info("Stopping audio stream")
 
-                await self.audio_ws_manager.broadcast("audio_stop", {
+                await self.audio_ws_manager.broadcast_raw({
                     "type": "audio_stop",
                 })
 
@@ -136,7 +136,7 @@ class AudioManager:
         try:
             self.audio_volume = max(0, min(100, volume))
 
-            await self.audio_ws_manager.broadcast("audio_volume", {
+            await self.audio_ws_manager.broadcast_raw({
                 "type": "audio_volume",
                 "volume": self.audio_volume,
             })
@@ -150,7 +150,7 @@ class AudioManager:
     async def toggle_pause(self) -> bool:
         """Toggle audio pause/play"""
         try:
-            await self.audio_ws_manager.broadcast("audio_pause", {
+            await self.audio_ws_manager.broadcast_raw({
                 "type": "audio_pause",
             })
             return True
