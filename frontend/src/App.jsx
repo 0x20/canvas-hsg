@@ -36,7 +36,7 @@ function App() {
 
             if (message.event === 'display_state') {
               setDisplayItem(message.data);
-              if (message.data.type === 'spotify' || message.data.type === 'sendspin') {
+              if (message.data.type === 'spotify' || message.data.type === 'sendspin' || message.data.type === 'bluetooth') {
                 setSpotifySeen(true);
               }
             }
@@ -76,13 +76,14 @@ function App() {
     }
   }, [displayItem.type]);
 
-  const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin';
+  const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin' || displayItem.type === 'bluetooth';
   const keepNowPlayingMounted = spotifySeen && !isNowPlayingActive && displayItem.type !== 'static';
 
   const renderOverlay = () => {
     switch (displayItem.type) {
       case 'spotify':
       case 'sendspin':
+      case 'bluetooth':
         return null; // NowPlaying rendered separately below
       case 'image':
       case 'qrcode':

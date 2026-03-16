@@ -36,6 +36,7 @@ class SendspinManager:
         self.audio_conflict = audio_conflict
         self.playback_manager = None
         self.spotify_manager = None
+        self.bluetooth_manager = None
         self.display_stack = None
 
         # Current state
@@ -86,6 +87,10 @@ class SendspinManager:
             # Mute Raspotify (last-in wins)
             if self.audio_conflict:
                 await self.audio_conflict.mute_source("raspotify")
+
+            # Pause Bluetooth AVRCP
+            if hasattr(self, 'bluetooth_manager') and self.bluetooth_manager:
+                await self.bluetooth_manager.pause_playback()
 
             # Stop any local audio/video playback
             if self.audio_manager:

@@ -61,7 +61,11 @@ apt-get install -y \
     feh \
     jq \
     bc \
-    sysstat
+    sysstat \
+    bluez \
+    libspa-0.2-bluetooth \
+    bluez-tools \
+    dbus
 
 echo -e "${GREEN}✓ System packages installed${NC}"
 echo ""
@@ -197,6 +201,55 @@ else
     echo -e "${YELLOW}⚠ sendspin binary not found, skipping systemd service${NC}"
 fi
 
+echo ""
+
+# ============================================
+# 3.6. Bluetooth A2DP Sink Setup
+# ============================================
+echo -e "${BLUE}[3.6/9] Setting up Bluetooth A2DP sink...${NC}"
+
+# Configure BlueZ for auto-pairable audio sink
+if [ -f /etc/bluetooth/main.conf ]; then
+    sed -i 's/^#\?Name\s*=.*/Name = HSG Canvas/' /etc/bluetooth/main.conf
+    sed -i 's/^#\?DiscoverableTimeout\s*=.*/DiscoverableTimeout = 0/' /etc/bluetooth/main.conf
+    sed -i 's/^#\?Pairable\s*=.*/Pairable = true/' /etc/bluetooth/main.conf
+    sed -i 's/^#\?AutoEnable\s*=.*/AutoEnable = true/' /etc/bluetooth/main.conf
+
+    # Set device class to Audio/Video Loudspeaker
+    if grep -q '^\[General\]' /etc/bluetooth/main.conf; then
+        if ! grep -q '^Class\s*=' /etc/bluetooth/main.conf; then
+            sed -i '/^\[General\]/a Class = 0x200414' /etc/bluetooth/main.conf
+        else
+            sed -i 's/^Class\s*=.*/Class = 0x200414/' /etc/bluetooth/main.conf
+        fi
+    fi
+fi
+
+# Create bt-agent service for auto-accept pairing (NoInputNoOutput capability)
+cat > /etc/systemd/system/bt-agent.service << 'EOF'
+[Unit]
+Description=Bluetooth Agent (auto-accept pairing)
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/bluetoothctl discoverable on
+ExecStart=/usr/bin/bt-agent --capability=NoInputNoOutput
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable bluetooth.service
+systemctl restart bluetooth.service || true
+systemctl enable bt-agent.service
+systemctl start bt-agent.service || true
+
+echo -e "${GREEN}✓ Bluetooth A2DP sink configured${NC}"
 echo ""
 
 # ============================================
@@ -358,6 +411,7 @@ echo "  1. srs-server.service   - SRS RTMP/HTTP-FLV server (Docker)"
 echo "  2. hsg-canvas.service   - HSG Canvas web app"
 echo "  3. raspotify.service    - Spotify Connect client"
 echo "  4. sendspin.service     - Sendspin multi-room audio receiver"
+echo "  5. bt-agent.service     - Bluetooth auto-accept pairing agent"
 echo ""
 
 echo -e "${YELLOW}Next Steps:${NC}"

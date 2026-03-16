@@ -26,6 +26,7 @@ from managers.chromecast_manager import ChromecastManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
 from managers.sendspin_manager import SendspinManager
+from managers.bluetooth_manager import BluetoothManager
 from managers.audio_conflict import AudioConflictManager
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
@@ -46,6 +47,7 @@ from routes import (
     setup_homeassistant_routes,
     setup_display_stack_routes,
     setup_sendspin_routes,
+    setup_bluetooth_routes,
 )
 
 # Config
@@ -137,6 +139,15 @@ async def lifespan(app: FastAPI):
         )
         app.state.sendspin_manager.display_stack = app.state.display_stack
 
+        # Initialize Bluetooth manager
+        logging.info("Initializing Bluetooth manager...")
+        app.state.bluetooth_manager = BluetoothManager(
+            audio_manager=app.state.audio_manager,
+            websocket_manager=app.state.websocket_manager,
+            audio_conflict=app.state.audio_conflict,
+        )
+        app.state.bluetooth_manager.display_stack = app.state.display_stack
+
         app.state.playback_manager = PlaybackManager(
             app.state.display_stack, app.state.display_detector,
             app.state.background_manager, app.state.audio_manager
@@ -149,9 +160,18 @@ async def lifespan(app: FastAPI):
         app.state.audio_manager.sendspin_manager = app.state.sendspin_manager
         app.state.sendspin_manager.playback_manager = app.state.playback_manager
         app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
+        app.state.sendspin_manager.bluetooth_manager = app.state.bluetooth_manager
+        app.state.bluetooth_manager.playback_manager = app.state.playback_manager
+        app.state.bluetooth_manager.spotify_manager = app.state.spotify_manager
+        app.state.bluetooth_manager.sendspin_manager = app.state.sendspin_manager
+        app.state.spotify_manager.bluetooth_manager = app.state.bluetooth_manager
+        app.state.audio_manager.bluetooth_manager = app.state.bluetooth_manager
 
         # Start Sendspin listener (after all cross-refs are wired)
         await app.state.sendspin_manager.initialize()
+
+        # Start Bluetooth polling (after all cross-refs are wired)
+        await app.state.bluetooth_manager.initialize()
 
         app.state.image_manager = ImageManager(
             app.state.display_detector, app.state.display_stack
@@ -218,7 +238,10 @@ async def lifespan(app: FastAPI):
         # Setup Sendspin routes
         app.include_router(setup_sendspin_routes(app.state.sendspin_manager))
 
-        # Setup WebSocket routes (display + audio + spotify + sendspin)
+        # Setup Bluetooth routes
+        app.include_router(setup_bluetooth_routes(app.state.bluetooth_manager))
+
+        # Setup WebSocket routes (display + audio + spotify + sendspin + bluetooth)
         app.include_router(setup_websocket_routes(
             app.state.websocket_manager,
             app.state.spotify_manager,
@@ -227,6 +250,7 @@ async def lifespan(app: FastAPI):
             app.state.audio_ws_manager,
             app.state.audio_manager,
             app.state.sendspin_manager,
+            app.state.bluetooth_manager,
         ))
 
         # Setup display stack API routes
@@ -262,6 +286,10 @@ async def lifespan(app: FastAPI):
         # Cancel health check task
         if hasattr(app.state, '_chromium_health_task'):
             app.state._chromium_health_task.cancel()
+
+        # Stop Bluetooth manager
+        if hasattr(app.state, 'bluetooth_manager') and app.state.bluetooth_manager:
+            await app.state.bluetooth_manager.cleanup()
 
         # Stop Sendspin manager
         if hasattr(app.state, 'sendspin_manager') and app.state.sendspin_manager:

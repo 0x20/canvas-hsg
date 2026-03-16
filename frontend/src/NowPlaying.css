@@ -54,6 +54,13 @@
   box-shadow: 0 8px 40px rgba(0,0,0,0.5);
 }
 
+.cover-art-fallback {
+  width: 40vh;
+  height: 40vh;
+  opacity: 0.3;
+  filter: drop-shadow(0 8px 40px rgba(0,0,0,0.5));
+}
+
 /* Content container */
 .content {
   position: relative;

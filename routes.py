@@ -1091,6 +1091,7 @@ def setup_websocket_routes(
     audio_ws_manager: 'WebSocketManager' = None,
     audio_manager=None,
     sendspin_manager=None,
+    bluetooth_manager=None,
 ) -> APIRouter:
     """
     Setup WebSocket routes for real-time event broadcasting
@@ -1141,6 +1142,18 @@ def setup_websocket_routes(
                     "album": sendspin_manager.track_info.get("album", ""),
                     "album_art_url": sendspin_manager.track_info.get("album_art_url"),
                     "duration_ms": sendspin_manager.track_info.get("duration_ms", 0),
+                    "spotify_url": None,
+                }
+            }
+        elif bluetooth_manager and bluetooth_manager.is_playing and bluetooth_manager.track_info.get("name"):
+            initial_data = {
+                "event": "track_changed",
+                "data": {
+                    "name": bluetooth_manager.track_info.get("name"),
+                    "artists": bluetooth_manager.track_info.get("artists", "Unknown Artist"),
+                    "album": bluetooth_manager.track_info.get("album", ""),
+                    "album_art_url": None,
+                    "duration_ms": bluetooth_manager.track_info.get("duration_ms", 0),
                     "spotify_url": None,
                 }
             }
@@ -1370,6 +1383,30 @@ def setup_sendspin_routes(sendspin_manager) -> APIRouter:
         """Called by sendspin daemon --hook-stop when audio stream stops."""
         await sendspin_manager.handle_hook_stop()
         return {"status": "ok"}
+
+    return router
+
+
+# =============================================================================
+# BLUETOOTH ROUTES
+# =============================================================================
+
+def setup_bluetooth_routes(bluetooth_manager) -> APIRouter:
+    """
+    Setup Bluetooth A2DP routes.
+
+    Args:
+        bluetooth_manager: BluetoothManager instance
+
+    Returns:
+        Configured APIRouter
+    """
+    router = APIRouter(prefix="/bluetooth", tags=["bluetooth"])
+
+    @router.get("/status")
+    async def get_bluetooth_status():
+        """Get Bluetooth A2DP connection and playback status"""
+        return bluetooth_manager.get_status()
 
     return router
 

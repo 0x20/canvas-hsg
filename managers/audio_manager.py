@@ -22,6 +22,7 @@ class AudioManager:
         self.playback_manager = None
         self.spotify_manager = None
         self.sendspin_manager = None
+        self.bluetooth_manager = None
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -172,6 +173,7 @@ class AudioManager:
             ("audio_stream", lambda: self._is_playing and self.current_audio_stream),
             ("spotify", lambda: self.spotify_manager and self.spotify_manager.is_playing),
             ("sendspin", lambda: self.sendspin_manager and self.sendspin_manager.is_playing),
+            ("bluetooth", lambda: self.bluetooth_manager and self.bluetooth_manager.is_playing),
             ("youtube", lambda: self.playback_manager and self.playback_manager.current_stream),
         ]
         active_sources = [name for name, check in sources if check()]

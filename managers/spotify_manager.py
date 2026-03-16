@@ -32,6 +32,7 @@ class SpotifyManager:
         self.ha_manager = None
         self.audio_conflict = None  # Set after creation in main.py
         self.display_stack = None  # Set after creation in main.py
+        self.bluetooth_manager = None  # Set after creation in main.py
 
         # Current Spotify state
         self.is_playing = False
@@ -143,6 +144,10 @@ class SpotifyManager:
                     if self.audio_conflict:
                         await self.audio_conflict.mute_source("sendspin")
 
+                    # Pause Bluetooth AVRCP
+                    if self.bluetooth_manager:
+                        await self.bluetooth_manager.pause_playback()
+
                     # Reset system volume to 100% — Spotify has its own volume via Raspotify
                     import subprocess
                     subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"],
@@ -180,6 +185,10 @@ class SpotifyManager:
                     # Mute Sendspin (last-in wins)
                     if self.audio_conflict:
                         await self.audio_conflict.mute_source("sendspin")
+
+                    # Pause Bluetooth AVRCP
+                    if self.bluetooth_manager:
+                        await self.bluetooth_manager.pause_playback()
 
                     # Push spotify onto display stack
                     if self.display_stack:
