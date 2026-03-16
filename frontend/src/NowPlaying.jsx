@@ -196,13 +196,17 @@ export default function NowPlaying() {
 
       requestAnimationFrame(() => {
         if (trackTextRef.current && trackContainerRef.current) {
-          if (trackTextRef.current.scrollWidth > trackContainerRef.current.clientWidth) {
+          const overflow = trackTextRef.current.scrollWidth - trackContainerRef.current.clientWidth;
+          if (overflow > 0) {
+            trackTextRef.current.style.setProperty('--scroll-offset', `-${overflow}px`);
             trackTextRef.current.classList.add('scroll');
           }
         }
 
         if (artistTextRef.current && artistContainerRef.current) {
-          if (artistTextRef.current.scrollWidth > artistContainerRef.current.clientWidth) {
+          const overflow = artistTextRef.current.scrollWidth - artistContainerRef.current.clientWidth;
+          if (overflow > 0) {
+            artistTextRef.current.style.setProperty('--scroll-offset', `-${overflow}px`);
             artistTextRef.current.classList.add('scroll');
           }
         }
@@ -252,7 +256,6 @@ export default function NowPlaying() {
           <div
             className="scrolling-text"
             ref={trackTextRef}
-            data-text={track.name}
           >
             {track.name}
           </div>
@@ -262,7 +265,6 @@ export default function NowPlaying() {
           <div
             className="scrolling-text"
             ref={artistTextRef}
-            data-text={track.artists}
           >
             {track.artists}
           </div>

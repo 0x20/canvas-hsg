@@ -94,13 +94,13 @@
     0 0 200px rgba(0,0,0,0.35);
 }
 
-/* Scrolling animation for overflow text with pauses */
-@keyframes scroll-left {
+/* Scrolling animation for overflow text - ping-pong with pauses at each end */
+@keyframes scroll-pingpong {
   0%, 15% {
     transform: translateX(0);
   }
   50%, 65% {
-    transform: translateX(calc(-50% - 40px));
+    transform: translateX(var(--scroll-offset));
   }
   100% {
     transform: translateX(0);
@@ -108,15 +108,7 @@
 }
 
 .scrolling-text.scroll {
-  animation: scroll-left 20s ease-in-out infinite;
-}
-
-/* Duplicate text for seamless loop */
-.scrolling-text.scroll::after {
-  content: attr(data-text);
-  position: absolute;
-  left: calc(100% + 80px);
-  white-space: nowrap;
+  animation: scroll-pingpong 20s ease-in-out infinite;
 }
 
 /* Artist name styling */
