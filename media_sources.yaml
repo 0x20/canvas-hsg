@@ -133,13 +133,13 @@ youtube_channels:
       url: "https://www.youtube.com/watch?v=TGysUwc_LEc"
       description: "Ambient music with deep space sounds - HD Live"
 
-    - name: "🛰️ NASA Live - Earth from ISS (24/7)"
-      url: "https://www.youtube.com/watch?v=xRPjKQtRXR8"
-      description: "Live views of Earth from the International Space Station"
+    - name: "🛰️ NASA Live - HD Views from the ISS"
+      url: "https://www.youtube.com/watch?v=itdpuGHAcpg"
+      description: "Live high-definition views from the International Space Station"
 
-    - name: "🌊 Underwater 4K - BBC Earth (24/7 Live)"
-      url: "https://www.youtube.com/watch?v=YfJ1jX-xF_4"
-      description: "Night underwater nature footage in 4K - ethereal and ambient"
+    - name: "🐋 Whale Sounds Deep Underwater (8h)"
+      url: "https://www.youtube.com/watch?v=nDqP7kcr-sc"
+      description: "8 hours of whale sounds deep underwater for sleep and relaxation"
 
     - name: "🔥 Relaxing Fireplace (12 Hours)"
       url: "https://www.youtube.com/watch?v=UgHKb_7884o"
@@ -159,9 +159,9 @@ youtube_channels:
       url: "https://www.youtube.com/watch?v=rZjBLC8e2Es"
       description: "Nintendo video game music for relaxation"
 
-    - name: "☔ Rain and Jazz"
-      url: "https://www.youtube.com/watch?v=2_TjZQA2fLs"
-      description: "Peaceful jazz music with rain sounds"
+    - name: "☔ Rainy Jazz & Bossa Nova Radio (24/7)"
+      url: "https://www.youtube.com/watch?v=DSGyEsJ17cI"
+      description: "Relaxing jazz and bossa nova with rain sounds"
 
     - name: "🏝️ Tropical Shores - 24/7 Peaceful Music"
       url: "https://www.youtube.com/watch?v=dXIyMS61B68"

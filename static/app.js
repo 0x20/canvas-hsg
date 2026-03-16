@@ -2,7 +2,6 @@ const API_BASE = '';
 
 const POLL_INTERVALS = {
     STATUS: 10000,
-    SCREEN_STREAM: 5000,
     BACKGROUND: 15000,
     CEC: 20000,
     SPOTIFY: 30000,
@@ -23,17 +22,6 @@ function cacheDOMElements() {
     DOM.videoTargetStatus = document.getElementById('videoTargetStatus');
     DOM.audioTargetStatus = document.getElementById('audioTargetStatus');
 
-    // Stream
-    DOM.streamKey = document.getElementById('streamKey');
-    DOM.sourceUrl = document.getElementById('sourceUrl');
-    DOM.streamProtocol = document.getElementById('streamProtocol');
-
-    // Playback
-    DOM.playbackKey = document.getElementById('playbackKey');
-    DOM.player = document.getElementById('player');
-    DOM.playMode = document.getElementById('playMode');
-    DOM.playProtocol = document.getElementById('playProtocol');
-    DOM.switchKey = document.getElementById('switchKey');
 
     // Video
     DOM.videoPresets = document.getElementById('videoPresets');
@@ -66,25 +54,14 @@ function cacheDOMElements() {
     DOM.chromecastVolumeDisplay = document.getElementById('chromecastVolumeDisplay');
     DOM.chromecastStatus = document.getElementById('chromecastStatus');
 
-    // Cast Receiver
-    DOM.castReceiverStatus = document.getElementById('castReceiverStatus');
-
     // Background
     DOM.backgroundFile = document.getElementById('backgroundFile');
     DOM.backgroundStatus = document.getElementById('backgroundStatus');
     DOM.staticModeBtn = document.getElementById('staticModeBtn');
 
-    // Screen Stream
-    DOM.screenStreamButton = document.getElementById('screenStreamButton');
-    DOM.screenStreamStatus = document.getElementById('screenStreamStatus');
-    DOM.screenStreamKey = document.getElementById('screenStreamKey');
-    DOM.screenStreamProtocol = document.getElementById('screenStreamProtocol');
-
     // System
     DOM.systemStats = document.getElementById('systemStats');
-    DOM.activeStreams = document.getElementById('activeStreams');
     DOM.currentPlayback = document.getElementById('currentPlayback');
-    DOM.resolutionDisplay = document.getElementById('resolution-display');
 
     // CEC
     DOM.cecAvailability = document.getElementById('cecAvailability');
@@ -120,9 +97,6 @@ function cacheDOMElements() {
     DOM.startChromecastBtn = document.getElementById('startChromecastBtn');
     DOM.pauseChromecastBtn = document.getElementById('pauseChromecastBtn');
     DOM.stopChromecastBtn = document.getElementById('stopChromecastBtn');
-    DOM.startPlaybackBtn = document.getElementById('startPlaybackBtn');
-    DOM.stopPlaybackBtn = document.getElementById('stopPlaybackBtn');
-    DOM.startStreamBtn = document.getElementById('startStreamBtn');
     DOM.displayImageBtn = document.getElementById('displayImageBtn');
     DOM.stopDisplayImageBtn = document.getElementById('stopDisplayImageBtn');
     DOM.displayQRCodeBtn = document.getElementById('displayQRCodeBtn');
@@ -131,9 +105,6 @@ function cacheDOMElements() {
     DOM.refreshBackgroundBtn = document.getElementById('refreshBackgroundBtn');
     DOM.showBackgroundBtn = document.getElementById('showBackgroundBtn');
     DOM.refreshStatusBtn = document.getElementById('refreshStatusBtn');
-    DOM.switchStreamBtn = document.getElementById('switchStreamBtn');
-    DOM.switchPlayerMpvBtn = document.getElementById('switchPlayerMpvBtn');
-    DOM.switchPlayerFfplayBtn = document.getElementById('switchPlayerFfplayBtn');
     DOM.toggleAdvancedBtn = document.getElementById('toggleAdvancedBtn');
     DOM.refreshSpotifyBtn = document.getElementById('refreshSpotifyBtn');
     DOM.refreshCECBtn = document.getElementById('refreshCECBtn');
@@ -322,88 +293,17 @@ function updateTargetStatus() {
     }
 }
 
-async function startStream() {
-    const streamKey = DOM.streamKey.value;
-    const sourceUrl = DOM.sourceUrl.value;
-    const protocol = DOM.streamProtocol.value;
-
-    if (!streamKey || !sourceUrl) {
-        showStatus('Please fill in stream key and source URL', 'error');
-        return;
-    }
-
-    const params = new URLSearchParams({ source_url: sourceUrl, protocol: protocol });
-    await apiCall('POST', `/streams/${streamKey}/start?${params}`);
-    refreshStatus();
-}
-
-async function startPlayback(e) {
-    const startButton = e ? e.target : document.querySelector('#startPlaybackBtn');
-    const playbackCard = startButton.closest('.card');
-
-    clearValidationErrors(playbackCard);
-
-    const streamKey = DOM.playbackKey.value.trim();
-    const player = DOM.player.value;
-    const mode = DOM.playMode.value;
-    const protocol = DOM.playProtocol.value;
-
-    if (!streamKey) {
-        showValidationError(playbackCard, 'Please enter a stream key to play');
-        return;
-    }
-
-    setButtonLoading(startButton, true);
-    showStatus('Starting playback...', 'success');
-
-    try {
-        const params = new URLSearchParams({ player, mode, protocol });
-        await apiCall('POST', `/playback/${streamKey}/start?${params}`);
-        showStatus(`Successfully started playback of "${streamKey}" with ${player}`, 'success');
-        refreshStatus();
-    } catch (error) {
-        showValidationError(playbackCard, `Failed to start playback: ${error.message}`);
-        showStatus(`Playback failed: ${error.message}`, 'error');
-    } finally {
-        setButtonLoading(startButton, false);
-    }
-}
-
 async function stopPlayback(e) {
-    const stopButton = e ? e.target : document.querySelector('#stopPlaybackBtn');
-
-    setButtonLoading(stopButton, true);
-    showStatus('Stopping playback...', 'success');
-
+    const stopButton = e ? e.target : null;
+    if (stopButton) setButtonLoading(stopButton, true);
     try {
         await apiCall('DELETE', '/playback/stop');
-        showStatus('Playback stopped successfully', 'success');
-        refreshStatus();
+        showStatus('Stopped', 'success');
     } catch (error) {
-        showStatus(`Failed to stop playback: ${error.message}`, 'error');
+        showStatus(`Failed to stop: ${error.message}`, 'error');
     } finally {
-        setButtonLoading(stopButton, false);
+        if (stopButton) setButtonLoading(stopButton, false);
     }
-}
-
-async function switchStream() {
-    const newKey = DOM.switchKey.value;
-    if (!newKey) {
-        showStatus('Please enter a stream key', 'error');
-        return;
-    }
-    await apiCall('POST', `/playback/switch/${newKey}`);
-    refreshStatus();
-}
-
-async function switchPlayer(player) {
-    await apiCall('POST', `/playback/player/${player}`);
-    refreshStatus();
-}
-
-async function stopStream(streamKey) {
-    await apiCall('DELETE', `/streams/${streamKey}`);
-    refreshStatus();
 }
 
 async function displayImage() {
@@ -830,35 +730,6 @@ async function updateChromecastStatus() {
     }
 }
 
-// Cast Receiver status update
-async function updateCastReceiverStatus() {
-    try {
-        const status = await apiCall('GET', '/cast-receiver/status');
-
-        if (status.is_running) {
-            let statusHtml = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">✅ Receiver Active</span><br>`;
-            statusHtml += `<span style="font-size: 12px;">Device Name: ${status.device_name}</span><br>`;
-            statusHtml += `<span style="font-size: 12px;">IP: ${status.local_ip}:${status.dial_port}</span>`;
-
-            if (status.has_session && status.session) {
-                statusHtml += '<br><br><div style="border-top: 1px solid rgba(0,245,255,0.3); padding-top: 10px; margin-top: 10px;">';
-                statusHtml += `<span style="text-shadow: 0 0 10px var(--neon-cyan);">📺 Currently Playing:</span><br>`;
-                statusHtml += `<span style="font-size: 12px;">${status.session.title || 'Media'}</span><br>`;
-                statusHtml += `<span style="font-size: 12px;">Type: ${status.session.media_type}</span>`;
-                statusHtml += '</div>';
-            }
-
-            DOM.castReceiverStatus.innerHTML = statusHtml;
-        } else {
-            DOM.castReceiverStatus.innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Receiver Inactive</span>';
-        }
-    } catch (error) {
-        console.error('Failed to update cast receiver status:', error);
-        DOM.castReceiverStatus.innerHTML = '<span style="color: rgba(255,0,110,0.8);">❌ Status check failed</span>';
-    }
-}
-
-
 // Background management
 async function setBackground() {
     if (!DOM.backgroundFile.files[0]) {
@@ -960,76 +831,9 @@ async function refreshBackground() {
     }
 }
 
-async function toggleScreenStream() {
-    const streamCard = DOM.screenStreamButton.closest('.card');
-
-    clearValidationErrors(streamCard);
-
-    try {
-        const status = await fetch('/screen-stream/status').then(r => r.json());
-
-        if (status.active) {
-            setButtonLoading(DOM.screenStreamButton, true);
-            DOM.screenStreamStatus.textContent = 'Stopping screen stream...';
-
-            await apiCall('DELETE', '/screen-stream/stop');
-            DOM.screenStreamButton.textContent = 'START SCREEN STREAM';
-            DOM.screenStreamButton.className = '';
-            DOM.screenStreamStatus.textContent = '';
-            showStatus('Screen streaming stopped', 'success');
-        } else {
-            const streamKey = DOM.screenStreamKey.value.trim();
-            const protocol = DOM.screenStreamProtocol.value;
-
-            if (!streamKey) {
-                showValidationError(streamCard, 'Please enter a stream key');
-                return;
-            }
-
-            setButtonLoading(DOM.screenStreamButton, true);
-            DOM.screenStreamStatus.textContent = 'Starting screen stream...';
-
-            await apiCall('POST', `/screen-stream/${streamKey}/start?protocol=${protocol}`);
-            DOM.screenStreamButton.textContent = 'STOP SCREEN STREAM';
-            DOM.screenStreamButton.className = 'danger';
-            DOM.screenStreamStatus.innerHTML = `<span style="color: var(--neon-cyan);">🔴 Streaming "${streamKey}"</span>`;
-            showStatus(`Screen streaming started: ${streamKey}`, 'success');
-        }
-
-        refreshStatus();
-    } catch (error) {
-        showValidationError(streamCard, `Screen streaming error: ${error.message}`);
-        showStatus(`Screen streaming failed: ${error.message}`, 'error');
-        DOM.screenStreamStatus.textContent = '';
-    } finally {
-        setButtonLoading(DOM.screenStreamButton, false);
-    }
-}
-
-async function updateScreenStreamUI() {
-    try {
-        const status = await fetch('/screen-stream/status').then(r => r.json());
-
-        if (status.active) {
-            DOM.screenStreamButton.textContent = 'STOP SCREEN STREAM';
-            DOM.screenStreamButton.className = 'danger';
-            DOM.screenStreamStatus.innerHTML = `<span style="color: var(--neon-cyan);">🔴 Streaming "${status.stream_key}"</span>`;
-        } else {
-            DOM.screenStreamButton.textContent = 'START SCREEN STREAM';
-            DOM.screenStreamButton.className = '';
-            DOM.screenStreamStatus.textContent = '';
-        }
-    } catch (error) {
-        console.error('Failed to update screen stream UI:', error);
-    }
-}
-
 async function refreshStatus() {
     try {
-        const [status, streams] = await Promise.all([
-            fetch('/status').then(r => r.json()),
-            fetch('/streams').then(r => r.json())
-        ]);
+        const status = await fetch('/status').then(r => r.json());
 
         const stats = status.system_stats;
         DOM.systemStats.innerHTML = `
@@ -1047,83 +851,32 @@ async function refreshStatus() {
             </div>
         `;
 
-        if (Object.keys(streams.active_streams).length === 0) {
-            DOM.activeStreams.innerHTML = 'No active streams';
-        } else {
-            DOM.activeStreams.innerHTML = Object.entries(streams.active_streams)
-                .map(([key, info]) => `
-                    <div class="stream-item">
-                        <div>
-                            <strong>${key}</strong><br>
-                            <small>${info.source_url}</small><br>
-                            <small>Started: ${new Date(info.started_at).toLocaleTimeString()}</small>
-                        </div>
-                        <button onclick="stopStream('${key}')" class="danger small-btn">STOP</button>
-                    </div>
-                `).join('');
-        }
+        try {
+            const audioStatus = await fetch('/audio/status').then(r => r.json());
+            if (audioStatus.is_playing) {
+                let audioInfo = `<strong>🎵 Playing:</strong> ${audioStatus.sources.join(', ')}`;
+                audioInfo += `<br><strong>Volume:</strong> ${audioStatus.volume}%`;
 
-        const playback = streams.current_playback;
-
-        if (playback.stream) {
-            let playbackHtml = `
-                <strong>Stream:</strong> ${playback.stream}<br>
-                <strong>Player:</strong> ${playback.player}<br>
-                <strong>Protocol:</strong> ${playback.protocol}
-            `;
-
-            if (playback.stats) {
-                const s = playback.stats;
-                const dropPercent = s.drop_percentage ? s.drop_percentage.toFixed(2) : '0.00';
-                const fpsDisplay = s.fps_current ? s.fps_current.toFixed(1) : 'N/A';
-
-                playbackHtml += `<br><br><strong>Performance:</strong><br>
-                <strong>FPS:</strong> ${fpsDisplay}<br>
-                <strong>Frames:</strong> ${s.total_frames || 0}<br>
-                <strong>Dropped:</strong> ${s.dropped_frames || 0} (${dropPercent}%)`;
-            }
-
-            DOM.currentPlayback.innerHTML = playbackHtml;
-        } else {
-            try {
-                const audioStatus = await fetch('/audio/status').then(r => r.json());
-                if (audioStatus.is_playing) {
-                    let audioInfo = `<strong>🎵 Audio:</strong> ${audioStatus.stream_name || 'Audio Stream'}<br>
-                                   <strong>Volume:</strong> ${audioStatus.volume}%`;
-
-                    if (audioStatus.metadata) {
-                        const meta = audioStatus.metadata;
-                        audioInfo += `<br><strong>Now Playing:</strong> ${meta.title}`;
-                        if (meta.artist) audioInfo += ` by ${meta.artist}`;
-                    }
-
-                    DOM.currentPlayback.innerHTML = audioInfo;
-                } else {
-                    DOM.currentPlayback.innerHTML = 'No active playback';
+                if (audioStatus.metadata) {
+                    const meta = audioStatus.metadata;
+                    audioInfo += `<br><strong>Now Playing:</strong> ${meta.title}`;
+                    if (meta.artist) audioInfo += ` by ${meta.artist}`;
                 }
-            } catch (error) {
+
+                DOM.currentPlayback.innerHTML = audioInfo;
+            } else {
                 DOM.currentPlayback.innerHTML = 'No active playback';
             }
+        } catch (error) {
+            DOM.currentPlayback.innerHTML = 'No active playback';
         }
 
         showStatus('Status refreshed', 'success');
         updateAudioStatus();
         updateChromecastStatus();
-        updateCastReceiverStatus();
 
     } catch (error) {
         showStatus('Failed to refresh status', 'error');
-    }
-}
-
-async function loadResolution() {
-    try {
-        const response = await fetch('/resolution');
-        const resolution = await response.json();
-
-        DOM.resolutionDisplay.textContent = resolution.resolution_string.toUpperCase();
-    } catch (error) {
-        DOM.resolutionDisplay.textContent = 'RESOLUTION DETECTION FAILED';
     }
 }
 
@@ -1449,9 +1202,6 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.startChromecastBtn.addEventListener('click', startChromecast);
     DOM.pauseChromecastBtn.addEventListener('click', pauseChromecast);
     DOM.stopChromecastBtn.addEventListener('click', stopChromecast);
-    DOM.startPlaybackBtn.addEventListener('click', startPlayback);
-    DOM.stopPlaybackBtn.addEventListener('click', stopPlayback);
-    DOM.startStreamBtn.addEventListener('click', startStream);
     DOM.displayImageBtn.addEventListener('click', displayImage);
     DOM.stopDisplayImageBtn.addEventListener('click', stopPlayback);
     DOM.displayQRCodeBtn.addEventListener('click', displayQRCode);
@@ -1460,13 +1210,9 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.refreshBackgroundBtn.addEventListener('click', refreshBackground);
     DOM.showBackgroundBtn.addEventListener('click', showBackground);
     DOM.refreshStatusBtn.addEventListener('click', refreshStatus);
-    DOM.switchStreamBtn.addEventListener('click', switchStream);
-    DOM.switchPlayerMpvBtn.addEventListener('click', () => switchPlayer('mpv'));
-    DOM.switchPlayerFfplayBtn.addEventListener('click', () => switchPlayer('ffplay'));
     DOM.toggleAdvancedBtn.addEventListener('click', toggleAdvancedFeatures);
     DOM.refreshSpotifyBtn.addEventListener('click', refreshSpotifyStatus);
     DOM.refreshCECBtn.addEventListener('click', refreshCECStatus);
-    DOM.screenStreamButton.addEventListener('click', toggleScreenStream);
     DOM.staticModeBtn.addEventListener('click', () => setBackgroundMode('static'));
     DOM.tvPowerOnBtn.addEventListener('click', powerOnTV);
     DOM.tvPowerOffBtn.addEventListener('click', powerOffTV);
@@ -1474,7 +1220,6 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.webcastStopBtn.addEventListener('click', stopWebcast);
 
     // Tab buttons
-    document.getElementById('tab-btn-streams').addEventListener('click', () => switchTab('streams'));
     document.getElementById('tab-btn-display').addEventListener('click', () => switchTab('display'));
     document.getElementById('tab-btn-system').addEventListener('click', () => switchTab('system'));
     document.getElementById('tab-btn-advanced').addEventListener('click', () => switchTab('advanced'));
@@ -1506,17 +1251,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Auto-refresh intervals
     setInterval(refreshStatus, POLL_INTERVALS.STATUS);
-    setInterval(updateScreenStreamUI, POLL_INTERVALS.SCREEN_STREAM);
     setInterval(refreshBackgroundStatus, POLL_INTERVALS.BACKGROUND);
     setInterval(refreshCECStatus, POLL_INTERVALS.CEC);
     setInterval(refreshSpotifyStatus, POLL_INTERVALS.SPOTIFY);
     setInterval(loadOutputTargets, POLL_INTERVALS.OUTPUT_TARGETS);
 
     // Initial load
-    loadResolution();
     loadOutputTargets();
     refreshStatus();
-    updateScreenStreamUI();
     refreshBackgroundStatus();
     refreshCECStatus();
     refreshSpotifyStatus();

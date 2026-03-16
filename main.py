@@ -142,9 +142,11 @@ async def lifespan(app: FastAPI):
             app.state.background_manager, app.state.audio_manager
         )
 
-        # Wire playback_manager into managers that need it
+        # Wire cross-references between managers
         app.state.spotify_manager.playback_manager = app.state.playback_manager
         app.state.audio_manager.playback_manager = app.state.playback_manager
+        app.state.audio_manager.spotify_manager = app.state.spotify_manager
+        app.state.audio_manager.sendspin_manager = app.state.sendspin_manager
         app.state.sendspin_manager.playback_manager = app.state.playback_manager
         app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
 

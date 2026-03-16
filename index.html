@@ -10,7 +10,7 @@
     <div class="container">
         <div class="header">
             <h1>HSG Canvas</h1>
-            <p><span class="status-indicator"></span> <span id="resolution-display">Detecting resolution...</span></p>
+            <p><span class="status-indicator"></span></p>
         </div>
 
         <nav class="nav-bar">
@@ -163,24 +163,6 @@
                 <div id="chromecastStatus" class="status-text"></div>
             </div>
 
-            <!-- Cast Receiver -->
-            <div class="card">
-                <h2>Receive Casts</h2>
-                <p>Cast FROM your phone/tablet TO this Canvas</p>
-
-                <div id="castReceiverStatus" class="status-box">
-                    Checking receiver status...
-                </div>
-
-                <div class="info-box">
-                    To cast to this Canvas:<br>
-                    1. Open a cast-enabled app on your phone<br>
-                    2. Look for "HSG Canvas" in the cast menu<br>
-                    3. Select it to start casting<br>
-                    <br>
-                    Supported: YouTube, audio streams, video URLs
-                </div>
-            </div>
         </div>
 
         <!-- Toggle Button for Advanced Features -->
@@ -195,80 +177,13 @@
 
             <!-- Tabs for Advanced Features -->
             <div class="tabs">
-                <button class="tab-btn active" id="tab-btn-streams">Streams</button>
-                <button class="tab-btn" id="tab-btn-display">Display</button>
+                <button class="tab-btn active" id="tab-btn-display">Display</button>
                 <button class="tab-btn" id="tab-btn-system">System</button>
                 <button class="tab-btn" id="tab-btn-advanced">Advanced</button>
             </div>
 
-            <!-- Tab Content: Streams -->
-        <div id="tab-streams" class="tab-content active">
-            <div class="grid">
-                <!-- Playback Control -->
-                <div class="card">
-                    <h2>Play Stream</h2>
-                    <p>Watch RTMP/HTTP-FLV/HLS streams</p>
-                    <input type="text" id="playbackKey" placeholder="Stream Key" value="oke">
-                    <select id="player">
-                        <option value="mpv">MPV (Recommended)</option>
-                        <option value="ffplay">FFplay</option>
-                        <option value="omxplayer">OMXPlayer</option>
-                        <option value="vlc">VLC</option>
-                    </select>
-                    <select id="playMode">
-                        <option value="optimized">Optimized</option>
-                        <option value="fullscreen">Fullscreen</option>
-                        <option value="basic">Basic</option>
-                    </select>
-                    <select id="playProtocol">
-                        <option value="rtmp">RTMP</option>
-                        <option value="http_flv">HTTP-FLV (Lower latency)</option>
-                        <option value="hls">HLS</option>
-                    </select>
-                    <div class="button-row">
-                        <button id="startPlaybackBtn">Start Playback</button>
-                        <button id="stopPlaybackBtn" class="danger">Stop</button>
-                    </div>
-                </div>
-
-                <!-- Start Stream -->
-                <div class="card">
-                    <h2>Start Stream</h2>
-                    <p>Republish files or cameras to SRS</p>
-                    <input type="text" id="streamKey" placeholder="Stream Key" value="mystream">
-                    <input type="text" id="sourceUrl" placeholder="Source URL or file path" class="full-width-input">
-                    <select id="streamProtocol">
-                        <option value="rtmp">RTMP</option>
-                    </select>
-                    <br>
-                    <button id="startStreamBtn">Start Stream</button>
-                </div>
-
-                <!-- Screen Streaming -->
-                <div class="card">
-                    <h2>Screen Stream</h2>
-                    <p>Stream display output (META)</p>
-                    <input type="text" id="screenStreamKey" placeholder="Stream key" value="desktop">
-                    <select id="screenStreamProtocol">
-                        <option value="rtmp">RTMP</option>
-                        <option value="http_flv">HTTP-FLV</option>
-                        <option value="hls">HLS</option>
-                    </select>
-                    <br>
-                    <button id="screenStreamButton">Start Screen Stream</button>
-                    <div id="screenStreamStatus" class="status-text"></div>
-                </div>
-
-                <!-- Active Streams -->
-                <div class="card">
-                    <h2>Active Streams</h2>
-                    <div id="activeStreams" class="streams-list">No active streams</div>
-                </div>
-            </div>
-        </div>
-
         <!-- Tab Content: Display -->
-        <div id="tab-display" class="tab-content">
+        <div id="tab-display" class="tab-content active">
             <div class="grid">
                 <!-- Image Display -->
                 <div class="card">
@@ -332,15 +247,6 @@
                     <div id="currentPlayback" style="color: var(--text-muted);">No active playback</div>
                 </div>
 
-                <!-- Quick Actions -->
-                <div class="card">
-                    <h2>Quick Actions</h2>
-                    <input type="text" id="switchKey" placeholder="New stream key">
-                    <br>
-                    <button id="switchStreamBtn">Switch Stream</button>
-                    <button id="switchPlayerMpvBtn" class="small-btn">MPV</button>
-                    <button id="switchPlayerFfplayBtn" class="small-btn">FFplay</button>
-                </div>
             </div>
         </div>
 

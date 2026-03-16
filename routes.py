@@ -87,7 +87,17 @@ def setup_audio_routes(audio_manager: 'AudioManager', spotify_manager: Optional[
 
     @router.get("/audio/status")
     async def get_audio_status():
-        """Get current audio streaming status"""
+        """Get current audio streaming status across all sources.
+
+        Returns:
+            - **is_playing** (bool): True if any audio source is active
+            - **sources** (list[str]): Active sources, any combination of:
+              `"audio_stream"`, `"spotify"`, `"sendspin"`, `"youtube"`
+            - **volume** (int): Current volume (0-100)
+            - **current_stream** (str): Stream URL (only when `audio_stream` is active)
+            - **stream_name** (str): Friendly name (only when `audio_stream` is active)
+            - **metadata** (object): Stream metadata (only when `audio_stream` is active and metadata available)
+        """
         return audio_manager.get_audio_status()
 
     @router.post("/audio/pause")
@@ -670,19 +680,17 @@ def setup_system_routes(
     async def get_resolution():
         """Get current display resolution"""
         if display_detector:
-            return {
-                "width": display_detector.width,
-                "height": display_detector.height,
-                "refresh_rate": display_detector.refresh_rate,
-                "optimal_connector": display_detector.optimal_connector
-            }
+            w, h = display_detector.width, display_detector.height
+            rate = display_detector.refresh_rate
         else:
-            return {
-                "width": 1920,
-                "height": 1080,
-                "refresh_rate": 60,
-                "message": "Display detector not available"
-            }
+            w, h, rate = 1920, 1080, 60
+
+        return {
+            "width": w,
+            "height": h,
+            "refresh_rate": rate,
+            "resolution_string": f"{w}x{h}@{rate}Hz",
+        }
 
     @router.get("/dd.xml")
     async def get_device_description():

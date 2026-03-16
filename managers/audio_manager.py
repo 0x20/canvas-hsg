@@ -20,6 +20,8 @@ class AudioManager:
     def __init__(self, audio_ws_manager):
         self.audio_ws_manager = audio_ws_manager
         self.playback_manager = None
+        self.spotify_manager = None
+        self.sendspin_manager = None
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -164,23 +166,28 @@ class AudioManager:
         self._is_playing = status.get("playing", False)
 
     def get_audio_status(self) -> Dict[str, Any]:
-        """Get current audio streaming status"""
-        is_playing = self._is_playing
-
-        stream_name = None
-        if is_playing and self.current_audio_stream:
-            stream_name = self._get_friendly_stream_name(self.current_audio_stream)
+        """Get current audio streaming status across all sources"""
+        # Collect all active sources
+        sources = [
+            ("audio_stream", lambda: self._is_playing and self.current_audio_stream),
+            ("spotify", lambda: self.spotify_manager and self.spotify_manager.is_playing),
+            ("sendspin", lambda: self.sendspin_manager and self.sendspin_manager.is_playing),
+            ("youtube", lambda: self.playback_manager and self.playback_manager.current_stream),
+        ]
+        active_sources = [name for name, check in sources if check()]
+        source_playing = len(active_sources) > 0
 
         status = {
-            "is_playing": is_playing,
-            "current_stream": self.current_audio_stream if is_playing else None,
-            "stream_name": stream_name,
+            "is_playing": source_playing,
+            "sources": active_sources,
             "volume": self.audio_volume,
-            "engine": "browser",
         }
 
-        if is_playing and self.current_metadata:
-            status["metadata"] = self.current_metadata
+        if "audio_stream" in active_sources:
+            status["current_stream"] = self.current_audio_stream
+            status["stream_name"] = self._get_friendly_stream_name(self.current_audio_stream)
+            if self.current_metadata:
+                status["metadata"] = self.current_metadata
 
         return status
 
