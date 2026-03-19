@@ -5,15 +5,20 @@ Manages Chromium browser in kiosk mode for web-based display rendering.
 Uses cage (Wayland kiosk compositor) for direct DRM/KMS output to HDMI.
 """
 import asyncio
+import json
 import logging
 import os
 import signal
 import subprocess
 from typing import Optional
 
+import aiohttp
+
 
 class ChromiumManager:
     """Manages Chromium browser lifecycle in kiosk mode with cage/Wayland"""
+
+    CDP_PORT = 9222
 
     def __init__(self, display_capabilities):
         self.display = display_capabilities
@@ -86,6 +91,7 @@ class ChromiumManager:
                 "--user-data-dir=/tmp/chromium-hsg-canvas",
                 "--start-fullscreen",
                 "--autoplay-policy=no-user-gesture-required",
+                f"--remote-debugging-port={self.CDP_PORT}",
             ]
 
             if not is_local:
@@ -132,6 +138,67 @@ class ChromiumManager:
             logging.error(traceback.format_exc())
             await self._cleanup_processes()
             return False
+
+    async def _get_cdp_ws_url(self) -> Optional[str]:
+        """Get the Chrome DevTools Protocol WebSocket URL for the active page"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://127.0.0.1:{self.CDP_PORT}/json",
+                    timeout=aiohttp.ClientTimeout(total=2)
+                ) as resp:
+                    if resp.status == 200:
+                        targets = await resp.json()
+                        for target in targets:
+                            if target.get("type") == "page":
+                                return target.get("webSocketDebuggerUrl")
+        except Exception as e:
+            logging.warning(f"Failed to get CDP WebSocket URL: {e}")
+        return None
+
+    async def _cdp_command(self, method: str, params: Optional[dict] = None) -> bool:
+        """Send a command to Chromium via Chrome DevTools Protocol"""
+        ws_url = await self._get_cdp_ws_url()
+        if not ws_url:
+            logging.error("No CDP target available — Chromium may not be running")
+            return False
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(ws_url, timeout=5) as ws:
+                    msg = {"id": 1, "method": method}
+                    if params:
+                        msg["params"] = params
+                    await ws.send_json(msg)
+                    resp = await asyncio.wait_for(ws.receive_json(), timeout=5)
+                    if "error" in resp:
+                        logging.error(f"CDP {method} failed: {resp['error']}")
+                        return False
+                    return True
+        except Exception as e:
+            logging.error(f"CDP command {method} failed: {e}")
+            return False
+
+    async def reload_page(self) -> bool:
+        """Reload the current page via Chrome DevTools Protocol"""
+        if not self.is_running():
+            logging.warning("Cannot reload — Chromium is not running")
+            return False
+
+        logging.info("Reloading Chromium page via CDP")
+        return await self._cdp_command("Page.reload", {"ignoreCache": True})
+
+    async def navigate(self, url: str) -> bool:
+        """Navigate Chromium to a new URL via Chrome DevTools Protocol"""
+        if not self.is_running():
+            logging.warning("Cannot navigate — Chromium is not running")
+            return False
+
+        logging.info(f"Navigating Chromium to {url} via CDP")
+        success = await self._cdp_command("Page.navigate", {"url": url})
+        if success:
+            self.current_url = url
+        return success
 
     async def stop(self):
         """Stop compositor and Chromium processes"""

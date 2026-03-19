@@ -254,15 +254,27 @@ async def lifespan(app: FastAPI):
         ))
 
         # Setup display stack API routes
-        app.include_router(setup_display_stack_routes(app.state.display_stack))
+        app.include_router(setup_display_stack_routes(app.state.display_stack, app.state.chromium_manager))
 
         # Start periodic Chromium health check
         async def chromium_health_loop():
             await asyncio.sleep(30)  # Initial delay
+            no_ws_count = 0
             while True:
                 try:
                     if app.state.chromium_manager and app.state.chromium_manager.is_running():
                         await app.state.chromium_manager.check_health()
+
+                        # Auto-reload if no display WebSocket connections for 2+ checks (60s)
+                        display_ws = app.state.display_ws_manager
+                        if display_ws and len(display_ws.active_connections) == 0:
+                            no_ws_count += 1
+                            if no_ws_count >= 2:
+                                logging.warning("No display WebSocket connections for 60s — reloading Chromium page")
+                                await app.state.chromium_manager.reload_page()
+                                no_ws_count = 0
+                        else:
+                            no_ws_count = 0
                 except Exception as e:
                     logging.error(f"Chromium health check error: {e}")
                 await asyncio.sleep(30)
