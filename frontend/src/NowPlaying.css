@@ -29,7 +29,10 @@ html.keepalive .now-playing {
 /* Blurred full-screen album art background. Opacity is BAKED INTO the
    bitmap via the dark gradient overlay set inline on the JSX element —
    the layer itself is opaque. Alpha-blending a 1960×1120 layer at 60 fps
-   was costing ~45 pp of VizCompositor on the Pi 3B+'s VC IV. */
+   was costing ~45 pp of VizCompositor on the Pi 3B+'s VC IV.
+   Mask cuts a circular hole where the .cover-art sits (90vh tall = 45vh
+   radius) so the compositor doesn't blit pixels that are about to be
+   covered up anyway — saves another ~25 pp on Pi 3. */
 .background-blur {
   position: fixed;
   top: -20px;
@@ -40,6 +43,8 @@ html.keepalive .now-playing {
   background-position: center;
   filter: blur(40px);
   z-index: 0;
+  -webkit-mask-image: radial-gradient(circle 45vh at center, transparent 99%, black 100%);
+  mask-image: radial-gradient(circle 45vh at center, transparent 99%, black 100%);
 }
 
 /* Centered sharp album art */
@@ -91,7 +96,7 @@ html.keepalive .now-playing {
   line-height: 1.1;
   margin-bottom: 20px;
   max-width: 100%;
-  overflow: visible;
+  overflow: hidden;       /* clip to visible region — cheaper compositing */
   position: relative;
 }
 
@@ -104,23 +109,32 @@ html.keepalive .now-playing {
     0 0 80px rgba(0,0,0,0.4);
 }
 
-/* Scrolling animation for overflow text - ping-pong with pauses at each end.
-   translate3d (vs translateX) keeps the element on its own compositor layer so
-   each frame is a re-composite, not a repaint — important on the Pi 3B+. */
-@keyframes scroll-pingpong {
-  0%, 15% {
+/* When a long title needs to scroll, render it twice via ::after with a gap,
+   then translate left by exactly (one title width + gap). At animation end
+   the second copy sits where the first started — visually identical, so the
+   loop is seamless. Linear easing = constant compositor cost (no peak the
+   way ease-in-out had through the middle). */
+.scrolling-text.scroll::after {
+  content: attr(data-text);
+  display: inline-block;
+  margin-left: 3em;
+  vertical-align: top;
+}
+
+@keyframes scroll-marquee {
+  0%, 20% {
+    /* Pause at start: first letter at left edge for ~2 seconds. */
     transform: translate3d(0, 0, 0);
-  }
-  50%, 65% {
-    transform: translate3d(var(--scroll-offset), 0, 0);
   }
   100% {
-    transform: translate3d(0, 0, 0);
+    /* Scroll left by one title width + the 3em gap. The duplicate's first
+       letter now sits at left edge → next cycle's pause looks identical. */
+    transform: translate3d(var(--scroll-offset), 0, 0);
   }
 }
 
 .scrolling-text.scroll {
-  animation: scroll-pingpong 20s ease-in-out infinite;
+  animation: scroll-marquee var(--scroll-duration, 12s) linear infinite;
 }
 
 /* Artist name styling */
@@ -131,7 +145,7 @@ html.keepalive .now-playing {
   color: #c8dcff;
   margin-bottom: 15px;
   max-width: 100%;
-  overflow: visible;
+  overflow: hidden;       /* clip — see .track-name */
   position: relative;
 }
 

@@ -184,37 +184,46 @@ export default function NowPlaying() {
     return () => clearInterval(interval);
   }, [track.durationMs, track.startTime]);
 
-  // Check if scrolling is needed for text overflow
+  // Marquee: forward-only loop with a pause each cycle. We measure the
+  // *single-copy* text width while .scroll is OFF (no ::after duplicate
+  // yet), then compute the per-cycle distance as singleWidth + gap. Once
+  // .scroll is added, the ::after sibling appears and the layer becomes
+  // 2× wide; the keyframe translates by exactly that distance so the
+  // duplicate ends up where the original started — seamless loop.
+  // Duration scales with width so scroll speed is constant.
   useEffect(() => {
+    const SCROLL_PX_PER_SEC = 180;
+    const PAUSE_FRAC = 0.20; // 20% of the cycle is pause-at-start
+    const GAP_PX_AT_REM = 48; // ~3em at 16px font ≈ 48px; we'll measure precisely below
+
+    const setupMarquee = (textEl, containerEl) => {
+      if (!textEl || !containerEl) return;
+      // Reset to measure single-copy width
+      textEl.classList.remove('scroll');
+      // Force a layout read
+      const singleWidth = textEl.scrollWidth;
+      const containerWidth = containerEl.clientWidth;
+      if (singleWidth <= containerWidth) return; // fits — no scroll
+      // Gap = 3em in font-size units
+      const fontSize = parseFloat(getComputedStyle(textEl).fontSize) || 16;
+      const gap = 3 * fontSize;
+      const distance = singleWidth + gap;
+      // Travel time at constant speed, plus the pause fraction for the static phase
+      const travelSec = distance / SCROLL_PX_PER_SEC;
+      const totalSec = travelSec / (1 - PAUSE_FRAC);
+      textEl.style.setProperty('--scroll-offset', `-${distance}px`);
+      textEl.style.setProperty('--scroll-duration', `${totalSec.toFixed(1)}s`);
+      textEl.classList.add('scroll');
+    };
+
     const checkScrolling = () => {
-      if (trackTextRef.current) {
-        trackTextRef.current.classList.remove('scroll');
-      }
-      if (artistTextRef.current) {
-        artistTextRef.current.classList.remove('scroll');
-      }
-
       requestAnimationFrame(() => {
-        if (trackTextRef.current && trackContainerRef.current) {
-          const overflow = trackTextRef.current.scrollWidth - trackContainerRef.current.clientWidth;
-          if (overflow > 0) {
-            trackTextRef.current.style.setProperty('--scroll-offset', `-${overflow}px`);
-            trackTextRef.current.classList.add('scroll');
-          }
-        }
-
-        if (artistTextRef.current && artistContainerRef.current) {
-          const overflow = artistTextRef.current.scrollWidth - artistContainerRef.current.clientWidth;
-          if (overflow > 0) {
-            artistTextRef.current.style.setProperty('--scroll-offset', `-${overflow}px`);
-            artistTextRef.current.classList.add('scroll');
-          }
-        }
+        setupMarquee(trackTextRef.current, trackContainerRef.current);
+        setupMarquee(artistTextRef.current, artistContainerRef.current);
       });
     };
 
     checkScrolling();
-
     window.addEventListener('resize', checkScrolling);
     return () => window.removeEventListener('resize', checkScrolling);
   }, [track]);
@@ -263,6 +272,7 @@ export default function NowPlaying() {
           <div
             className="scrolling-text"
             ref={trackTextRef}
+            data-text={track.name}
           >
             {track.name}
           </div>
@@ -272,6 +282,7 @@ export default function NowPlaying() {
           <div
             className="scrolling-text"
             ref={artistTextRef}
+            data-text={track.artists}
           >
             {track.artists}
           </div>
