@@ -16,7 +16,6 @@ export default function NowPlaying() {
     startTime: null,
     spotifyUrl: null
   });
-  const [progress, setProgress] = useState(0);
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [showQr, setShowQr] = useState(false);
 
@@ -24,6 +23,7 @@ export default function NowPlaying() {
   const artistTextRef = useRef(null);
   const trackContainerRef = useRef(null);
   const artistContainerRef = useRef(null);
+  const progressFillRef = useRef(null);
 
   // WebSocket connection
   useEffect(() => {
@@ -156,28 +156,28 @@ export default function NowPlaying() {
     img.src = track.albumArtUrl;
   }, [track.albumArtUrl, track.spotifyUrl]);
 
-  // Update progress bar and QR code visibility
+  // Update progress bar via direct DOM mutation (no React re-render). On
+  // Pi 3B+ a full NowPlaying re-render every second was costing ~30 ms on
+  // the main thread — enough to drop a compositor frame and break the
+  // marquee scroll cadence. Mutating progressFillRef.current.style.transform
+  // directly bypasses reconciliation entirely. QR visibility (rare,
+  // ≤ 1 toggle per track) keeps using React state.
   useEffect(() => {
     if (!track.durationMs || !track.startTime) {
-      setProgress(0);
+      if (progressFillRef.current) progressFillRef.current.style.transform = 'scaleX(0)';
       setShowQr(false);
       return;
     }
-
-    // Show QR immediately if song is shorter than 10s
-    if (track.durationMs <= 10000) {
-      setShowQr(true);
-    } else {
-      setShowQr(false);
-    }
+    setShowQr(track.durationMs <= 10000);
 
     const interval = setInterval(() => {
       const elapsed = Date.now() - track.startTime;
-      const remaining = track.durationMs - elapsed;
-      const progressPercent = Math.min((elapsed / track.durationMs) * 100, 100);
-      setProgress(progressPercent);
-      if (remaining <= 10000) {
-        setShowQr(true);
+      const fraction = Math.min(elapsed / track.durationMs, 1);
+      if (progressFillRef.current) {
+        progressFillRef.current.style.transform = `scaleX(${fraction})`;
+      }
+      if (track.durationMs - elapsed <= 10000) {
+        setShowQr((v) => v || true);
       }
     }, 1000);
 
@@ -191,16 +191,9 @@ export default function NowPlaying() {
   // 2× wide; the keyframe translates by exactly that distance so the
   // duplicate ends up where the original started — seamless loop.
   // Duration scales with width so scroll speed is constant.
-  //
-  // Animation uses steps(N) where N = FPS × duration. The Pi 3B+ can't
-  // sustain 60 fps compositing this scene (measured ~44 fps with irregular
-  // timing → perceived stutter). Locking the animation to 30 discrete
-  // steps per second gives steady, regular motion — visually smoother than
-  // a fluid-but-uneven 44 fps. Pi 4 obviously absorbs either.
   useEffect(() => {
-    const SCROLL_PX_PER_SEC = 320;  // ~2× faster than the old ping-pong
-    const PAUSE_FRAC = 0.20;        // 20% of the cycle is pause-at-start
-    const TICK_FPS = 30;            // step rate; lower = smoother on weak GPUs
+    const SCROLL_PX_PER_SEC = 320;
+    const PAUSE_FRAC = 0.20;
 
     const setupMarquee = (textEl, containerEl) => {
       if (!textEl || !containerEl) return;
@@ -214,9 +207,8 @@ export default function NowPlaying() {
       const distance = singleWidth + gap;
       const travelSec = distance / SCROLL_PX_PER_SEC;
       const totalSec = travelSec / (1 - PAUSE_FRAC);
-      const steps = Math.max(2, Math.round(TICK_FPS * totalSec));
       textEl.style.setProperty('--scroll-offset', `-${distance}px`);
-      textEl.style.animation = `scroll-marquee ${totalSec.toFixed(1)}s steps(${steps}) infinite`;
+      textEl.style.setProperty('--scroll-duration', `${totalSec.toFixed(1)}s`);
       textEl.classList.add('scroll');
     };
 
@@ -259,10 +251,10 @@ export default function NowPlaying() {
         )}
       </div>
 
-      {/* Progress bar — scaleX is GPU-composited; width: would trigger
-          paint/layout every transition tick. */}
+      {/* Progress bar — width updated via ref + style mutation, no React
+          re-render per tick (see useEffect above). scaleX is GPU-composited. */}
       <div className="progress-bar">
-        <div className="progress-fill" style={{ transform: `scaleX(${progress / 100})` }} />
+        <div className="progress-fill" ref={progressFillRef} />
       </div>
 
       {/* Spotify QR Code - fades in for last 10s of song */}
