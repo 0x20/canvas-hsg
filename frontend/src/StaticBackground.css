@@ -18,6 +18,10 @@
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+}
+
+/* See main.jsx — opt-in via ?keepalive=1 for cage on the primary Pi. */
+html.keepalive .static-background {
   animation: compositor-keepalive 1s linear infinite;
 }
 

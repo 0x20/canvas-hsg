@@ -104,7 +104,9 @@ async def lifespan(app: FastAPI):
         # Start Chromium once - it will stay running, React handles view switching
         logging.info("Starting Chromium with React app...")
         if app.state.chromium_manager:
-            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/canvas/")
+            # ?keepalive=1: primary Pi 4 cage kiosk needs the always-on
+            # opacity animation. Pi 3B+ secondary display omits the param.
+            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/canvas/?keepalive=1")
 
             if success:
                 app.state.background_manager.current_mode = "static_web"
