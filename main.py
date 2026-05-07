@@ -259,6 +259,24 @@ async def lifespan(app: FastAPI):
         # Setup display stack API routes
         app.include_router(setup_display_stack_routes(app.state.display_stack, app.state.chromium_manager))
 
+        # Kiosk routes (small server-rendered snapshot + SSE event stream)
+        # MUST be registered before the /canvas StaticFiles mount below so
+        # /canvas/kiosk and /canvas/events match the explicit handlers
+        # rather than being captured by the static mount.
+        from routes import setup_kiosk_routes
+        app.include_router(setup_kiosk_routes(
+            app.state.websocket_manager,
+            app.state.spotify_manager,
+            app.state.sendspin_manager,
+            app.state.bluetooth_manager,
+            app.state.display_stack,
+        ))
+
+        # Mount the built React canvas LAST. The mount catches anything
+        # under /canvas/ that wasn't matched above (the SPA itself).
+        if os.path.exists("frontend/dist"):
+            app.mount("/canvas", StaticFiles(directory="frontend/dist", html=True), name="canvas")
+
         # Start periodic health check for Chromium and Raspotify
         async def health_check_loop():
             await asyncio.sleep(30)  # Initial delay
@@ -429,14 +447,11 @@ async def web_interface():
         <p>You can access the API documentation at <a href="/docs">/docs</a></p>
         """
 
-# Mount static files if directory exists
+# Mount /static at module-load (no kiosk-route conflict). The /canvas mount
+# is deferred to lifespan so the kiosk routes can be registered first —
+# Starlette matches routes in registration order.
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Mount built React canvas (production). Use html=True so /canvas/ falls back
-# to index.html for SPA routes; assets resolve via Vite's base='/canvas/'.
-if os.path.exists("frontend/dist"):
-    app.mount("/canvas", StaticFiles(directory="frontend/dist", html=True), name="canvas")
 
 
 if __name__ == "__main__":
