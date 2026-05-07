@@ -1,29 +1,31 @@
 #!/bin/bash
+# HSG Canvas — lean kiosk launcher for the Pi 3B+ secondary display.
+# No desktop session, no XDG portals. Just cage running Chromium fullscreen
+# under wlroots → DRM → HDMI. Started by canvas-kiosk.service on tty1.
+
+set -e
+
 URL_FILE=/boot/firmware/kiosk-url.txt
 DEFAULT_URL="http://canvas.local/canvas/"
-URL=$(cat "$URL_FILE" 2>/dev/null | tr -d "[:space:]")
+URL=$(cat "$URL_FILE" 2>/dev/null | tr -d '[:space:]')
 [ -z "$URL" ] && URL="$DEFAULT_URL"
 
-# Wait for URL host to be reachable (max ~60s)
-for i in $(seq 1 30); do
+# Wait for the canvas server to be reachable (max ~60s) so Chromium doesn't
+# load an error page on boot before networking is up.
+for _ in $(seq 1 30); do
   curl -sSf -o /dev/null --max-time 2 "$URL" && break
   sleep 2
 done
 
+# Suppress the "Chrome didn't shut down correctly" prompt after a power cut.
 PREFS="$HOME/.config/chromium/Default/Preferences"
 if [ -f "$PREFS" ]; then
-  sed -i "s/\"exited_cleanly\":false/\"exited_cleanly\":true/; s/\"exit_type\":\"Crashed\"/\"exit_type\":\"Normal\"/" "$PREFS"
+  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PREFS"
 fi
 
-command -v unclutter >/dev/null && unclutter -idle 0.1 -root &
-
-# Pi 3B+ GPU performance flags. The base flags (kiosk, ozone, etc.) were here
-# already; the new additions are for VC IV under labwc/wlroots:
-#   --enable-zero-copy           : direct GPU texture upload, skip CPU staging
-#   --canvas-oop-rasterization   : out-of-process canvas raster
-#   --num-raster-threads=4       : use all 4 cores (was 2 by default)
-#   --ignore-gpu-blocklist       : trust the GPU even if Chrome flags it as risky
-exec /usr/bin/chromium \
+# cage = minimal wlroots Wayland kiosk. Runs the given client fullscreen and
+# exits when the client exits (systemd will restart us).
+exec /usr/bin/cage -- /usr/bin/chromium \
   --kiosk \
   --noerrdialogs \
   --disable-infobars \
@@ -45,4 +47,7 @@ exec /usr/bin/chromium \
   --canvas-oop-rasterization \
   --num-raster-threads=4 \
   --ignore-gpu-blocklist \
+  --enable-gpu-rasterization \
+  --use-gl=egl \
+  --use-angle=gles \
   --app="$URL"
