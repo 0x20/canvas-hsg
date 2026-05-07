@@ -194,13 +194,17 @@ html.keepalive .now-playing {
   height: 100%;
   width: 100%;
   background: rgba(255,255,255,0.5);
-  /* scaleX (composite-only) instead of width: (paint+layout). Discrete
-     1 Hz steps with no transition — the bar is so thin a 0.4% jump per
-     second isn't visible. Crucially: no will-change, no continuous
-     transition. Either of those forces the VizCompositor to do per-frame
-     work even when nothing is changing, which pegs VC IV on the Pi 3B+. */
   transform-origin: left center;
   transform: scaleX(0);
+  /* Animation is set inline by NowPlaying.jsx on track change:
+       animation: track-progress <durationMs> steps(100) -<elapsedMs>ms forwards
+     Compositor advances 0 → 1 in 100 steps over the track. ~1 update
+     every 2.4 s on a 4-min track — effectively free. */
+}
+
+@keyframes track-progress {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
 }
 
 /* QR code in bottom-right - hidden by default, fades in */

@@ -156,32 +156,42 @@ export default function NowPlaying() {
     img.src = track.albumArtUrl;
   }, [track.albumArtUrl, track.spotifyUrl]);
 
-  // Update progress bar via direct DOM mutation (no React re-render). On
-  // Pi 3B+ a full NowPlaying re-render every second was costing ~30 ms on
-  // the main thread — enough to drop a compositor frame and break the
-  // marquee scroll cadence. Mutating progressFillRef.current.style.transform
-  // directly bypasses reconciliation entirely. QR visibility (rare,
-  // ≤ 1 toggle per track) keeps using React state.
+  // Progress bar is driven entirely by a CSS animation now. Set on track
+  // change, the compositor advances scaleX(0) → scaleX(1) in 100 discrete
+  // steps over the track's duration, with 0 main-thread work and < 1
+  // composite update per second. Replaces the old setInterval/rAF tick
+  // which was costing ~5 ms per second — enough to occasionally land
+  // mid-frame and push the compositor over budget.
   useEffect(() => {
+    const fillEl = progressFillRef.current;
+    if (!fillEl) return;
     if (!track.durationMs || !track.startTime) {
-      if (progressFillRef.current) progressFillRef.current.style.transform = 'scaleX(0)';
+      fillEl.style.animation = '';
+      fillEl.style.transform = 'scaleX(0)';
       setShowQr(false);
       return;
     }
     setShowQr(track.durationMs <= 10000);
 
-    const interval = setInterval(() => {
-      const elapsed = Date.now() - track.startTime;
-      const fraction = Math.min(elapsed / track.durationMs, 1);
-      if (progressFillRef.current) {
-        progressFillRef.current.style.transform = `scaleX(${fraction})`;
-      }
-      if (track.durationMs - elapsed <= 10000) {
-        setShowQr((v) => v || true);
-      }
-    }, 1000);
+    // If we're loading mid-track (e.g. restored Spotify state), seed the
+    // start of the animation by using a negative animation-delay equal to
+    // the elapsed time. Compositor jumps straight to the right step.
+    const elapsedMs = Math.max(0, Date.now() - track.startTime);
+    fillEl.style.animation = '';
+    // force reflow so the new animation actually restarts
+    void fillEl.offsetWidth;
+    fillEl.style.animation =
+      `track-progress ${track.durationMs}ms steps(100) -${elapsedMs}ms forwards`;
 
-    return () => clearInterval(interval);
+    // Schedule a single timeout to flip the QR visible at remaining=10s.
+    // No setInterval, no rAF — fires once per track.
+    const remaining = track.durationMs - elapsedMs;
+    if (remaining > 10000) {
+      const timer = setTimeout(() => setShowQr(true), remaining - 10000);
+      return () => clearTimeout(timer);
+    } else {
+      setShowQr(true);
+    }
   }, [track.durationMs, track.startTime]);
 
   // Marquee: forward-only loop with a pause each cycle. We measure the
