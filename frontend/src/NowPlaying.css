@@ -135,6 +135,11 @@ html.keepalive .now-playing {
 
 .scrolling-text.scroll {
   animation: scroll-marquee var(--scroll-duration, 12s) linear infinite;
+  /* Promote to a dedicated compositor layer ONLY while actively scrolling.
+     Static state (no .scroll class) has no will-change so the compositor
+     stays idle. During scroll the layer is GPU-only — no main-thread paint
+     work, smoothest possible motion on weak hardware. */
+  will-change: transform;
 }
 
 /* Artist name styling */

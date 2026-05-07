@@ -194,6 +194,7 @@ export default function NowPlaying() {
   useEffect(() => {
     const SCROLL_PX_PER_SEC = 320;
     const PAUSE_FRAC = 0.20;
+    const TICK_FPS = 30; // Lock visible motion to 30 ticks/sec — regular cadence
 
     const setupMarquee = (textEl, containerEl) => {
       if (!textEl || !containerEl) return;
@@ -207,8 +208,9 @@ export default function NowPlaying() {
       const distance = singleWidth + gap;
       const travelSec = distance / SCROLL_PX_PER_SEC;
       const totalSec = travelSec / (1 - PAUSE_FRAC);
+      const steps = Math.max(2, Math.round(TICK_FPS * totalSec));
       textEl.style.setProperty('--scroll-offset', `-${distance}px`);
-      textEl.style.setProperty('--scroll-duration', `${totalSec.toFixed(1)}s`);
+      textEl.style.animation = `scroll-marquee ${totalSec.toFixed(1)}s steps(${steps}) infinite`;
       textEl.classList.add('scroll');
     };
 
