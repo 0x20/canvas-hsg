@@ -221,11 +221,13 @@ export default function NowPlaying() {
 
   return (
     <div className="now-playing">
-      {/* Blurred full-screen background */}
+      {/* Blurred full-screen background. The dark gradient is stacked above
+          the album-art URL inside a single background-image so the layer
+          is opaque (no opacity:0.6 → no per-frame alpha blend). */}
       {track.albumArtUrl && (
         <div
           className="background-blur"
-          style={{ backgroundImage: `url('${track.albumArtUrl}')` }}
+          style={{ backgroundImage: `linear-gradient(rgba(15,15,26,0.4),rgba(15,15,26,0.4)), url('${track.albumArtUrl}')` }}
         />
       )}
 

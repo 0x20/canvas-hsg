@@ -26,7 +26,10 @@ html.keepalive .now-playing {
   animation: compositor-keepalive 1s linear infinite;
 }
 
-/* Blurred full-screen album art background. */
+/* Blurred full-screen album art background. Opacity is BAKED INTO the
+   bitmap via the dark gradient overlay set inline on the JSX element —
+   the layer itself is opaque. Alpha-blending a 1960×1120 layer at 60 fps
+   was costing ~45 pp of VizCompositor on the Pi 3B+'s VC IV. */
 .background-blur {
   position: fixed;
   top: -20px;
@@ -36,7 +39,6 @@ html.keepalive .now-playing {
   background-size: cover;
   background-position: center;
   filter: blur(40px);
-  opacity: 0.6;
   z-index: 0;
 }
 
