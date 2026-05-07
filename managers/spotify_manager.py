@@ -33,6 +33,7 @@ class SpotifyManager:
         self.audio_conflict = None  # Set after creation in main.py
         self.display_stack = None  # Set after creation in main.py
         self.bluetooth_manager = None  # Set after creation in main.py
+        self.sendspin_manager = None  # Set after creation in main.py
 
         # Current Spotify state
         self.is_playing = False
@@ -105,7 +106,13 @@ class SpotifyManager:
 
                 self._store_spotify_url(track_id)
 
-                # ALWAYS broadcast track change via WebSocket (this updates the page)
+                # If another source pre-empted us, just store metadata silently
+                if self._is_preempted():
+                    logging.info(f"Spotify track_changed (pre-empted, metadata only): {name}")
+                    await self._save_state()
+                    return True
+
+                # Broadcast track change via WebSocket (this updates the page)
                 if name and self.websocket_manager:
                     cover_url = covers if covers else None
                     # Format artists: replace newlines with comma-space
@@ -153,7 +160,7 @@ class SpotifyManager:
                     subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"],
                                    capture_output=True, timeout=5)
 
-                # Push spotify onto display stack
+                # Push spotify onto display stack (auto-evicts BT/sendspin via EXCLUSIVE_TYPES)
                 if self.display_stack:
                     await self.display_stack.push("spotify", {}, item_id="spotify")
 
@@ -165,6 +172,11 @@ class SpotifyManager:
                 logging.info(f"Spotify track changed: {name} - {artists}")
 
             elif event == "playing":
+                # If another source pre-empted us, ignore — librespot keeps firing events
+                if self._is_preempted():
+                    logging.info(f"Spotify playing event ignored (pre-empted by another source)")
+                    return True
+
                 was_playing = self.is_playing
                 self.is_playing = True
 
@@ -327,6 +339,18 @@ class SpotifyManager:
             logging.warning(f"Failed to fetch album art from track ID {spotify_id}: {e}")
 
         return None
+
+    def _is_preempted(self) -> bool:
+        """Check if another audio source (Bluetooth, Sendspin) is currently active.
+
+        When pre-empted, librespot still fires events but we should not
+        push to the display stack or mute competitors.
+        """
+        if self.bluetooth_manager and self.bluetooth_manager.is_playing:
+            return True
+        if self.sendspin_manager and self.sendspin_manager.is_playing:
+            return True
+        return False
 
     def _store_spotify_url(self, track_id: Optional[str]) -> None:
         """Extract Spotify URL from track ID"""

@@ -1,0 +1,15 @@
+[Unit]
+Description=Bluetooth Auto-Accept Agent (HSG Canvas)
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+ExecStartPre=/usr/bin/bluetoothctl discoverable on
+ExecStartPre=/usr/bin/bluetoothctl pairable on
+ExecStart=/usr/bin/python3 /home/hsg/srs_server/config/bluetooth/bt-auto-agent.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -92,6 +92,10 @@ class SendspinManager:
             if hasattr(self, 'bluetooth_manager') and self.bluetooth_manager:
                 await self.bluetooth_manager.pause_playback()
 
+            # Tell Spotify to clean up its is_playing state
+            if hasattr(self, 'spotify_manager') and self.spotify_manager and self.spotify_manager.is_playing:
+                self.spotify_manager.is_playing = False
+
             # Stop any local audio/video playback
             if self.audio_manager:
                 await self.audio_manager.stop_audio_stream()

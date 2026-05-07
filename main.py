@@ -165,6 +165,7 @@ async def lifespan(app: FastAPI):
         app.state.bluetooth_manager.spotify_manager = app.state.spotify_manager
         app.state.bluetooth_manager.sendspin_manager = app.state.sendspin_manager
         app.state.spotify_manager.bluetooth_manager = app.state.bluetooth_manager
+        app.state.spotify_manager.sendspin_manager = app.state.sendspin_manager
         app.state.audio_manager.bluetooth_manager = app.state.bluetooth_manager
 
         # Start Sendspin listener (after all cross-refs are wired)

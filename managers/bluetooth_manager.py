@@ -13,7 +13,7 @@ Architecture:
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class BluetoothManager:
@@ -31,8 +31,12 @@ class BluetoothManager:
         # Current state
         self.is_playing = False
         self.device_name: Optional[str] = None
+        self.device_address: Optional[str] = None
         self.track_info: Dict[str, Any] = {}
         self.last_event_time: Optional[datetime] = None
+
+        # Adapter state (updated each poll)
+        self._adapter_info: Dict[str, Any] = {}
 
         # Poll loop task
         self._poll_task: Optional[asyncio.Task] = None
@@ -53,10 +57,65 @@ class BluetoothManager:
         except Exception as e:
             logging.error(f"Error during Bluetooth cleanup: {e}")
 
+    # ── Adapter control ──────────────────────────────────────────────
+
+    async def set_discoverable(self, enabled: bool) -> bool:
+        """Enable/disable Bluetooth discoverability via bluetoothctl."""
+        cmd = "on" if enabled else "off"
+        return await self._bluetoothctl("discoverable", cmd)
+
+    async def set_pairable(self, enabled: bool) -> bool:
+        """Enable/disable Bluetooth pairing via bluetoothctl."""
+        cmd = "on" if enabled else "off"
+        return await self._bluetoothctl("pairable", cmd)
+
+    async def get_paired_devices(self) -> List[Dict[str, Any]]:
+        """List paired devices from BlueZ managed objects."""
+        managed_objects = await self._get_managed_objects()
+        if not managed_objects:
+            return []
+
+        devices = []
+        for obj_path, interfaces in managed_objects.items():
+            dev_props = interfaces.get("org.bluez.Device1")
+            if not dev_props:
+                continue
+            if not dev_props.get("Paired", False):
+                continue
+            devices.append({
+                "address": dev_props.get("Address", ""),
+                "name": dev_props.get("Alias", dev_props.get("Name", "Unknown")),
+                "connected": dev_props.get("Connected", False),
+                "paired": True,
+                "icon": dev_props.get("Icon", ""),
+            })
+        return devices
+
+    async def remove_device(self, address: str) -> bool:
+        """Remove a paired device via bluetoothctl."""
+        return await self._bluetoothctl("remove", address)
+
+    async def disconnect_device(self, address: str) -> bool:
+        """Disconnect a currently connected device via bluetoothctl."""
+        return await self._bluetoothctl("disconnect", address)
+
+    # ── Playback control ─────────────────────────────────────────────
+
     async def pause_playback(self) -> None:
-        """Pause Bluetooth playback via AVRCP D-Bus method."""
+        """Pause Bluetooth playback via AVRCP and immediately clean up display state.
+
+        Called by other managers (Spotify, Sendspin) when they take over audio.
+        We clean up state immediately rather than waiting for the poll loop.
+        """
         if not self.is_playing:
             return
+
+        # Immediately update state and remove from display stack
+        self.is_playing = False
+        self.track_info = {}
+        if self.display_stack:
+            await self.display_stack.remove_by_type("bluetooth")
+
         try:
             player_path = await self._find_media_player_path()
             if not player_path:
@@ -64,7 +123,7 @@ class BluetoothManager:
 
             proc = await asyncio.create_subprocess_exec(
                 "dbus-send", "--system", "--print-reply",
-                f"--dest=org.bluez",
+                "--dest=org.bluez",
                 player_path,
                 "org.bluez.MediaPlayer1.Pause",
                 stdout=asyncio.subprocess.PIPE,
@@ -74,6 +133,8 @@ class BluetoothManager:
             logging.info("Sent AVRCP Pause to Bluetooth device")
         except Exception as e:
             logging.warning(f"Failed to send AVRCP Pause: {e}")
+
+    # ── Poll loop ────────────────────────────────────────────────────
 
     async def _poll_loop(self) -> None:
         """Poll BlueZ D-Bus every 3 seconds for MediaPlayer1 objects."""
@@ -93,6 +154,9 @@ class BluetoothManager:
         if managed_objects is None:
             return
 
+        # Update adapter info from managed objects
+        self._update_adapter_info(managed_objects)
+
         player_path = None
         player_status = None
         device_path = None
@@ -108,12 +172,19 @@ class BluetoothManager:
 
         if player_path and player_status == "playing":
             if not self.is_playing:
-                # Read device name
+                # Read device name and address
                 device_alias = None
+                device_address = None
                 if device_path and device_path in managed_objects:
                     dev_props = managed_objects[device_path].get("org.bluez.Device1", {})
                     device_alias = dev_props.get("Alias")
-                await self._handle_connect(device_alias)
+                    device_address = dev_props.get("Address")
+                await self._handle_connect(device_alias, device_address)
+            else:
+                # Re-enforce muting each poll — sink-inputs can appear after initial mute
+                if self.audio_conflict:
+                    await self.audio_conflict.mute_source("raspotify")
+                    await self.audio_conflict.mute_source("sendspin")
 
             # Read track metadata
             player_props = managed_objects[player_path].get("org.bluez.MediaPlayer1", {})
@@ -123,16 +194,38 @@ class BluetoothManager:
             # Player gone or not playing anymore
             await self._handle_disconnect()
 
-    async def _handle_connect(self, device_name: Optional[str] = None) -> None:
+    def _update_adapter_info(self, managed_objects: Dict[str, Dict[str, Any]]) -> None:
+        """Cache adapter properties from managed objects."""
+        for obj_path, interfaces in managed_objects.items():
+            adapter_props = interfaces.get("org.bluez.Adapter1")
+            if adapter_props:
+                self._adapter_info = {
+                    "powered": adapter_props.get("Powered", False),
+                    "discoverable": adapter_props.get("Discoverable", False),
+                    "pairable": adapter_props.get("Pairable", False),
+                    "name": adapter_props.get("Alias", adapter_props.get("Name", "")),
+                    "address": adapter_props.get("Address", ""),
+                }
+                break
+
+    async def _handle_connect(self, device_name: Optional[str] = None,
+                               device_address: Optional[str] = None) -> None:
         """Handle a new Bluetooth A2DP connection starting playback."""
-        logging.info(f"Bluetooth A2DP connected: {device_name or 'Unknown device'}")
+        logging.info(f"Bluetooth A2DP connected: {device_name or 'Unknown device'} ({device_address})")
         self.is_playing = True
         self.device_name = device_name
+        self.device_address = device_address
 
-        # Mute competing sources
+        # Mute competing audio sources via PipeWire
         if self.audio_conflict:
             await self.audio_conflict.mute_source("raspotify")
             await self.audio_conflict.mute_source("sendspin")
+
+        # Tell Spotify/Sendspin to clean up their is_playing state
+        if self.spotify_manager and self.spotify_manager.is_playing:
+            self.spotify_manager.is_playing = False
+        if self.sendspin_manager and self.sendspin_manager.is_playing:
+            self.sendspin_manager.is_playing = False
 
         # Stop local audio/video
         if self.audio_manager:
@@ -140,7 +233,7 @@ class BluetoothManager:
         if self.playback_manager:
             await self.playback_manager.stop_playback()
 
-        # Push to display stack
+        # Push to display stack (auto-evicts spotify/sendspin via EXCLUSIVE_TYPES)
         if self.display_stack:
             await self.display_stack.push("bluetooth", {}, item_id="bluetooth")
 
@@ -156,6 +249,7 @@ class BluetoothManager:
         was_playing = self.is_playing
         self.is_playing = False
         self.device_name = None
+        self.device_address = None
         self.track_info = {}
 
         if was_playing:
@@ -216,6 +310,25 @@ class BluetoothManager:
                     f"Bluetooth track: {self.track_info['name']} - {self.track_info['artists']}"
                 )
 
+    # ── D-Bus helpers ────────────────────────────────────────────────
+
+    async def _bluetoothctl(self, *args: str) -> bool:
+        """Run a bluetoothctl command and return success."""
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "bluetoothctl", *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
+            success = proc.returncode == 0
+            if not success:
+                logging.warning(f"bluetoothctl {' '.join(args)} failed: {stderr.decode().strip()}")
+            return success
+        except Exception as e:
+            logging.warning(f"bluetoothctl {' '.join(args)} error: {e}")
+            return False
+
     async def _find_media_player_path(self) -> Optional[str]:
         """Find the first MediaPlayer1 object path from BlueZ."""
         managed_objects = await self._get_managed_objects()
@@ -254,8 +367,10 @@ class BluetoothManager:
         return {
             "is_playing": self.is_playing,
             "device_name": self.device_name,
+            "device_address": self.device_address,
             "track_info": self.track_info or None,
             "last_event_time": self.last_event_time.isoformat() if self.last_event_time else None,
+            "adapter": self._adapter_info or None,
         }
 
 
@@ -284,8 +399,8 @@ def _parse_managed_objects(output: str) -> Dict[str, Dict[str, Any]]:
     while i < len(lines):
         line = lines[i].strip()
 
-        # Object path
-        if 'object path "/' in line and 'dict entry(' not in lines[max(0, i-1)].strip():
+        # Object path (top-level dict entries in GetManagedObjects)
+        if 'object path "/org/bluez' in line:
             # Save previous interface
             if current_iface and current_path is not None:
                 if current_path not in objects:

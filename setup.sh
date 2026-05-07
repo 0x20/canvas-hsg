@@ -64,7 +64,8 @@ apt-get install -y \
     sysstat \
     bluez \
     libspa-0.2-bluetooth \
-    bluez-tools \
+    python3-dbus \
+    python3-gi \
     dbus
 
 echo -e "${GREEN}✓ System packages installed${NC}"
@@ -225,29 +226,29 @@ if [ -f /etc/bluetooth/main.conf ]; then
     fi
 fi
 
-# Create bt-agent service for auto-accept pairing (NoInputNoOutput capability)
-cat > /etc/systemd/system/bt-agent.service << 'EOF'
-[Unit]
-Description=Bluetooth Agent (auto-accept pairing)
-After=bluetooth.service
-Requires=bluetooth.service
+# Install auto-accept pairing agent (replaces bluez-tools bt-agent)
+chmod +x "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.py"
+cp "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.service" /etc/systemd/system/bt-auto-agent.service
 
-[Service]
-Type=simple
-ExecStartPre=/usr/bin/bluetoothctl discoverable on
-ExecStart=/usr/bin/bt-agent --capability=NoInputNoOutput
-Restart=on-failure
-RestartSec=5
+# Remove old bt-agent service if it exists
+systemctl disable bt-agent.service 2>/dev/null || true
+systemctl stop bt-agent.service 2>/dev/null || true
+rm -f /etc/systemd/system/bt-agent.service
 
-[Install]
-WantedBy=multi-user.target
-EOF
+# WirePlumber config: route incoming BT A2DP audio to speakers
+BT_WP_DIR="$USER_HOME/.config/wireplumber/bluetooth.lua.d"
+mkdir -p "$BT_WP_DIR"
+cp "$SCRIPT_DIR/config/bluetooth/51-hsg-bluetooth.lua" "$BT_WP_DIR/51-hsg-bluetooth.lua"
+chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/wireplumber"
 
 systemctl daemon-reload
 systemctl enable bluetooth.service
 systemctl restart bluetooth.service || true
-systemctl enable bt-agent.service
-systemctl start bt-agent.service || true
+sleep 2
+# Set the advertised name (Alias) — Name in main.conf is the system hostname, Alias is what phones see
+bluetoothctl system-alias "HSG Canvas" || true
+systemctl enable bt-auto-agent.service
+systemctl start bt-auto-agent.service || true
 
 echo -e "${GREEN}✓ Bluetooth A2DP sink configured${NC}"
 echo ""
@@ -411,7 +412,7 @@ echo "  1. srs-server.service   - SRS RTMP/HTTP-FLV server (Docker)"
 echo "  2. hsg-canvas.service   - HSG Canvas web app"
 echo "  3. raspotify.service    - Spotify Connect client"
 echo "  4. sendspin.service     - Sendspin multi-room audio receiver"
-echo "  5. bt-agent.service     - Bluetooth auto-accept pairing agent"
+echo "  5. bt-auto-agent.service - Bluetooth auto-accept pairing agent"
 echo ""
 
 echo -e "${YELLOW}Next Steps:${NC}"

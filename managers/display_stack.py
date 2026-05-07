@@ -47,6 +47,10 @@ class DisplayStack:
     have durations (auto-expire) or be persistent until removed.
     """
 
+    # These display types are mutually exclusive — pushing one removes the others.
+    # Prevents stale now-playing items from lingering when a new audio source takes over.
+    EXCLUSIVE_TYPES = {"spotify", "sendspin", "bluetooth"}
+
     def __init__(self, on_change: Optional[Callable[['DisplayItem'], Coroutine]] = None):
         self._base = DisplayItem("static", {"background_url": "/static/canvas_background.png"}, item_id="base")
         self._stack: List[DisplayItem] = []
@@ -85,6 +89,15 @@ class DisplayStack:
                     if existing is self.current:
                         await self._notify_change()
                     return existing
+
+        # Evict mutually exclusive types (e.g. pushing spotify removes bluetooth/sendspin)
+        if item_type in self.EXCLUSIVE_TYPES:
+            rivals = [i for i in self._stack
+                      if i.type in self.EXCLUSIVE_TYPES and i.type != item_type]
+            for rival in rivals:
+                self._cancel_expiry(rival)
+                self._stack.remove(rival)
+                logging.info(f"DisplayStack: evicted {rival.type} (id={rival.id}) for {item_type}")
 
         item = DisplayItem(item_type, content, duration, item_id)
         self._stack.append(item)
