@@ -244,9 +244,10 @@ export default function NowPlaying() {
         )}
       </div>
 
-      {/* Progress bar */}
+      {/* Progress bar — scaleX is GPU-composited; width: would trigger
+          paint/layout every transition tick. */}
       <div className="progress-bar">
-        <div className="progress-fill" style={{ width: `${progress}%` }} />
+        <div className="progress-fill" style={{ transform: `scaleX(${progress / 100})` }} />
       </div>
 
       {/* Spotify QR Code - fades in for last 10s of song */}
