@@ -23,14 +23,14 @@ if [ -f "$PREFS" ]; then
   sed -i 's/"exited_cleanly":false/"exited_cleanly":true/; s/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PREFS"
 fi
 
-# Mode lock: drop the display to 1280x720 @ 50 Hz so chromium's compositor
-# can hit the vsync deadline on every frame. Native (1920x1080@60) on VC IV
-# was oscillating 30-60 fps with visible stutter — at 720p@50 the same
-# scene sustains a flat 50 fps with no missed frames. Override the mode by
-# putting one line ("1920x1080@60", "1280x720@60", etc.) in the file at
-# /boot/firmware/canvas-display-mode.txt.
+# Mode lock: drop the display to 1280x720 @ 60 Hz so chromium's compositor
+# can hit every vsync. Native (1920x1080@60) on VC IV was oscillating
+# 30-60 fps with visible stutter (~124 MP/s pixel work hits the fillrate
+# wall). At 720p that drops to ~55 MP/s and the scene sustains a flat
+# 60 fps. Override by putting one line ("1920x1080@60", "1280x720@50",
+# etc.) in the file at /boot/firmware/canvas-display-mode.txt.
 MODE_FILE=/boot/firmware/canvas-display-mode.txt
-DEFAULT_MODE="1280x720@50"
+DEFAULT_MODE="1280x720@60"
 MODE=$(cat "$MODE_FILE" 2>/dev/null | tr -d '[:space:]')
 [ -z "$MODE" ] && MODE="$DEFAULT_MODE"
 
