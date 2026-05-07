@@ -26,7 +26,11 @@ html.keepalive .now-playing {
   animation: compositor-keepalive 1s linear infinite;
 }
 
-/* Blurred full-screen album art background */
+/* Blurred full-screen album art background.
+   Layer isolation hints (will-change / translateZ / contain) tell the
+   browser this subtree is a stable compositor layer — without them, on
+   weaker GPUs the 40px blur ends up re-rasterised every frame instead
+   of cached. See the May 2026 Pi 3B+ perf fix. */
 .background-blur {
   position: fixed;
   top: -20px;
@@ -38,6 +42,9 @@ html.keepalive .now-playing {
   filter: blur(40px);
   opacity: 0.6;
   z-index: 0;
+  will-change: filter;
+  transform: translateZ(0);
+  contain: paint;
 }
 
 /* Centered sharp album art */
@@ -175,7 +182,9 @@ html.keepalive .now-playing {
 .progress-fill {
   height: 100%;
   background: rgba(255,255,255,0.5);
-  transition: width 0.1s linear;
+  /* Width is updated every 1s (NowPlaying.jsx:174). Match the transition
+     so each step animates smoothly across the gap instead of flashing. */
+  transition: width 1s linear;
 }
 
 /* QR code in bottom-right - hidden by default, fades in */

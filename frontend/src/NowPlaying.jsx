@@ -179,7 +179,7 @@ export default function NowPlaying() {
       if (remaining <= 10000) {
         setShowQr(true);
       }
-    }, 100);
+    }, 1000);
 
     return () => clearInterval(interval);
   }, [track.durationMs, track.startTime]);
