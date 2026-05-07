@@ -191,28 +191,32 @@ export default function NowPlaying() {
   // 2× wide; the keyframe translates by exactly that distance so the
   // duplicate ends up where the original started — seamless loop.
   // Duration scales with width so scroll speed is constant.
+  //
+  // Animation uses steps(N) where N = FPS × duration. The Pi 3B+ can't
+  // sustain 60 fps compositing this scene (measured ~44 fps with irregular
+  // timing → perceived stutter). Locking the animation to 30 discrete
+  // steps per second gives steady, regular motion — visually smoother than
+  // a fluid-but-uneven 44 fps. Pi 4 obviously absorbs either.
   useEffect(() => {
-    const SCROLL_PX_PER_SEC = 180;
-    const PAUSE_FRAC = 0.20; // 20% of the cycle is pause-at-start
-    const GAP_PX_AT_REM = 48; // ~3em at 16px font ≈ 48px; we'll measure precisely below
+    const SCROLL_PX_PER_SEC = 320;  // ~2× faster than the old ping-pong
+    const PAUSE_FRAC = 0.20;        // 20% of the cycle is pause-at-start
+    const TICK_FPS = 30;            // step rate; lower = smoother on weak GPUs
 
     const setupMarquee = (textEl, containerEl) => {
       if (!textEl || !containerEl) return;
-      // Reset to measure single-copy width
       textEl.classList.remove('scroll');
-      // Force a layout read
+      textEl.style.animation = '';
       const singleWidth = textEl.scrollWidth;
       const containerWidth = containerEl.clientWidth;
       if (singleWidth <= containerWidth) return; // fits — no scroll
-      // Gap = 3em in font-size units
       const fontSize = parseFloat(getComputedStyle(textEl).fontSize) || 16;
       const gap = 3 * fontSize;
       const distance = singleWidth + gap;
-      // Travel time at constant speed, plus the pause fraction for the static phase
       const travelSec = distance / SCROLL_PX_PER_SEC;
       const totalSec = travelSec / (1 - PAUSE_FRAC);
+      const steps = Math.max(2, Math.round(TICK_FPS * totalSec));
       textEl.style.setProperty('--scroll-offset', `-${distance}px`);
-      textEl.style.setProperty('--scroll-duration', `${totalSec.toFixed(1)}s`);
+      textEl.style.animation = `scroll-marquee ${totalSec.toFixed(1)}s steps(${steps}) infinite`;
       textEl.classList.add('scroll');
     };
 
