@@ -1,0 +1,24 @@
+# HSG Canvas — Pi 3B+ secondary display tuning fragment
+#
+# This is the diff to /boot/firmware/config.txt on screen-1.local (the Pi 3B+
+# remote kiosk that loads http://canvas.local/canvas/). Append these lines to
+# the existing config.txt — do NOT replace the whole file. The base config
+# from Raspberry Pi OS Bookworm/Trixie already has:
+#   - dtoverlay=vc4-kms-v3d
+#   - max_framebuffers=2
+#   - arm_boost=1
+# The lines below are what HSG Canvas adds on top.
+
+# GPU memory split — bumped from default 76 MB to 256 MB.
+# Chromium's compositor caches layer textures here; the default is too tight
+# for 1080p kiosk + blur + scrolling text and forces re-rasterisation.
+gpu_mem=256
+
+# Modest V3D overclock — VC IV's default v3d clock is 300 MHz; 400 MHz is
+# stable on a Pi 3B+ with passive cooling and helps blur/raster throughput.
+gpu_freq=400
+
+# Watch thermals before enabling either of these. arm_boost=1 (already on by
+# default in the stock config) gets us 1.4 GHz; we don't push CPU further.
+# arm_freq=1500
+# over_voltage=2
