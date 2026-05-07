@@ -155,11 +155,13 @@ Angie reverse proxy on port 80 routes all external traffic:
 | URL Path | Backend | Content |
 |----------|---------|---------|
 | `/` | FastAPI:8000 | Control panel |
-| `/spotify/` | Vite:5173 | React display app (HMR works) |
+| `/canvas/` | FastAPI:8000 | React display app (built bundle from `frontend/dist`, mounted via StaticFiles) |
 | `/static/*` | FastAPI:8000 | Control panel assets |
 | `/ws/*` | FastAPI:8000 | WebSocket endpoints |
 | `/docs` | FastAPI:8000 | OpenAPI docs |
 | All API routes | FastAPI:8000 | REST API |
+
+**Build flow**: `start.sh` runs `npm run build` if `frontend/dist/index.html` is missing or older than `frontend/src/`. Initial build also happens in `setup.sh`. Vite dev server is no longer used in production — the React app is shipped as a minified, tree-shaken bundle.
 
 Config files (all in repo, symlinked/copied by `setup.sh`):
 - `config/angie/hsg-canvas.conf` → `/etc/angie/http.d/hsg-canvas.conf`

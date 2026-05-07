@@ -1,14 +1,14 @@
 #!/bin/bash
 #
-# HSG Canvas Startup Script with React Hot Reload
-# - Starts Vite dev server on port 5173 (React now-playing display)
+# HSG Canvas Startup Script
+# - Builds the React canvas (production bundle, served by FastAPI)
 # - Starts FastAPI server on port 8000
 # - Angie reverse proxy on port 80 handles external routing
 #
 
 set -e
 
-echo "=== HSG Canvas with React Hot Reload ==="
+echo "=== HSG Canvas ==="
 echo ""
 
 # Clean up stale display processes from previous crashes
@@ -21,16 +21,23 @@ sudo rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
 # Brief pause to ensure cleanup completes
 sleep 1
 
-# Start Vite dev server in background
-echo "Starting Vite dev server on port 5173..."
+# Build the React canvas if dist is missing or older than any source file
 cd /home/hsg/srs_server/frontend
-nohup npm run dev > /tmp/vite.log 2>&1 &
-VITE_PID=$!
-echo "Vite dev server started (PID: $VITE_PID)"
+NEED_BUILD=0
+if [ ! -f dist/index.html ]; then
+    NEED_BUILD=1
+elif [ -n "$(find src public package.json vite.config.js -newer dist/index.html 2>/dev/null | head -1)" ]; then
+    NEED_BUILD=1
+fi
+if [ "$NEED_BUILD" = "1" ]; then
+    echo "Building React canvas..."
+    [ -d node_modules ] || npm ci
+    npm run build
+    echo "Canvas built."
+else
+    echo "Canvas build is up to date."
+fi
 echo ""
-
-# Wait for Vite to be ready
-sleep 3
 
 # Go back to project root
 cd /home/hsg/srs_server
@@ -47,9 +54,3 @@ echo "Starting FastAPI server on port 8000..."
 
 # Start the application (Angie handles port 80, FastAPI listens on 8000)
 exec .venv/bin/python main.py --production
-
-# Cleanup: kill Vite dev server when FastAPI exits
-echo ""
-echo "Shutting down Vite dev server..."
-kill $VITE_PID 2>/dev/null || true
-echo "Shutdown complete"

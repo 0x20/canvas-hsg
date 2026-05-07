@@ -431,6 +431,11 @@ async def web_interface():
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Mount built React canvas (production). Use html=True so /canvas/ falls back
+# to index.html for SPA routes; assets resolve via Vite's base='/canvas/'.
+if os.path.exists("frontend/dist"):
+    app.mount("/canvas", StaticFiles(directory="frontend/dist", html=True), name="canvas")
+
 
 if __name__ == "__main__":
     import argparse

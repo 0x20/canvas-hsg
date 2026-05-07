@@ -66,7 +66,9 @@ apt-get install -y \
     libspa-0.2-bluetooth \
     python3-dbus \
     python3-gi \
-    dbus
+    dbus \
+    nodejs \
+    npm
 
 echo -e "${GREEN}✓ System packages installed${NC}"
 echo ""
@@ -321,6 +323,15 @@ fi
 sudo -u $ACTUAL_USER uv pip install --python .venv/bin/python -r requirements.txt
 
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
+echo ""
+
+# Build the React canvas (production bundle, served by FastAPI from frontend/dist)
+echo -e "${BLUE}[5b] Building React canvas...${NC}"
+cd "$SCRIPT_DIR/frontend"
+sudo -u $ACTUAL_USER npm ci
+sudo -u $ACTUAL_USER npm run build
+cd "$SCRIPT_DIR"
+echo -e "${GREEN}✓ React canvas built${NC}"
 echo ""
 
 # ============================================
