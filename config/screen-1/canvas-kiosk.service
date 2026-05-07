@@ -12,12 +12,13 @@ StandardInput=tty
 StandardOutput=journal
 StandardError=journal
 
-# Minimal env for a Wayland kiosk on wlroots/v3d
+# Minimal env for a Wayland kiosk on wlroots/v3d. Don't pin
+# WLR_DRM_DEVICES — Pi 4 exposes the v3d at card1, Pi 3 at card0; let
+# wlroots auto-pick the right one.
 Environment=XDG_SESSION_TYPE=wayland
 Environment=XDG_RUNTIME_DIR=/run/user/1000
 Environment=WLR_BACKENDS=drm
 Environment=WLR_RENDERER=gles2
-Environment=WLR_DRM_DEVICES=/dev/dri/card1
 
 ExecStart=/usr/local/bin/canvas-kiosk.sh
 Restart=always

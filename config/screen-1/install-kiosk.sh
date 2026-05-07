@@ -69,8 +69,10 @@ install -m 0644 "$REPO_DIR/canvas-kiosk.service" /etc/systemd/system/canvas-kios
 systemctl daemon-reload
 
 # 5. Boot into multi-user.target (no graphical session), enable kiosk
-echo ">> Disabling lightdm, switching default target to multi-user"
+echo ">> Disabling lightdm + getty@tty1, switching default target to multi-user"
 systemctl disable lightdm.service 2>/dev/null || true
+# getty@tty1 fights canvas-kiosk for tty1 — disable it so cage can claim the seat.
+systemctl disable getty@tty1.service 2>/dev/null || true
 systemctl set-default multi-user.target
 
 # Disable the old userland kiosk autostart so it doesn't compete
