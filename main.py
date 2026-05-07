@@ -257,12 +257,13 @@ async def lifespan(app: FastAPI):
         # Setup display stack API routes
         app.include_router(setup_display_stack_routes(app.state.display_stack, app.state.chromium_manager))
 
-        # Start periodic Chromium health check
-        async def chromium_health_loop():
+        # Start periodic health check for Chromium and Raspotify
+        async def health_check_loop():
             await asyncio.sleep(30)  # Initial delay
             no_ws_count = 0
             while True:
                 try:
+                    # ── Chromium health ──
                     if app.state.chromium_manager and app.state.chromium_manager.is_running():
                         await app.state.chromium_manager.check_health()
 
@@ -276,11 +277,65 @@ async def lifespan(app: FastAPI):
                                 no_ws_count = 0
                         else:
                             no_ws_count = 0
+
+                    # ── Raspotify health ──
+                    await _check_raspotify_health()
+
                 except Exception as e:
-                    logging.error(f"Chromium health check error: {e}")
+                    logging.error(f"Health check error: {e}")
                 await asyncio.sleep(30)
 
-        app.state._chromium_health_task = asyncio.create_task(chromium_health_loop())
+        async def _restart_raspotify(reason: str):
+            logging.warning(f"Restarting raspotify: {reason}")
+            restart = await asyncio.create_subprocess_exec(
+                "sudo", "systemctl", "restart", "raspotify",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await asyncio.wait_for(restart.communicate(), timeout=10)
+            logging.info("Raspotify restarted")
+
+        async def _check_raspotify_health():
+            """Restart raspotify if it's stuck on fatal errors or has gone silent
+            while the Spotify session is supposed to be active."""
+            try:
+                # ── 1. Fatal errors in the last 60 seconds ──
+                proc = await asyncio.create_subprocess_exec(
+                    "journalctl", "-u", "raspotify", "--since", "60 sec ago",
+                    "--no-pager", "-q",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+                recent_logs = stdout.decode()
+
+                error_count = (
+                    recent_logs.count("429 Too Many Requests")
+                    + recent_logs.count("StatusCode(403)")
+                    + recent_logs.count("FailedPrecondition")
+                )
+                if error_count >= 3:
+                    await _restart_raspotify(f"{error_count} fatal errors in 60s")
+                    return
+
+                # ── 2. Liveness: silent logs while Spotify thinks it's playing ──
+                # If our SpotifyManager believes a session is connected but raspotify
+                # has produced no log output in the last 10 minutes, it's a zombie.
+                spotify_mgr = getattr(app.state, 'spotify_manager', None)
+                if spotify_mgr and (spotify_mgr.is_playing or spotify_mgr.is_session_connected):
+                    silent_proc = await asyncio.create_subprocess_exec(
+                        "journalctl", "-u", "raspotify", "--since", "10 min ago",
+                        "--no-pager", "-q",
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    silent_stdout, _ = await asyncio.wait_for(silent_proc.communicate(), timeout=5)
+                    if not silent_stdout.strip():
+                        await _restart_raspotify("silent for 10 min while session active")
+            except Exception as e:
+                logging.debug(f"Raspotify health check error: {e}")
+
+        app.state._health_check_task = asyncio.create_task(health_check_loop())
 
         logging.info("HSG Canvas application started successfully!")
 
@@ -297,8 +352,8 @@ async def lifespan(app: FastAPI):
 
     try:
         # Cancel health check task
-        if hasattr(app.state, '_chromium_health_task'):
-            app.state._chromium_health_task.cancel()
+        if hasattr(app.state, '_health_check_task'):
+            app.state._health_check_task.cancel()
 
         # Stop Bluetooth manager
         if hasattr(app.state, 'bluetooth_manager') and app.state.bluetooth_manager:

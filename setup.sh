@@ -380,6 +380,13 @@ systemctl enable srs-server.service
 systemctl enable hsg-canvas.service
 systemctl enable raspotify.service
 
+# Install sudoers drop-in so the hsg-canvas watchdog can restart raspotify
+# when librespot wedges (auth/rate-limit errors or silent zombie state).
+install -m 0440 -o root -g root \
+    "$SCRIPT_DIR/config/sudoers.d/hsg-canvas" /etc/sudoers.d/hsg-canvas
+visudo -c -f /etc/sudoers.d/hsg-canvas
+echo "  ✓ /etc/sudoers.d/hsg-canvas"
+
 echo -e "${GREEN}✓ Services installed and enabled${NC}"
 echo ""
 

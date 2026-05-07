@@ -1,0 +1,4 @@
+# Allow the hsg-canvas service (running as user `hsg`) to restart raspotify
+# without a password. Used by the watchdog in main.py:_check_raspotify_health
+# when librespot wedges on auth/rate-limit errors or goes silent.
+hsg ALL=(root) NOPASSWD: /usr/bin/systemctl restart raspotify
