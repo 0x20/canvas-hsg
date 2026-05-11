@@ -1415,7 +1415,7 @@ def setup_bluetooth_routes(bluetooth_manager) -> APIRouter:
 # DISPLAY STACK ROUTES (unified display management)
 # =============================================================================
 
-def setup_display_stack_routes(display_stack: 'DisplayStack') -> APIRouter:
+def setup_display_stack_routes(display_stack: 'DisplayStack', chromium_manager=None) -> APIRouter:
     """
     Setup display stack API routes for pushing/removing display items.
 
@@ -1479,5 +1479,25 @@ def setup_display_stack_routes(display_stack: 'DisplayStack') -> APIRouter:
         """Clear all items from the display stack (back to static background)"""
         await display_stack.clear()
         return {"message": "Display stack cleared", "current": display_stack.current.to_dict()}
+
+    @router.post("/display/reload")
+    async def reload_chromium():
+        """Reload the Chromium kiosk page via Chrome DevTools Protocol"""
+        if not chromium_manager:
+            raise HTTPException(status_code=503, detail="Chromium manager not available")
+        success = await chromium_manager.reload_page()
+        if success:
+            return {"message": "Page reloaded"}
+        raise HTTPException(status_code=500, detail="Failed to reload page")
+
+    @router.post("/display/navigate")
+    async def navigate_chromium(url: str):
+        """Navigate Chromium to a new URL via Chrome DevTools Protocol"""
+        if not chromium_manager:
+            raise HTTPException(status_code=503, detail="Chromium manager not available")
+        success = await chromium_manager.navigate(url)
+        if success:
+            return {"message": f"Navigated to {url}"}
+        raise HTTPException(status_code=500, detail="Failed to navigate")
 
     return router
