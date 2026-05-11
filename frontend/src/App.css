@@ -1,2 +1,21 @@
 /* App-level styles — intentionally empty.
    Global resets live in index.css. */
+
+/* Layered render when a silent overlay sits on top of a media base (e.g. HA
+   pushes an image while YouTube plays). The YouTube iframe stays mounted
+   underneath so audio keeps going; the overlay covers it visually.
+
+   The transform + will-change on .layer-base promote it to its own
+   compositor layer that Chrome won't occlusion-cull. Without this, when the
+   overlay fully covers the iframe Chrome stops painting it; when the
+   overlay is removed the iframe takes ~1-2s to resume video output (audio
+   keeps playing throughout, but the screen is black). */
+.layer-base {
+  position: fixed; inset: 0; z-index: 0;
+  transform: translateZ(0);
+  will-change: transform;
+  backface-visibility: hidden;
+}
+.layer-overlay {
+  position: fixed; inset: 0; z-index: 1;
+}

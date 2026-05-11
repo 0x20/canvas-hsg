@@ -5,7 +5,12 @@
   width: 100vw;
   height: 100vh;
   overflow: hidden;
-  background: #000;
+  /* Transparent so media underneath (YouTube via .layer-base) remains
+     visible around an object-fit:contain image. Without this, a small image
+     like a QR code puts a mostly-black frame on the wire, the TV re-syncs
+     image processing on the transition back to video, and the viewer sees
+     a few seconds of black when the overlay clears. */
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;

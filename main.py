@@ -85,8 +85,14 @@ async def lifespan(app: FastAPI):
         logging.info("Initializing display stack...")
 
         async def broadcast_display_state(item):
-            """Callback: broadcast display state change to all connected clients"""
-            await app.state.display_ws_manager.broadcast("display_state", item.to_dict())
+            """Callback: broadcast display state change to all connected clients.
+            Sends both the topmost item (`current`) and the full stack so the
+            kiosk can keep a persistent YouTube layer mounted underneath
+            silent overlays like image/qrcode/website — keeps audio alive
+            when HA pushes a transient visual on top."""
+            payload = item.to_dict()
+            payload["stack"] = app.state.display_stack.get_stack()
+            await app.state.display_ws_manager.broadcast("display_state", payload)
 
         app.state.display_stack = DisplayStack(on_change=broadcast_display_state)
 

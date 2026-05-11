@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import './App.css';
 import NowPlaying from './NowPlaying';
 import StaticBackground from './StaticBackground';
 import ImageDisplay from './ImageDisplay';
@@ -9,6 +10,7 @@ import AudioPlayer from './AudioPlayer';
 
 function App() {
   const [displayItem, setDisplayItem] = useState({ type: 'static', content: {}, id: 'base' });
+  const [displayStack, setDisplayStack] = useState([]);
   const [spotifySeen, setSpotifySeen] = useState(false);
   const wsRef = useRef(null);
 
@@ -36,6 +38,7 @@ function App() {
 
             if (message.event === 'display_state') {
               setDisplayItem(message.data);
+              setDisplayStack(message.data.stack || []);
               if (message.data.type === 'spotify' || message.data.type === 'sendspin' || message.data.type === 'bluetooth') {
                 setSpotifySeen(true);
               }
@@ -79,31 +82,50 @@ function App() {
   const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin' || displayItem.type === 'bluetooth';
   const keepNowPlayingMounted = spotifySeen && !isNowPlayingActive && displayItem.type !== 'static';
 
-  const renderOverlay = () => {
-    switch (displayItem.type) {
-      case 'spotify':
-      case 'sendspin':
-      case 'bluetooth':
-        return null; // NowPlaying rendered separately below
+  // Silent overlays (image / qrcode / website) shouldn't interrupt audio when
+  // a YouTube is already playing underneath. Find the most recent YouTube in
+  // the stack; if it isn't currently the top item but something silent is,
+  // keep the YouTube iframe mounted as a base layer and overlay on top.
+  const SILENT_OVERLAY_TYPES = ['image', 'qrcode', 'website'];
+  const ytItem = [...displayStack].reverse().find((i) => i?.type === 'youtube');
+  const overlayBelowYt = ytItem && displayItem.id !== ytItem.id &&
+                         SILENT_OVERLAY_TYPES.includes(displayItem.type);
+
+  const renderItem = (item) => {
+    switch (item.type) {
       case 'image':
-      case 'qrcode':
-        return <ImageDisplay item={displayItem} />;
-      case 'youtube':
-        return <YouTubePlayer item={displayItem} />;
-      case 'website':
-        return <WebsiteFrame item={displayItem} />;
-      case 'video':
-        return <VideoPlayer item={displayItem} />;
+      case 'qrcode':  return <ImageDisplay item={item} />;
+      case 'youtube': return <YouTubePlayer item={item} />;
+      case 'website': return <WebsiteFrame item={item} />;
+      case 'video':   return <VideoPlayer item={item} />;
       case 'static':
-      default:
-        return <StaticBackground item={displayItem} />;
+      default:        return <StaticBackground item={item} />;
     }
+  };
+
+  const renderLayers = () => {
+    if (isNowPlayingActive) return null;
+    // Always wrap in .layer-base so the position in the React tree is stable
+    // when a silent overlay arrives. If we conditionally added the wrapper
+    // only when an overlay was present, the YouTube component's parent would
+    // change (fragment child → div child) and React would unmount/remount it,
+    // destroying the iframe and briefly cutting audio — the very thing we're
+    // trying to prevent.
+    const baseItem = overlayBelowYt ? ytItem : displayItem;
+    return (
+      <>
+        <div className="layer-base">{renderItem(baseItem)}</div>
+        {overlayBelowYt && (
+          <div className="layer-overlay">{renderItem(displayItem)}</div>
+        )}
+      </>
+    );
   };
 
   return (
     <>
       {(isNowPlayingActive || keepNowPlayingMounted) && <NowPlaying />}
-      {!isNowPlayingActive && renderOverlay()}
+      {renderLayers()}
       <AudioPlayer />
     </>
   );
