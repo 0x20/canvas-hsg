@@ -165,6 +165,19 @@
 
         </div>
 
+        <!-- Quick Actions -->
+        <div class="hero" style="margin-top: 16px;">
+            <div class="card" style="flex: 0 1 auto; min-width: 200px;">
+                <h2>Quick Actions</h2>
+                <p>HA scripts (editable in Home Assistant)</p>
+                <div class="button-row">
+                    <button id="openSpaceBtn" style="background: #388e3c; border-color: #388e3c;">Open Space</button>
+                    <button id="closeSpaceBtn" class="danger">Close Space</button>
+                </div>
+                <div id="scriptStatus" class="status-text"></div>
+            </div>
+        </div>
+
         <!-- Toggle Button for Advanced Features -->
         <div class="toggle-advanced">
             <button class="toggle-btn" id="toggleAdvancedBtn">
@@ -339,6 +352,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>

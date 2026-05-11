@@ -88,6 +88,11 @@ function cacheDOMElements() {
     DOM.spotifyDuration = document.getElementById('spotifyDuration');
     DOM.spotifyLastEvent = document.getElementById('spotifyLastEvent');
 
+    // Quick actions
+    DOM.openSpaceBtn = document.getElementById('openSpaceBtn');
+    DOM.closeSpaceBtn = document.getElementById('closeSpaceBtn');
+    DOM.scriptStatus = document.getElementById('scriptStatus');
+
     // Action buttons
     DOM.playVideoBtn = document.getElementById('playVideoBtn');
     DOM.stopVideoBtn = document.getElementById('stopVideoBtn');
@@ -1121,6 +1126,23 @@ async function refreshSpotifyStatus() {
     }
 }
 
+// Quick actions — trigger HA scripts
+async function triggerScript(scriptId, button) {
+    try {
+        setButtonLoading(button, true);
+        DOM.scriptStatus.innerHTML = '<span>Running...</span>';
+
+        await apiCall('POST', `/ha/script/${encodeURIComponent(scriptId)}`);
+
+        const label = scriptId.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+        DOM.scriptStatus.innerHTML = `<span style="text-shadow: 0 0 10px var(--neon-cyan);">${label} triggered</span>`;
+    } catch (error) {
+        DOM.scriptStatus.innerHTML = `<span style="color: #dc3545;">Failed: ${error.message}</span>`;
+    } finally {
+        setButtonLoading(button, false);
+    }
+}
+
 // Load media sources
 async function loadMediaSources() {
     try {
@@ -1218,6 +1240,8 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.tvPowerOffBtn.addEventListener('click', powerOffTV);
     DOM.webcastStartBtn.addEventListener('click', startWebcast);
     DOM.webcastStopBtn.addEventListener('click', stopWebcast);
+    DOM.openSpaceBtn.addEventListener('click', () => triggerScript('open_space', DOM.openSpaceBtn));
+    DOM.closeSpaceBtn.addEventListener('click', () => triggerScript('close_space', DOM.closeSpaceBtn));
 
     // Tab buttons
     document.getElementById('tab-btn-display').addEventListener('click', () => switchTab('display'));

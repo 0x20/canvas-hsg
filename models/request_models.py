@@ -136,6 +136,8 @@ class HAAutomationAddRequest(BaseModel):
     rules: List[HAAutomationRule] = Field(description="List of automation rules to add")
 
 
+
+
 # Display Stack models
 
 class DisplayPushRequest(BaseModel):

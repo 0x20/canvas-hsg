@@ -437,6 +437,12 @@ class HomeAssistantManager:
             elif action == "webcast.stop":
                 if self.webcast_manager:
                     await self.webcast_manager.stop_webcast()
+            elif action == "ha.call_service":
+                await self._call_ha_service(
+                    args.get("domain", ""),
+                    args.get("service", ""),
+                    args.get("service_data", {}),
+                )
             else:
                 logging.warning(f"Unknown HA action: {action}")
                 return
@@ -444,6 +450,37 @@ class HomeAssistantManager:
             logging.info(f"HA action executed: {action}")
         except Exception as e:
             logging.error(f"HA action {action} failed: {e}")
+
+    async def _call_ha_service(self, domain: str, service: str, service_data: Dict[str, Any]):
+        """Call a Home Assistant service (e.g. switch/toggle)"""
+        if not self.ha_url or not self.ha_token:
+            logging.warning("Cannot call HA service: URL or token not configured")
+            return
+
+        url = f"{self.ha_url.rstrip('/')}/api/services/{domain}/{service}"
+        headers = {
+            "Authorization": f"Bearer {self.ha_token}",
+            "Content-Type": "application/json",
+        }
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    url, json=service_data, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=10)
+                ) as resp:
+                    if resp.status == 200:
+                        logging.info(f"HA service call {domain}.{service} succeeded")
+                    else:
+                        text = await resp.text()
+                        logging.warning(f"HA service call {domain}.{service} failed ({resp.status}): {text}")
+        except Exception as e:
+            logging.error(f"HA service call {domain}.{service} error: {e}")
+
+    async def call_ha_script(self, script_id: str):
+        """Trigger a Home Assistant script by ID (e.g. 'open_space' -> script.open_space)"""
+        entity_id = script_id if script_id.startswith("script.") else f"script.{script_id}"
+        await self._call_ha_service("script", "turn_on", {"entity_id": entity_id})
 
     # -------------------------------------------------------------------------
     # Configuration management
