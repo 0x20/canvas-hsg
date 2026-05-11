@@ -1348,6 +1348,14 @@ def setup_homeassistant_routes(ha_manager: 'HomeAssistantManager') -> APIRouter:
             "state": ha_manager._last_pushed_state,
         }
 
+    @router.post("/ha/script/{script_id}")
+    async def trigger_ha_script(script_id: str):
+        """Trigger a Home Assistant script by ID"""
+        if not ha_manager.ha_url or not ha_manager.ha_token:
+            raise HTTPException(status_code=400, detail="HA not configured")
+        await ha_manager.call_ha_script(script_id)
+        return {"message": f"Script '{script_id}' triggered"}
+
     return router
 
 
