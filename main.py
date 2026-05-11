@@ -101,19 +101,25 @@ async def lifespan(app: FastAPI):
             app.state.display_stack
         )
 
-        # Start Chromium once - it will stay running, React handles view switching
-        logging.info("Starting Chromium with React app...")
+        # Schedule Chromium launch as a background task. During lifespan
+        # startup uvicorn is not yet bound, so Angie's upstream is down and
+        # Chromium would land on a 502 page. start_kiosk_when_ready polls
+        # /canvas/ until it returns 2xx; the await yields, lifespan finishes,
+        # uvicorn binds, and the task proceeds against a healthy upstream.
         if app.state.chromium_manager:
-            # ?keepalive=1: primary Pi 4 cage kiosk needs the always-on
-            # opacity animation. Pi 3B+ secondary display omits the param.
-            success = await app.state.chromium_manager.start_kiosk("http://127.0.0.1/canvas/?keepalive=1")
+            kiosk_url = "http://127.0.0.1/canvas/?keepalive=1"
 
-            if success:
-                app.state.background_manager.current_mode = "static_web"
-                app.state.background_manager.is_running = True
-                logging.info("Chromium started - React app managing display")
-            else:
-                logging.error("Failed to start Chromium kiosk mode")
+            async def _launch_kiosk():
+                logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")
+                success = await app.state.chromium_manager.start_kiosk_when_ready(kiosk_url)
+                if success:
+                    app.state.background_manager.current_mode = "static_web"
+                    app.state.background_manager.is_running = True
+                    logging.info("Chromium started — React app managing display")
+                else:
+                    logging.error("Failed to start Chromium kiosk mode")
+
+            app.state._kiosk_launch_task = asyncio.create_task(_launch_kiosk())
 
         # Initialize managers
         logging.info("Initializing managers...")
@@ -287,16 +293,29 @@ async def lifespan(app: FastAPI):
                     if app.state.chromium_manager and app.state.chromium_manager.is_running():
                         await app.state.chromium_manager.check_health()
 
-                        # Auto-reload if no display WebSocket connections for 2+ checks (60s)
-                        display_ws = app.state.display_ws_manager
-                        if display_ws and len(display_ws.active_connections) == 0:
-                            no_ws_count += 1
-                            if no_ws_count >= 2:
-                                logging.warning("No display WebSocket connections for 60s — reloading Chromium page")
-                                await app.state.chromium_manager.reload_page()
-                                no_ws_count = 0
-                        else:
+                        # Fast path: if the kiosk landed on an error page
+                        # (e.g. 502 from Angie during a restart race), the
+                        # title won't contain "HSG Canvas". Reload immediately
+                        # instead of waiting for the 60s no-WS heuristic.
+                        title = await app.state.chromium_manager.get_page_title()
+                        on_error_page = title is not None and "HSG Canvas" not in title
+                        if on_error_page:
+                            logging.warning(
+                                f"Kiosk on unexpected page (title={title!r}) — reloading"
+                            )
+                            await app.state.chromium_manager.reload_page()
                             no_ws_count = 0
+                        else:
+                            # Auto-reload if no display WebSocket connections for 2+ checks (60s)
+                            display_ws = app.state.display_ws_manager
+                            if display_ws and len(display_ws.active_connections) == 0:
+                                no_ws_count += 1
+                                if no_ws_count >= 2:
+                                    logging.warning("No display WebSocket connections for 60s — reloading Chromium page")
+                                    await app.state.chromium_manager.reload_page()
+                                    no_ws_count = 0
+                            else:
+                                no_ws_count = 0
 
                     # ── Raspotify health ──
                     await _check_raspotify_health()
@@ -374,6 +393,10 @@ async def lifespan(app: FastAPI):
         # Cancel health check task
         if hasattr(app.state, '_health_check_task'):
             app.state._health_check_task.cancel()
+
+        # Cancel pending kiosk launch (if shutdown hits before it finishes)
+        if hasattr(app.state, '_kiosk_launch_task'):
+            app.state._kiosk_launch_task.cancel()
 
         # Stop Bluetooth manager
         if hasattr(app.state, 'bluetooth_manager') and app.state.bluetooth_manager:

@@ -25,6 +25,43 @@ class ChromiumManager:
         self.compositor_process: Optional[asyncio.subprocess.Process] = None
         self.current_url: Optional[str] = None
 
+    async def _wait_for_url_healthy(self, url: str, timeout: float) -> bool:
+        """Poll `url` until it returns 2xx (or timeout). Used to gate Chromium
+        launch on the upstream actually being reachable — otherwise the kiosk
+        loads Angie's 502 page during hsg-canvas startup and gets stuck there.
+        """
+        import time
+        deadline = time.monotonic() + timeout
+        attempt = 0
+        while time.monotonic() < deadline:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        url, timeout=aiohttp.ClientTimeout(total=3)
+                    ) as resp:
+                        if 200 <= resp.status < 300:
+                            if attempt > 0:
+                                logging.info(
+                                    f"{url} healthy after {attempt + 1} attempt(s)"
+                                )
+                            return True
+            except Exception:
+                pass
+            attempt += 1
+            await asyncio.sleep(1)
+        return False
+
+    async def start_kiosk_when_ready(self, url: str, ready_timeout: float = 60.0) -> bool:
+        """Wait for `url` to return 2xx, then launch the kiosk. Prevents the
+        race where Chromium loads a 502 page because Angie's upstream
+        (uvicorn) hasn't started listening yet."""
+        if not await self._wait_for_url_healthy(url, ready_timeout):
+            logging.error(
+                f"Timed out after {ready_timeout}s waiting for {url} — "
+                "launching kiosk anyway; health loop will recover"
+            )
+        return await self.start_kiosk(url)
+
     async def start_kiosk(self, url: str) -> bool:
         """Launch Chromium in kiosk mode via cage Wayland compositor
 
@@ -178,6 +215,25 @@ class ChromiumManager:
         except Exception as e:
             logging.error(f"CDP command {method} failed: {e}")
             return False
+
+    async def get_page_title(self) -> Optional[str]:
+        """Return the current page's document.title via CDP, or None on failure."""
+        ws_url = await self._get_cdp_ws_url()
+        if not ws_url:
+            return None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.ws_connect(ws_url, timeout=5) as ws:
+                    await ws.send_json({
+                        "id": 1,
+                        "method": "Runtime.evaluate",
+                        "params": {"expression": "document.title", "returnByValue": True},
+                    })
+                    resp = await asyncio.wait_for(ws.receive_json(), timeout=5)
+                    return resp.get("result", {}).get("result", {}).get("value")
+        except Exception as e:
+            logging.debug(f"get_page_title failed: {e}")
+            return None
 
     async def reload_page(self) -> bool:
         """Reload the current page via Chrome DevTools Protocol"""
