@@ -41,3 +41,8 @@ homeassistant.yaml
 build/
 dist/
 *.egg-info/
+# Runtime-generated QR codes (created by display_qr_code, transient)
+static/qr_*.png
+
+# Design references (artifact bundles, not source)
+hsg-canvas.html
