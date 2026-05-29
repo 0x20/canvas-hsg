@@ -101,7 +101,11 @@ class ChromiumManager:
             # cage runs a single application fullscreen - perfect for kiosk mode
             # cage -- chromium-browser [flags] [url]
             # Only zoom external sites — our React app handles its own layout
-            is_local = url.startswith("http://127.0.0.1") or url.startswith("http://localhost")
+            is_local = (
+                url.startswith("http://127.0.0.1")
+                or url.startswith("http://localhost")
+                or url.startswith("http://canvas.local")
+            )
 
             chromium_args = [
                 "chromium-browser",

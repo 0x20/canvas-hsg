@@ -113,7 +113,10 @@ async def lifespan(app: FastAPI):
         # /canvas/ until it returns 2xx; the await yields, lifespan finishes,
         # uvicorn binds, and the task proceeds against a healthy upstream.
         if app.state.chromium_manager:
-            kiosk_url = "http://127.0.0.1/canvas/?keepalive=1"
+            # Use canvas.local rather than 127.0.0.1 so the YouTube IFrame
+            # embed's `origin` parameter is a non-loopback hostname — YouTube
+            # rejects loopback origins with Error 153 ("Video unavailable").
+            kiosk_url = "http://canvas.local/canvas/?keepalive=1"
 
             async def _launch_kiosk():
                 logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")
