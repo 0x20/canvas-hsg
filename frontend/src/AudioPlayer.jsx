@@ -4,20 +4,15 @@ import { useEffect, useRef } from 'react';
  * AudioPlayer - Invisible component for browser-based audio streaming
  *
  * Replaces the MPV AudioPool. Listens to /ws/audio for commands from the backend.
- * Only plays audio on the kiosk (localhost) — remote mirrors stay silent.
- * Supports HLS streams via dynamically loaded hls.js.
+ * The backend (output target + volume slider) decides what plays and how loud —
+ * this component just executes those commands. Supports HLS via hls.js.
  */
 export default function AudioPlayer() {
   const audioRef = useRef(null);
   const hlsRef = useRef(null);
   const wsRef = useRef(null);
-  const isKiosk = typeof window !== 'undefined' &&
-    (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost');
 
   useEffect(() => {
-    // Only the kiosk plays audio
-    if (!isKiosk) return;
-
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.hostname}:${window.location.port}/ws/audio`;
 
@@ -166,9 +161,7 @@ export default function AudioPlayer() {
         audioRef.current.src = '';
       }
     };
-  }, [isKiosk]);
-
-  if (!isKiosk) return null;
+  }, []);
 
   return <audio ref={audioRef} style={{ display: 'none' }} preload="none" />;
 }

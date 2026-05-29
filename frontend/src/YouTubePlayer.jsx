@@ -3,7 +3,7 @@ import './YouTubePlayer.css';
 
 /**
  * YouTubePlayer - Fullscreen YouTube video via IFrame API
- * Audio only plays on kiosk (localhost), muted on remote mirrors.
+ * Plays with sound unless the backend marks the item muted.
  */
 export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
@@ -11,8 +11,7 @@ export default function YouTubePlayer({ item }) {
   const [ready, setReady] = useState(false);
 
   const videoId = item?.content?.video_id || '';
-  const isKiosk = typeof window !== 'undefined' &&
-    (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost');
+  const mute = item?.content?.mute || false;
 
   useEffect(() => {
     if (!videoId) return;
@@ -43,14 +42,12 @@ export default function YouTubePlayer({ item }) {
           fs: 0,
           disablekb: 1,
           playsinline: 1,
-          mute: isKiosk ? 0 : 1,
+          mute: mute ? 1 : 0,
         },
         events: {
           onReady: (e) => {
             setReady(true);
-            if (!isKiosk) {
-              e.target.mute();
-            }
+            if (mute) e.target.mute();
           },
           onStateChange: (e) => {
             // YT.PlayerState.ENDED === 0
