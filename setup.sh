@@ -294,6 +294,13 @@ else
     echo -e "${YELLOW}⚠ RPi DAC Pro not detected, using default audio device${NC}"
 fi
 
+# Larger audio buffer so playback survives CPU/thermal-throttle spikes (Pi
+# drops out at ~82C with the default 1024 quantum). Applies regardless of DAC.
+mkdir -p "$USER_HOME/.config/pipewire/pipewire.conf.d"
+cp "$SCRIPT_DIR/config/pipewire-99-kiosk-buffer.conf" "$USER_HOME/.config/pipewire/pipewire.conf.d/99-kiosk-buffer.conf"
+chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/pipewire"
+echo -e "${GREEN}✓ PipeWire buffer (2048 quantum) configured${NC}"
+
 echo ""
 
 # ============================================
