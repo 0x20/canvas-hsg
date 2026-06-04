@@ -52,6 +52,40 @@ render_unit() {
 }
 
 # ============================================
+# 0. Hostname / mDNS name
+# ============================================
+# CANVAS_HOST drives the system hostname and the mDNS name the kiosk loads
+# (http://<CANVAS_HOST>.local/canvas/). Resolution: env var, then canvas.conf,
+# then default "canvas". Persist the choice to canvas.conf so the Python app
+# (config.py) reads the same value.
+CANVAS_CONF="$SCRIPT_DIR/canvas.conf"
+if [ -z "${CANVAS_HOST:-}" ] && [ -f "$CANVAS_CONF" ]; then
+    # Take the value after '=', strip surrounding quotes and whitespace/CR.
+    CANVAS_HOST=$(sed -n 's/^CANVAS_HOST=//p' "$CANVAS_CONF" | head -1 | sed "s/[\"' ]//g; s/\r//g")
+fi
+CANVAS_HOST="${CANVAS_HOST:-canvas}"
+if [ ! -f "$CANVAS_CONF" ]; then
+    echo "CANVAS_HOST=$CANVAS_HOST" > "$CANVAS_CONF"
+    chown $ACTUAL_USER:$ACTUAL_GROUP "$CANVAS_CONF"
+fi
+
+echo -e "${BLUE}[0/8] Setting hostname to '$CANVAS_HOST'...${NC}"
+CURRENT_HOST=$(hostname)
+if [ "$CURRENT_HOST" != "$CANVAS_HOST" ]; then
+    hostnamectl set-hostname "$CANVAS_HOST"
+    # Keep /etc/hosts in sync so sudo/local name resolution doesn't warn
+    sed -i "s/\b$CURRENT_HOST\b/$CANVAS_HOST/g" /etc/hosts
+    grep -q "127.0.1.1[[:space:]]\+$CANVAS_HOST" /etc/hosts || \
+        echo "127.0.1.1	$CANVAS_HOST" >> /etc/hosts
+    # avahi-daemon publishes <hostname>.local; restart so the new name is live
+    systemctl restart avahi-daemon 2>/dev/null || true
+    echo -e "${GREEN}✓ Hostname set to $CANVAS_HOST (was $CURRENT_HOST) → ${CANVAS_HOST}.local${NC}"
+else
+    echo -e "${GREEN}✓ Hostname already $CANVAS_HOST${NC}"
+fi
+echo ""
+
+# ============================================
 # 1. System Package Installation
 # ============================================
 echo -e "${BLUE}[1/8] Installing system packages...${NC}"
@@ -175,15 +209,17 @@ echo ""
 # ============================================
 echo -e "${BLUE}[3.5/9] Installing Sendspin audio daemon...${NC}"
 
-# Install uv if not present
-if ! command -v uv &> /dev/null; then
+# Install uv if not present. It installs into the user's ~/.local/bin, which is
+# NOT on sudo's reset PATH, so always invoke it by absolute path ($UV_BIN).
+UV_BIN="$USER_HOME/.local/bin/uv"
+if [ ! -x "$UV_BIN" ]; then
     echo "Installing uv..."
-    sudo -u $ACTUAL_USER curl -LsSf https://astral.sh/uv/install.sh | sudo -u $ACTUAL_USER sh
+    sudo -u $ACTUAL_USER sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 fi
 
 # Install Python 3.13 via uv (prebuilt binary, no compilation)
 echo "Ensuring Python 3.13 is available..."
-sudo -u $ACTUAL_USER uv python install 3.13
+sudo -u $ACTUAL_USER "$UV_BIN" python install 3.13
 
 # Sendspin daemon identity / output device (override via env when running
 # setup.sh, e.g. SENDSPIN_NAME="Kenwood Speakers" SENDSPIN_AUDIO_DEVICE=pipewire).
@@ -196,7 +232,7 @@ SENDSPIN_AUDIO_DEVICE="${SENDSPIN_AUDIO_DEVICE:-pipewire}"
 # needs a modern sendspin; older installs (e.g. 1.x) have a flat CLI with no
 # daemon subcommand or hooks at all.
 echo "Installing/upgrading sendspin CLI to latest..."
-sudo -u $ACTUAL_USER uv tool install sendspin@latest --python 3.13 --force
+sudo -u $ACTUAL_USER "$UV_BIN" tool install sendspin@latest --python 3.13 --force
 
 # A user-level sendspin.service would fight this system daemon over the audio
 # device and the Music Assistant registration — disable it if present.
@@ -218,9 +254,10 @@ cat > "$USER_HOME/.config/sendspin/settings-daemon.json" << EOF
 EOF
 chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/sendspin"
 
-# Install systemd service for sendspin daemon
-SENDSPIN_BIN=$(sudo -u $ACTUAL_USER bash -c 'which sendspin 2>/dev/null || echo ""')
-if [ -n "$SENDSPIN_BIN" ]; then
+# Install systemd service for sendspin daemon. uv tool installs the launcher
+# into ~/.local/bin (not on sudo's PATH), so reference it by absolute path.
+SENDSPIN_BIN="$USER_HOME/.local/bin/sendspin"
+if [ -x "$SENDSPIN_BIN" ]; then
     cat > /etc/systemd/system/sendspin.service << SVCEOF
 [Unit]
 Description=Sendspin Multi-Room Audio Client
@@ -367,7 +404,7 @@ if [ -d ".venv" ]; then
     else
         echo "Recreating venv with Python 3.13 (was: $VENV_PY)..."
         rm -rf .venv
-        sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+        sudo -u $ACTUAL_USER "$UV_BIN" venv --python 3.13 .venv
         echo -e "${GREEN}✓ Virtual environment recreated with Python 3.13${NC}"
     fi
 else
@@ -376,7 +413,7 @@ else
 fi
 
 # Install Python dependencies via uv
-sudo -u $ACTUAL_USER uv pip install --python .venv/bin/python -r requirements.txt
+sudo -u $ACTUAL_USER "$UV_BIN" pip install --python .venv/bin/python -r requirements.txt
 
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
 echo ""

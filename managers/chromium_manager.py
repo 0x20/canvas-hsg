@@ -14,6 +14,8 @@ from typing import Optional
 
 import aiohttp
 
+from config import CANVAS_DOMAIN
+
 
 class ChromiumManager:
     """Manages Chromium browser lifecycle in kiosk mode with cage/Wayland"""
@@ -104,7 +106,7 @@ class ChromiumManager:
             is_local = (
                 url.startswith("http://127.0.0.1")
                 or url.startswith("http://localhost")
-                or url.startswith("http://canvas.local")
+                or url.startswith(f"http://{CANVAS_DOMAIN}")
             )
 
             chromium_args = [

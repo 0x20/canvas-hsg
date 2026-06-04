@@ -51,7 +51,7 @@ from routes import (
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN
 
 # Logging setup
 logging.basicConfig(
@@ -113,10 +113,11 @@ async def lifespan(app: FastAPI):
         # /canvas/ until it returns 2xx; the await yields, lifespan finishes,
         # uvicorn binds, and the task proceeds against a healthy upstream.
         if app.state.chromium_manager:
-            # Use canvas.local rather than 127.0.0.1 so the YouTube IFrame
-            # embed's `origin` parameter is a non-loopback hostname — YouTube
-            # rejects loopback origins with Error 153 ("Video unavailable").
-            kiosk_url = "http://canvas.local/canvas/?keepalive=1"
+            # Use the canvas mDNS domain rather than 127.0.0.1 so the YouTube
+            # IFrame embed's `origin` parameter is a non-loopback hostname —
+            # YouTube rejects loopback origins with Error 153 ("Video
+            # unavailable"). CANVAS_DOMAIN is configurable per instance.
+            kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1"
 
             async def _launch_kiosk():
                 logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")

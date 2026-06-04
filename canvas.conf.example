@@ -1,0 +1,7 @@
+# HSG Canvas instance configuration.
+# Copy to canvas.conf and adjust per deployment (canvas.conf is gitignored).
+#
+# CANVAS_HOST sets this box's system hostname and the mDNS name the on-screen
+# kiosk loads (http://<CANVAS_HOST>.local/canvas/). Defaults to "canvas" when
+# neither canvas.conf nor the CANVAS_HOST env var is set.
+CANVAS_HOST=canvas
