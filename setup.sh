@@ -28,12 +28,28 @@ fi
 # Get the actual user (not root when using sudo)
 ACTUAL_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo ~$ACTUAL_USER)
+ACTUAL_GROUP=$(id -gn "$ACTUAL_USER")
+ACTUAL_UID=$(id -u "$ACTUAL_USER")
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-echo -e "${YELLOW}Installing for user: $ACTUAL_USER${NC}"
+echo -e "${YELLOW}Installing for user: $ACTUAL_USER (group: $ACTUAL_GROUP, uid: $ACTUAL_UID)${NC}"
 echo -e "${YELLOW}Home directory: $USER_HOME${NC}"
 echo -e "${YELLOW}Script directory: $SCRIPT_DIR${NC}"
 echo ""
+
+# Render a systemd unit / drop-in from the repo, substituting the canonical
+# hsg deployment values (user, home, repo path, uid) with this install's.
+# Keeps the checked-in files readable as the hsg reference while letting the
+# canvas install under any user/path.
+render_unit() {
+    # render_unit <src> <dest>
+    sed -e "s#/home/hsg/srs_server#$SCRIPT_DIR#g" \
+        -e "s#/home/hsg#$USER_HOME#g" \
+        -e "s#^User=hsg\$#User=$ACTUAL_USER#" \
+        -e "s#^Group=hsg\$#Group=$ACTUAL_GROUP#" \
+        -e "s#/run/user/1000#/run/user/$ACTUAL_UID#g" \
+        "$1" > "$2"
+}
 
 # ============================================
 # 1. System Package Installation
@@ -103,7 +119,7 @@ fi
 
 # Configure Raspotify for PulseAudio/PipeWire
 echo "Configuring Raspotify..."
-cat > /etc/raspotify/conf << 'EOF'
+cat > /etc/raspotify/conf << EOF
 # HSG Canvas Raspotify Configuration
 
 # Audio Backend - Use PulseAudio (works with PipeWire compatibility layer)
@@ -128,13 +144,13 @@ LIBRESPOT_DISABLE_CREDENTIAL_CACHE=
 TMPDIR=/tmp
 
 # Onevent hook - forward Spotify events to HSG Canvas API
-LIBRESPOT_ONEVENT=/home/hsg/srs_server/raspotify-onevent.sh
+LIBRESPOT_ONEVENT=$SCRIPT_DIR/raspotify-onevent.sh
 EOF
 
 # Install systemd drop-in for PipeWire/PulseAudio access
 # Raspotify's default sandbox (PrivateUsers, ProtectHome) blocks PulseAudio sockets
 mkdir -p /etc/systemd/system/raspotify.service.d
-cp "$SCRIPT_DIR/config/raspotify/onevent.conf" /etc/systemd/system/raspotify.service.d/onevent.conf
+render_unit "$SCRIPT_DIR/config/raspotify/onevent.conf" /etc/systemd/system/raspotify.service.d/onevent.conf
 
 systemctl daemon-reload
 systemctl enable raspotify.service
@@ -230,7 +246,7 @@ fi
 
 # Install auto-accept pairing agent (replaces bluez-tools bt-agent)
 chmod +x "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.py"
-cp "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.service" /etc/systemd/system/bt-auto-agent.service
+render_unit "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.service" /etc/systemd/system/bt-auto-agent.service
 
 # Remove old bt-agent service if it exists
 systemctl disable bt-agent.service 2>/dev/null || true
@@ -383,11 +399,11 @@ echo ""
 echo -e "${BLUE}[8/9] Installing systemd services...${NC}"
 
 # Install SRS Server service
-cp "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/srs-server.service
 echo "  ✓ srs-server.service"
 
 # Install HSG Canvas service (from config/ directory)
-cp "$SCRIPT_DIR/config/hsg-canvas.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/config/hsg-canvas.service" /etc/systemd/system/hsg-canvas.service
 echo "  ✓ hsg-canvas.service"
 
 # Reload systemd
@@ -400,8 +416,10 @@ systemctl enable raspotify.service
 
 # Install sudoers drop-in so the hsg-canvas watchdog can restart raspotify
 # when librespot wedges (auth/rate-limit errors or silent zombie state).
-install -m 0440 -o root -g root \
-    "$SCRIPT_DIR/config/sudoers.d/hsg-canvas" /etc/sudoers.d/hsg-canvas
+sed "s#^hsg ALL#$ACTUAL_USER ALL#" \
+    "$SCRIPT_DIR/config/sudoers.d/hsg-canvas" > /etc/sudoers.d/hsg-canvas
+chown root:root /etc/sudoers.d/hsg-canvas
+chmod 0440 /etc/sudoers.d/hsg-canvas
 visudo -c -f /etc/sudoers.d/hsg-canvas
 echo "  ✓ /etc/sudoers.d/hsg-canvas"
 

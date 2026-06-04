@@ -19,9 +19,25 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
+# Render units for the install user/path instead of the hardcoded hsg defaults.
+ACTUAL_USER=${SUDO_USER:-$USER}
+USER_HOME=$(eval echo ~$ACTUAL_USER)
+ACTUAL_GROUP=$(id -gn "$ACTUAL_USER")
+ACTUAL_UID=$(id -u "$ACTUAL_USER")
+
+render_unit() {
+    # render_unit <src> <dest>
+    sed -e "s#/home/hsg/srs_server#$SCRIPT_DIR#g" \
+        -e "s#/home/hsg#$USER_HOME#g" \
+        -e "s#^User=hsg\$#User=$ACTUAL_USER#" \
+        -e "s#^Group=hsg\$#Group=$ACTUAL_GROUP#" \
+        -e "s#/run/user/1000#/run/user/$ACTUAL_UID#g" \
+        "$1" > "$2"
+}
+
 # 1. Install SRS Server service
 echo "[1/3] Installing SRS Server service..."
-cp "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/srs-server.service
 systemctl daemon-reload
 systemctl enable srs-server.service
 echo "✓ SRS Server service installed and enabled"
@@ -29,7 +45,7 @@ echo ""
 
 # 2. Install HSG Canvas service
 echo "[2/3] Installing HSG Canvas service..."
-cp "$SCRIPT_DIR/hsg-canvas.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/hsg-canvas.service" /etc/systemd/system/hsg-canvas.service
 systemctl daemon-reload
 systemctl enable hsg-canvas.service
 echo "✓ HSG Canvas service installed and enabled"

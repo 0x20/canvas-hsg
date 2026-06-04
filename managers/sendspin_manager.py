@@ -13,16 +13,21 @@ Architecture:
 """
 import asyncio
 import logging
+import os
 import subprocess
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from config import SENDSPIN_LISTENER_PORT
 
-# DBus constants for MPRIS
+# DBus constants for MPRIS. Derive the runtime dir from the running user so the
+# session bus resolves on any uid (falls back to XDG_RUNTIME_DIR if set).
+_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 _DBUS_ENV = {
-    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
-    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "DBUS_SESSION_BUS_ADDRESS": os.environ.get(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={_RUNTIME_DIR}/bus"
+    ),
+    "XDG_RUNTIME_DIR": _RUNTIME_DIR,
 }
 _MPRIS_DEST_PREFIX = "org.mpris.MediaPlayer2.Sendspin"
 

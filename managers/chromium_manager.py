@@ -94,7 +94,7 @@ class ChromiumManager:
                 'WLR_DRM_DEVICES': '/dev/dri/card1',
                 'SEATD_SOCK': '/run/seatd.sock',
                 'WLR_RENDERER': 'gles2',  # GPU-accelerated via v3d
-                'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', '/run/user/1000'),
+                'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}'),
                 'WLR_LIBINPUT_NO_DEVICES': '1',
             })
 
