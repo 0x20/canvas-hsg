@@ -43,6 +43,8 @@ class SendspinManager:
         self.spotify_manager = None
         self.bluetooth_manager = None
         self.display_stack = None
+        # Sendspin ARTWORK-role display client (provides album art over the LAN).
+        self.artwork_client = None
 
         # Current state
         self.is_playing = False
@@ -171,6 +173,31 @@ class SendspinManager:
         except Exception as e:
             logging.error(f"Sendspin metadata poll error: {e}")
 
+    def _current_art_url(self):
+        """Album art URL from the Sendspin artwork display client, or None."""
+        ac = self.artwork_client
+        return ac.art_url if ac is not None else None
+
+    async def on_artwork_updated(self) -> None:
+        """Re-broadcast the current track with fresh album art.
+
+        Called when the artwork display client receives a new cover frame. The
+        metadata poll dedupes on track name/artist, so an art-only change would
+        otherwise not reach the now-playing view until the next track change.
+        """
+        if not self.is_playing or not self.track_info or not self.websocket_manager:
+            return
+        self.track_info["album_art_url"] = self._current_art_url()
+        await self.websocket_manager.broadcast("track_changed", {
+            "name": self.track_info.get("name"),
+            "artists": self.track_info.get("artists"),
+            "album": self.track_info.get("album", ""),
+            "album_art_url": self.track_info.get("album_art_url"),
+            "duration_ms": self.track_info.get("duration_ms", 0),
+            "spotify_url": None,
+        })
+        logging.info("Sendspin album art updated → %s", self._current_art_url())
+
     async def _read_and_broadcast_metadata(self) -> None:
         """Read current track metadata from MPRIS and broadcast if changed."""
         metadata = await self._read_mpris_metadata()
@@ -184,7 +211,10 @@ class SendspinManager:
         artists = metadata.get("xesam:artist", ["Unknown Artist"])
         artist_str = ", ".join(artists) if isinstance(artists, list) else str(artists)
         album = metadata.get("xesam:album", "")
-        artwork_url = metadata.get("mpris:artUrl")
+        # Album art comes from the Sendspin ARTWORK display client (binary frames
+        # from Music Assistant over the LAN), not MPRIS (the audio daemon's MPRIS
+        # doesn't carry artwork). Fall back to MPRIS artUrl if ever present.
+        artwork_url = self._current_art_url() or metadata.get("mpris:artUrl")
         duration_us = metadata.get("mpris:length", 0)
         duration_ms = duration_us // 1000 if duration_us else 0
 
