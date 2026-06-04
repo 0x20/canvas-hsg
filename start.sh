@@ -18,9 +18,13 @@ echo ""
 # Clean up stale display processes from previous crashes
 echo "Cleaning up stale display processes..."
 killall -9 cage labwc 2>/dev/null || true
-killall -9 chromium-browser 2>/dev/null || true
+killall -9 chromium-browser chromium 2>/dev/null || true
 sudo killall -9 Xorg 2>/dev/null || true
 sudo rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+# Clear the kiosk's Chromium profile so a rebuilt bundle always loads fresh
+# (the profile lives in /tmp and survives a service restart, otherwise caching
+# a stale index.html that references old asset hashes).
+rm -rf /tmp/chromium-hsg-canvas 2>/dev/null || true
 
 # Brief pause to ensure cleanup completes
 sleep 1
