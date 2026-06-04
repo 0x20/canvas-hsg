@@ -225,7 +225,10 @@ sudo -u $ACTUAL_USER "$UV_BIN" python install 3.13
 # setup.sh, e.g. SENDSPIN_NAME="Kenwood Speakers" SENDSPIN_AUDIO_DEVICE=pipewire).
 SENDSPIN_NAME="${SENDSPIN_NAME:-HSG Canvas}"
 SENDSPIN_ID="${SENDSPIN_ID:-$(echo "$SENDSPIN_NAME" | tr '[:upper:] ' '[:lower:]-')}"
-SENDSPIN_AUDIO_DEVICE="${SENDSPIN_AUDIO_DEVICE:-pipewire}"
+# 'pulse' routes through the PipeWire/PulseAudio sound server to the default
+# sink (the DAC). NB: sendspin's portaudio backend exposes 'pulse'/'default',
+# not 'pipewire' — the latter errors with "Audio device not found".
+SENDSPIN_AUDIO_DEVICE="${SENDSPIN_AUDIO_DEVICE:-pulse}"
 
 # Install/upgrade the sendspin CLI to the latest release. The hook-based daemon
 # (--hook-start/--hook-stop) the canvas relies on for display/audio coordination
