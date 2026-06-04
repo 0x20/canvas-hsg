@@ -58,6 +58,9 @@ class SendspinManager:
         # Self-healing playback-state watcher (MPRIS PlaybackStatus) — covers
         # hooks missed across a restart or track changes within a stream.
         self._playback_watch_task: Optional[asyncio.Task] = None
+        # Cached MPRIS bus name; re-discovered only when a read fails (daemon
+        # restart), so polling doesn't spawn a ListNames subprocess each tick.
+        self._mpris_dest: Optional[str] = None
 
     async def initialize(self) -> None:
         """Check if sendspin daemon is running."""
@@ -263,7 +266,6 @@ class SendspinManager:
             if not dest:
                 return None
 
-            import os
             env = {**os.environ, **_DBUS_ENV}
 
             proc = await asyncio.create_subprocess_exec(
@@ -280,6 +282,7 @@ class SendspinManager:
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3)
 
             if proc.returncode != 0:
+                self._mpris_dest = None  # stale dest (e.g. daemon restart) → re-discover
                 return None
 
             return _parse_dbus_metadata(stdout.decode())
@@ -290,9 +293,15 @@ class SendspinManager:
             return None
 
     async def _find_mpris_dest(self) -> Optional[str]:
-        """Find the sendspin MPRIS bus name on DBus."""
+        """Find (and cache) the sendspin MPRIS bus name on DBus.
+
+        The bus name has a per-process suffix, so it's cached and only
+        re-discovered when a read against it fails (e.g. daemon restart) —
+        avoiding a ListNames subprocess on every poll tick.
+        """
+        if self._mpris_dest:
+            return self._mpris_dest
         try:
-            import os
             env = {**os.environ, **_DBUS_ENV}
 
             proc = await asyncio.create_subprocess_exec(
@@ -313,7 +322,8 @@ class SendspinManager:
                     start = line.find('"')
                     end = line.rfind('"')
                     if start >= 0 and end > start:
-                        return line[start + 1:end]
+                        self._mpris_dest = line[start + 1:end]
+                        return self._mpris_dest
             return None
         except Exception:
             return None
@@ -338,6 +348,7 @@ class SendspinManager:
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
             if proc.returncode != 0:
+                self._mpris_dest = None  # stale dest (e.g. daemon restart) → re-discover
                 return None
             out = stdout.decode()
             # Reply looks like:  variant       string "Playing"
@@ -366,8 +377,12 @@ class SendspinManager:
                 if status == "Playing" and not self.is_playing:
                     logging.info("Sendspin playback detected via MPRIS — showing now-playing")
                     await self.handle_hook_start()
-                elif status == "Stopped" and self.is_playing:
-                    logging.info("Sendspin playback stopped via MPRIS — hiding now-playing")
+                elif status in ("Stopped", "Paused") and self.is_playing:
+                    # Paused counts as not-actively-playing: hide the view and
+                    # (via handle_hook_stop) unmute raspotify so a paused stream
+                    # doesn't leave Spotify muted. Resume re-shows within a tick.
+                    # status None is left alone — likely a transient read failure.
+                    logging.info(f"Sendspin playback {status} via MPRIS — hiding now-playing")
                     await self.handle_hook_stop()
             except asyncio.CancelledError:
                 break

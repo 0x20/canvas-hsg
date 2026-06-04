@@ -26,7 +26,13 @@ from managers.chromecast_manager import ChromecastManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
 from managers.sendspin_manager import SendspinManager
-from managers.sendspin_artwork_client import SendspinArtworkClient
+try:
+    from managers.sendspin_artwork_client import SendspinArtworkClient
+except Exception as _artwork_import_err:
+    # aiosendspin missing or an API change must not take down the whole app —
+    # only the album-art feature degrades.
+    SendspinArtworkClient = None
+    logging.warning(f"Sendspin artwork display client unavailable: {_artwork_import_err}")
 from managers.bluetooth_manager import BluetoothManager
 from managers.audio_conflict import AudioConflictManager
 from managers.websocket_manager import WebSocketManager
@@ -193,14 +199,16 @@ async def lifespan(app: FastAPI):
 
         # Sendspin ARTWORK display client — receives Music Assistant album art
         # as binary frames over the LAN and feeds it to the now-playing view.
-        logging.info("Starting Sendspin artwork display client...")
-        app.state.sendspin_artwork_client = SendspinArtworkClient(
-            client_id=f"{CANVAS_HOST}-canvas-art",
-            client_name=f"{CANVAS_HOST} canvas",
-            on_artwork=app.state.sendspin_manager.on_artwork_updated,
-        )
-        app.state.sendspin_manager.artwork_client = app.state.sendspin_artwork_client
-        await app.state.sendspin_artwork_client.start()
+        app.state.sendspin_artwork_client = None
+        if SendspinArtworkClient is not None:
+            logging.info("Starting Sendspin artwork display client...")
+            app.state.sendspin_artwork_client = SendspinArtworkClient(
+                client_id=f"{CANVAS_HOST}-canvas-art",
+                client_name=f"{CANVAS_HOST} canvas",
+                on_artwork=app.state.sendspin_manager.on_artwork_updated,
+            )
+            app.state.sendspin_manager.artwork_client = app.state.sendspin_artwork_client
+            await app.state.sendspin_artwork_client.start()
 
         # Start Bluetooth polling (after all cross-refs are wired)
         await app.state.bluetooth_manager.initialize()

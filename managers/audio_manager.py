@@ -31,6 +31,9 @@ class AudioManager:
         # Cached SomaFM id→logo map (channels.json); extensions vary per station.
         self._somafm_logos: Dict[str, str] = {}
         self._somafm_logos_ts: float = 0.0
+        # Cached url→image map from media_sources.yaml (built once; restart to
+        # pick up edits, consistent with the rest of the config).
+        self._stream_images: Optional[Dict[str, str]] = None
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -236,14 +239,36 @@ class AudioManager:
         else:
             return "Audio Stream"
 
-    async def _somafm_logo(self, station: str) -> str:
-        """Exact SomaFM cover URL for a station id.
+    def _load_stream_images(self) -> Dict[str, str]:
+        """url→image map from media_sources.yaml, parsed once and cached."""
+        if self._stream_images is None:
+            images: Dict[str, str] = {}
+            try:
+                cfg = os.path.join(
+                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                    "media_sources.yaml",
+                )
+                with open(cfg) as f:
+                    sources = yaml.safe_load(f) or {}
+                for group in (sources.get("music_streams") or {}).values():
+                    for entry in group or []:
+                        if entry.get("url") and entry.get("image"):
+                            images[entry["url"]] = entry["image"]
+            except Exception as e:
+                logging.debug(f"media_sources image load failed: {e}")
+            self._stream_images = images
+        return self._stream_images
+
+    async def _somafm_logo(self, seg: str) -> str:
+        """Exact SomaFM cover URL for a station, given the stream basename.
 
         Logo file extensions vary per station (e.g. thetrip is .jpg), so use the
-        API's xlimage rather than guessing. The channels list is cached for a day;
-        falls back to the derived 512px PNG if the API can't be reached.
+        API's id→xlimage map rather than guessing. Tries the basename as-is
+        (handles ids ending in digits, e.g. sf1033) then with a trailing bitrate
+        suffix removed (groovesalad256 → groovesalad). The channels list is
+        cached for a day, with a derived 512px PNG fallback.
         """
-        fallback = f"https://api.somafm.com/logos/512/{station}512.png"
+        stripped = seg.rstrip("0123456789") or seg
         if not self._somafm_logos or (time.time() - self._somafm_logos_ts) > 86400:
             try:
                 async with aiohttp.ClientSession() as session:
@@ -260,7 +285,11 @@ class AudioManager:
                             self._somafm_logos_ts = time.time()
             except Exception as e:
                 logging.debug(f"SomaFM channels.json fetch failed: {e}")
-        return self._somafm_logos.get(station) or fallback
+        return (
+            self._somafm_logos.get(seg)
+            or self._somafm_logos.get(stripped)
+            or f"https://api.somafm.com/logos/512/{stripped}512.png"
+        )
 
     async def _resolve_station_art(self, stream_url: str) -> Optional[str]:
         """Best fullscreen station-logo URL for an audio stream, or None.
@@ -272,30 +301,19 @@ class AudioManager:
         if not stream_url:
             return None
 
-        # 1. Curated per-preset image from media_sources.yaml
-        try:
-            cfg = os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                "media_sources.yaml",
-            )
-            with open(cfg) as f:
-                sources = yaml.safe_load(f) or {}
-            for group in (sources.get("music_streams") or {}).values():
-                for entry in group or []:
-                    if entry.get("url") == stream_url and entry.get("image"):
-                        return entry["image"]
-        except Exception as e:
-            logging.debug(f"media_sources image lookup failed: {e}")
+        # 1. Curated per-preset image from media_sources.yaml (cached)
+        curated = self._load_stream_images().get(stream_url)
+        if curated:
+            return curated
 
         host = (urlparse(stream_url).hostname or "").lower()
 
         # 2. SomaFM: exact cover from the API, keyed by station id (the stream
-        #    basename minus any trailing bitrate digits, e.g. groovesalad256).
+        #    basename; bitrate suffixes are handled inside _somafm_logo).
         if "somafm" in host or "soma.fm" in host:
             seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0]
-            station = seg.rstrip("0123456789")
-            if station:
-                return await self._somafm_logo(station)
+            if seg:
+                return await self._somafm_logo(seg)
 
         # 3. Favicon fallback (low-res, but better than a blank background)
         if host:

@@ -76,6 +76,10 @@ class SendspinArtworkClient:
         # over the local binary so external screens of differing resolution can
         # fetch it directly from MA at their own size (still LAN-only).
         self.metadata_art_url: Optional[str] = None
+        # Last track title seen, to detect track changes and drop stale art.
+        self._last_title: Optional[str] = None
+        # Strong refs to in-flight notify tasks so they aren't GC'd mid-await.
+        self._tasks: set = set()
 
     @property
     def art_url(self) -> Optional[str]:
@@ -133,10 +137,25 @@ class SendspinArtworkClient:
         return
 
     def _on_metadata(self, payload) -> None:
-        """Capture MA's absolute artwork URL from the METADATA role, if any."""
+        """Capture MA's absolute artwork URL from the METADATA role.
+
+        On a track change, drop the previous track's URL first so a new track
+        that ships no artwork_url doesn't keep showing the old cover (a fresh
+        artwork frame repopulates the binary fallback).
+        """
         md = getattr(payload, "metadata", None)
         if md is None:
             return
+
+        # Partial updates leave title as UndefinedField; only a real string is
+        # a track signal. A changed title means a new track → reset stale URL.
+        title = getattr(md, "title", None)
+        title = title if isinstance(title, str) else None
+        new_track = title is not None and title != self._last_title
+        if new_track:
+            self._last_title = title
+            self.metadata_art_url = None
+
         url = getattr(md, "artwork_url", None)
         # Field may be an UndefinedField/None when unset — only accept real URLs.
         if isinstance(url, str) and url.startswith(("http://", "https://")):
@@ -144,6 +163,9 @@ class SendspinArtworkClient:
                 self.metadata_art_url = url
                 logger.info("Sendspin metadata artwork_url: %s", url)
                 self._notify()
+        elif new_track:
+            # New track with no art URL — refresh so the view drops the old cover.
+            self._notify()
 
     def _on_artwork_frame(self, channel: int, data: bytes) -> None:
         """Store the latest artwork frame and notify the now-playing view."""
@@ -162,7 +184,10 @@ class SendspinArtworkClient:
         if self._on_artwork is None:
             return
         try:
-            asyncio.create_task(self._on_artwork())
+            task = asyncio.create_task(self._on_artwork())
+            # Keep a strong reference until done so the task isn't GC'd mid-await.
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
         except RuntimeError:
             logger.debug("No running loop to schedule artwork update")
 
@@ -184,6 +209,11 @@ class SendspinArtworkClient:
         finally:
             if self._client is client:
                 self._client = None
+            # Drop cached art so a later session never shows a previous track's
+            # cover before fresh metadata/frames arrive.
+            self.metadata_art_url = None
+            self.art_bytes = None
+            self._last_title = None
             logger.info("Music Assistant disconnected from artwork display client")
 
     async def start(self) -> None:

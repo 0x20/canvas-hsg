@@ -59,12 +59,16 @@ render_unit() {
 # then default "canvas". Persist the choice to canvas.conf so the Python app
 # (config.py) reads the same value.
 CANVAS_CONF="$SCRIPT_DIR/canvas.conf"
+ENV_CANVAS_HOST="${CANVAS_HOST:-}"   # explicit override, if the operator set one
 if [ -z "${CANVAS_HOST:-}" ] && [ -f "$CANVAS_CONF" ]; then
     # Take the value after '=', strip surrounding quotes and whitespace/CR.
     CANVAS_HOST=$(sed -n 's/^CANVAS_HOST=//p' "$CANVAS_CONF" | head -1 | sed "s/[\"' ]//g; s/\r//g")
 fi
 CANVAS_HOST="${CANVAS_HOST:-canvas}"
-if [ ! -f "$CANVAS_CONF" ]; then
+# Persist when canvas.conf is missing, OR when an explicit env override was
+# given — otherwise re-running `CANVAS_HOST=newname ./setup.sh` would change the
+# system hostname but leave config.py reading the old name from canvas.conf.
+if [ ! -f "$CANVAS_CONF" ] || [ -n "$ENV_CANVAS_HOST" ]; then
     echo "CANVAS_HOST=$CANVAS_HOST" > "$CANVAS_CONF"
     chown $ACTUAL_USER:$ACTUAL_GROUP "$CANVAS_CONF"
 fi
