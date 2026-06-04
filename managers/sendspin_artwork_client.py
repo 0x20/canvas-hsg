@@ -63,13 +63,23 @@ class SendspinArtworkClient:
         self.art_bytes: Optional[bytes] = None
         self.art_mime: str = _FORMAT_MIME.get(art_format, "image/jpeg")
         self.art_version: int = 0
+        # Absolute artwork URL from MA's METADATA role, when provided. Preferred
+        # over the local binary so external screens of differing resolution can
+        # fetch it directly from MA at their own size (still LAN-only).
+        self.metadata_art_url: Optional[str] = None
 
     @property
     def art_url(self) -> Optional[str]:
-        """Absolute-path URL for the current cover (cache-busted), or None."""
-        if not self.art_bytes:
-            return None
-        return f"/sendspin/artwork?v={self.art_version}"
+        """Best art URL for the now-playing view.
+
+        Prefers MA's absolute artwork URL (flexible across external screens),
+        falling back to the locally-served binary frame (self-contained/offline).
+        """
+        if self.metadata_art_url:
+            return self.metadata_art_url
+        if self.art_bytes:
+            return f"/sendspin/artwork?v={self.art_version}"
+        return None
 
     def _make_client(self) -> SendspinClient:
         client = SendspinClient(
@@ -88,7 +98,21 @@ class SendspinArtworkClient:
             ),
         )
         client.add_artwork_listener(self._on_artwork_frame)
+        client.add_metadata_listener(self._on_metadata)
         return client
+
+    def _on_metadata(self, payload) -> None:
+        """Capture MA's absolute artwork URL from the METADATA role, if any."""
+        md = getattr(payload, "metadata", None)
+        if md is None:
+            return
+        url = getattr(md, "artwork_url", None)
+        # Field may be an UndefinedField/None when unset — only accept real URLs.
+        if isinstance(url, str) and url.startswith(("http://", "https://")):
+            if url != self.metadata_art_url:
+                self.metadata_art_url = url
+                logger.info("Sendspin metadata artwork_url: %s", url)
+                self._notify()
 
     def _on_artwork_frame(self, channel: int, data: bytes) -> None:
         """Store the latest artwork frame and notify the now-playing view."""
@@ -100,11 +124,16 @@ class SendspinArtworkClient:
             "Sendspin artwork received: channel=%d, %d bytes (v%d)",
             channel, len(data), self.art_version,
         )
-        if self._on_artwork is not None:
-            try:
-                asyncio.create_task(self._on_artwork())
-            except RuntimeError:
-                logger.debug("No running loop to schedule artwork update")
+        self._notify()
+
+    def _notify(self) -> None:
+        """Schedule the now-playing re-broadcast when art (URL or bytes) changes."""
+        if self._on_artwork is None:
+            return
+        try:
+            asyncio.create_task(self._on_artwork())
+        except RuntimeError:
+            logger.debug("No running loop to schedule artwork update")
 
     async def _handle_connection(self, ws) -> None:
         """Handle an incoming Music Assistant connection for its lifetime."""
