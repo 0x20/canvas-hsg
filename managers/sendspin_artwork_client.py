@@ -1,8 +1,10 @@
 """
 Sendspin Artwork Client
 
-A Sendspin *display* client (ARTWORK + METADATA roles) that connects to Music
-Assistant and receives album art as binary image frames over the local network.
+A Sendspin *display* client that connects to Music Assistant and receives album
+art as binary image frames over the local network. It registers as a muted,
+audio-discarding PLAYER (so MA assigns it a player_id and any MA UI can group it
+with the speaker) and also takes the METADATA + ARTWORK roles.
 This is the protocol's intended way to drive wall displays: the artwork arrives
 as raw encoded images pushed by the server, so it works fully offline on the LAN
 with no internet access and no external image URLs.
@@ -20,7 +22,14 @@ from typing import Awaitable, Callable, Optional
 
 from aiosendspin.client import ClientListener, SendspinClient
 from aiosendspin.models.artwork import ArtworkChannel, ClientHelloArtworkSupport
-from aiosendspin.models.types import ArtworkSource, PictureFormat, Roles
+from aiosendspin.models.player import ClientHelloPlayerSupport, SupportedAudioFormat
+from aiosendspin.models.types import (
+    ArtworkSource,
+    AudioCodec,
+    PictureFormat,
+    PlayerCommand,
+    Roles,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +94,20 @@ class SendspinArtworkClient:
         client = SendspinClient(
             client_id=self._client_id,
             client_name=self._client_name,
-            roles=[Roles.METADATA, Roles.ARTWORK],
+            # PLAYER role so Music Assistant assigns a player_id (== client_id)
+            # and every MA UI can group this display with the speaker. It stays
+            # muted and discards audio (display-only), but as a group member MA
+            # streams it the metadata + artwork for the playing track.
+            roles=[Roles.PLAYER, Roles.METADATA, Roles.ARTWORK],
+            player_support=ClientHelloPlayerSupport(
+                supported_formats=[
+                    SupportedAudioFormat(codec=AudioCodec.PCM, channels=2, sample_rate=44100, bit_depth=16),
+                    SupportedAudioFormat(codec=AudioCodec.PCM, channels=2, sample_rate=48000, bit_depth=16),
+                    SupportedAudioFormat(codec=AudioCodec.FLAC, channels=2, sample_rate=48000, bit_depth=24),
+                ],
+                buffer_capacity=8_000_000,
+                supported_commands=[PlayerCommand.VOLUME, PlayerCommand.MUTE],
+            ),
             artwork_support=ClientHelloArtworkSupport(
                 channels=[
                     ArtworkChannel(
@@ -96,10 +118,19 @@ class SendspinArtworkClient:
                     )
                 ]
             ),
+            initial_volume=0,
+            initial_muted=True,
         )
         client.add_artwork_listener(self._on_artwork_frame)
         client.add_metadata_listener(self._on_metadata)
+        # Display-only: drain and discard audio so the receive buffer doesn't
+        # back up. Sound comes from the speaker this display is grouped with.
+        client.add_audio_chunk_listener(self._discard_audio)
         return client
+
+    def _discard_audio(self, channel: int, data: bytes, fmt) -> None:
+        """No-op audio sink for the muted display player."""
+        return
 
     def _on_metadata(self, payload) -> None:
         """Capture MA's absolute artwork URL from the METADATA role, if any."""
