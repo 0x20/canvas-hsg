@@ -408,7 +408,7 @@ if [ -d ".venv" ]; then
         echo -e "${GREEN}✓ Virtual environment recreated with Python 3.13${NC}"
     fi
 else
-    sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+    sudo -u $ACTUAL_USER "$UV_BIN" venv --python 3.13 .venv
     echo -e "${GREEN}✓ Virtual environment created (Python 3.13)${NC}"
 fi
 
