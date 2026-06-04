@@ -1179,7 +1179,10 @@ async function loadMediaSources() {
         }
 
         if (DOM.videoPresets && mediaSources.youtube_channels) {
-            const staticOptions = Array.from(DOM.videoPresets.options).slice(0, 2);
+            // Keep only the "Choose preset..." placeholder; every real preset
+            // comes from media_sources.yaml below. (Previously sliced 2, which
+            // preserved a hardcoded — and embed-blocked — Lofi stream.)
+            const staticOptions = Array.from(DOM.videoPresets.options).slice(0, 1);
             const customOption = DOM.videoPresets.querySelector('option[value="custom"]');
 
             DOM.videoPresets.innerHTML = '';

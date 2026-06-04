@@ -50,16 +50,12 @@
                 <div class="field-group">
                     <label>Quick select (auto-starts):</label>
                     <select id="videoPresets" class="full-width-input">
+                        <!-- Only the placeholder is hardcoded; app.js rebuilds
+                             the rest from media_sources.yaml on load. Do NOT
+                             hardcode preset <option>s here — they bypass the
+                             YAML and can reintroduce embed-blocked streams
+                             (e.g. Lofi Girl jfKfPfyJRdk → IFrame Error 150). -->
                         <option value="">Choose preset...</option>
-                        <optgroup label="24/7 Live Streams">
-                            <option value="https://www.youtube.com/watch?v=jfKfPfyJRdk">Lofi Hip Hop Radio</option>
-                            <option value="https://www.youtube.com/watch?v=36YnV9STBqc">The Good Life Radio</option>
-                            <option value="https://www.youtube.com/watch?v=5yx6BWlEVcY">Chillhop Radio</option>
-                        </optgroup>
-                        <optgroup label="Nature & Relaxation">
-                            <option value="https://www.youtube.com/watch?v=UgHKb_7884o">Relaxing Fireplace (12h)</option>
-                            <option value="https://www.youtube.com/watch?v=UVfex2bCJCQ">8K Yule Log (8h)</option>
-                        </optgroup>
                     </select>
                 </div>
 
@@ -352,6 +348,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=3"></script>
+    <script src="/static/app.js?v=4"></script>
 </body>
 </html>
