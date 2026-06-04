@@ -500,6 +500,26 @@ echo -e "${GREEN}✓ Services installed and enabled${NC}"
 echo ""
 
 # ============================================
+# 8.5. Kiosk mode — let the canvas own the display
+# ============================================
+echo -e "${BLUE}[8.5/9] Configuring kiosk mode...${NC}"
+# The canvas renders via cage straight to DRM on the foreground VT. For that to
+# work on boot it must own the seat:
+#   - no display manager / desktop compositor holding the GPU
+#   - boot to multi-user (no graphical.target)
+#   - no getty on tty1 competing for the foreground VT (logind-vs-seatd)
+#   - the user's PipeWire session running without a graphical login (linger),
+#     since hsg-canvas + sendspin run as system services that talk to it.
+for dm in lightdm gdm gdm3 sddm; do
+    systemctl disable "$dm" 2>/dev/null && echo "  disabled $dm" || true
+done
+systemctl set-default multi-user.target
+systemctl mask getty@tty1
+loginctl enable-linger "$ACTUAL_USER"
+echo -e "${GREEN}✓ Kiosk mode configured (multi-user, getty@tty1 masked, linger on)${NC}"
+echo ""
+
+# ============================================
 # 9. Set Permissions
 # ============================================
 echo -e "${BLUE}[9/9] Setting permissions...${NC}"
