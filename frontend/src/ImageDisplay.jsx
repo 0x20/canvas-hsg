@@ -7,6 +7,9 @@ import './ImageDisplay.css';
 export default function ImageDisplay({ item }) {
   const [progress, setProgress] = useState(0);
   const imageUrl = item?.content?.image_url || '';
+  // Station art sets blurred_bg to get the now-playing look (blurred
+  // screen-filling backdrop + enlarged cover); QR codes/plain images don't.
+  const blurredBg = !!item?.content?.blurred_bg;
   const duration = item?.duration;
   const pushedAt = item?.pushed_at;
 
@@ -25,10 +28,16 @@ export default function ImageDisplay({ item }) {
 
   return (
     <div className="image-display">
+      {blurredBg && imageUrl && (
+        <div
+          className="image-background-blur"
+          style={{ backgroundImage: `linear-gradient(rgba(15,15,26,0.45),rgba(15,15,26,0.45)), url('${imageUrl}')` }}
+        />
+      )}
       <img
         src={imageUrl}
         alt="Display"
-        className="display-image"
+        className={blurredBg ? 'display-image station-art' : 'display-image'}
       />
       {duration > 0 && (
         <div className="image-progress-container">

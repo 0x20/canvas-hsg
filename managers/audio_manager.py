@@ -115,12 +115,17 @@ class AudioManager:
             # Start metadata updates
             self.start_metadata_updates()
 
-            # Fullscreen station art (silent overlay — doesn't interrupt audio)
+            # Fullscreen station art (silent overlay — doesn't interrupt audio).
+            # Real logos get the blurred screen-filling backdrop + enlarged cover
+            # (like the now-playing view); tiny favicons are shown as-is.
             if self.display_stack:
                 art_url = await self._resolve_station_art(stream_url)
                 if art_url:
+                    blurred = "favicon" not in art_url.lower()
                     await self.display_stack.push(
-                        "image", {"image_url": art_url}, item_id="audio-art"
+                        "image",
+                        {"image_url": art_url, "blurred_bg": blurred},
+                        item_id="audio-art",
                     )
                     logging.info(f"Audio station art shown: {art_url}")
 
