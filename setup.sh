@@ -460,6 +460,10 @@ fi
 rm -f /etc/angie/http.d/default.conf
 ln -sf "$SCRIPT_DIR/config/angie/hsg-canvas.conf" /etc/angie/http.d/hsg-canvas.conf
 
+# Loading splash Angie serves on upstream 502/503/504 while FastAPI starts
+# (fixed path, referenced by hsg-canvas.conf which is symlinked, not rendered).
+cp "$SCRIPT_DIR/config/angie/loading.html" /etc/angie/hsg-loading.html
+
 systemctl enable angie
 systemctl start angie || systemctl restart angie
 

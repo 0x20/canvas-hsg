@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Served by Angie when FastAPI is still starting. Reload until it's up,
+       at which point this same URL returns the real canvas. -->
+  <meta http-equiv="refresh" content="2">
+  <title>HSG Canvas — starting…</title>
+  <style>
+    :root { --bg:#0f0f1a; --fg:#c9d1ff; --accent:#7aa2ff; --accent2:#ff5edb; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      background: radial-gradient(120% 120% at 50% 30%, #16162a 0%, var(--bg) 70%);
+      color: var(--fg);
+      font-family: "Google Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100vh; overflow: hidden; letter-spacing: .04em;
+    }
+    .logo {
+      font-size: clamp(2rem, 6vw, 4.5rem); font-weight: 700;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+      text-transform: uppercase; animation: pulse 2.4s ease-in-out infinite;
+    }
+    .sub { margin-top: 1.2rem; font-size: clamp(.9rem, 2vw, 1.25rem); opacity: .7; }
+    .dots::after { content: ""; animation: dots 1.6s steps(4, end) infinite; }
+    .ring {
+      margin-top: 2.4rem; width: 54px; height: 54px; border-radius: 50%;
+      border: 3px solid rgba(122,162,255,.18); border-top-color: var(--accent);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+    @keyframes dots { 0% { content: ""; } 25% { content: "."; } 50% { content: ".."; } 75% { content: "..."; } }
+  </style>
+</head>
+<body>
+  <div class="logo">HSG Canvas</div>
+  <div class="sub">starting up<span class="dots"></span></div>
+  <div class="ring"></div>
+</body>
+</html>
