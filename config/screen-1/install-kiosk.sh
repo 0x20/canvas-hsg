@@ -27,6 +27,14 @@ fi
 REPO_DIR="${1:-$(dirname "$(readlink -f "$0")")}"
 echo ">> Using config snippets from: $REPO_DIR"
 
+# Target user/home so the kiosk installs under any account (defaults to the
+# sudo invoker, falling back to hsg for the canonical deployment).
+TARGET_USER="${SUDO_USER:-hsg}"
+TARGET_HOME="$(eval echo "~$TARGET_USER")"
+TARGET_UID="$(id -u "$TARGET_USER")"
+TARGET_GROUP="$(id -gn "$TARGET_USER")"
+echo ">> Installing kiosk for user: $TARGET_USER ($TARGET_HOME)"
+
 # 1. cmdline.txt — strip overlayroot=tmpfs
 CMD=/boot/firmware/cmdline.txt
 if grep -q 'overlayroot=tmpfs' "$CMD"; then
@@ -64,7 +72,12 @@ fi
 echo ">> Installing /usr/local/bin/canvas-kiosk.sh"
 install -m 0755 "$REPO_DIR/canvas-kiosk.sh" /usr/local/bin/canvas-kiosk.sh
 echo ">> Installing /etc/systemd/system/canvas-kiosk.service"
-install -m 0644 "$REPO_DIR/canvas-kiosk.service" /etc/systemd/system/canvas-kiosk.service
+sed -e "s#^User=hsg\$#User=$TARGET_USER#" \
+    -e "s#^Group=hsg\$#Group=$TARGET_GROUP#" \
+    -e "s#/run/user/1000#/run/user/$TARGET_UID#g" \
+    -e "s#/home/hsg#$TARGET_HOME#g" \
+    "$REPO_DIR/canvas-kiosk.service" > /etc/systemd/system/canvas-kiosk.service
+chmod 0644 /etc/systemd/system/canvas-kiosk.service
 
 systemctl daemon-reload
 
@@ -76,9 +89,9 @@ systemctl disable getty@tty1.service 2>/dev/null || true
 systemctl set-default multi-user.target
 
 # Disable the old userland kiosk autostart so it doesn't compete
-if [ -f /home/hsg/.config/autostart/kiosk.desktop ]; then
+if [ -f "$TARGET_HOME/.config/autostart/kiosk.desktop" ]; then
   echo ">> Renaming old kiosk.desktop autostart to .disabled"
-  mv /home/hsg/.config/autostart/kiosk.desktop /home/hsg/.config/autostart/kiosk.desktop.disabled
+  mv "$TARGET_HOME/.config/autostart/kiosk.desktop" "$TARGET_HOME/.config/autostart/kiosk.desktop.disabled"
 fi
 
 echo ">> Enabling canvas-kiosk.service"

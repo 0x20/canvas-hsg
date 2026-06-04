@@ -46,3 +46,6 @@ static/qr_*.png
 
 # Design references (artifact bundles, not source)
 hsg-canvas.html
+
+# Per-instance config (hostname etc.) — see canvas.conf.example
+canvas.conf

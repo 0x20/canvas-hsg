@@ -13,16 +13,21 @@ Architecture:
 """
 import asyncio
 import logging
+import os
 import subprocess
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from config import SENDSPIN_LISTENER_PORT
 
-# DBus constants for MPRIS
+# DBus constants for MPRIS. Derive the runtime dir from the running user so the
+# session bus resolves on any uid (falls back to XDG_RUNTIME_DIR if set).
+_RUNTIME_DIR = os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
 _DBUS_ENV = {
-    "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus",
-    "XDG_RUNTIME_DIR": "/run/user/1000",
+    "DBUS_SESSION_BUS_ADDRESS": os.environ.get(
+        "DBUS_SESSION_BUS_ADDRESS", f"unix:path={_RUNTIME_DIR}/bus"
+    ),
+    "XDG_RUNTIME_DIR": _RUNTIME_DIR,
 }
 _MPRIS_DEST_PREFIX = "org.mpris.MediaPlayer2.Sendspin"
 
@@ -38,6 +43,8 @@ class SendspinManager:
         self.spotify_manager = None
         self.bluetooth_manager = None
         self.display_stack = None
+        # Sendspin ARTWORK-role display client (provides album art over the LAN).
+        self.artwork_client = None
 
         # Current state
         self.is_playing = False
@@ -48,6 +55,9 @@ class SendspinManager:
 
         # Metadata polling task
         self._poll_task: Optional[asyncio.Task] = None
+        # Self-healing playback-state watcher (MPRIS PlaybackStatus) — covers
+        # hooks missed across a restart or track changes within a stream.
+        self._playback_watch_task: Optional[asyncio.Task] = None
 
     async def initialize(self) -> None:
         """Check if sendspin daemon is running."""
@@ -64,11 +74,18 @@ class SendspinManager:
         except Exception as e:
             logging.warning(f"Could not check sendspin daemon status: {e}")
 
+        # Start the self-healing playback watcher so the now-playing view
+        # reflects actual playback even when a hook is missed.
+        if self._playback_watch_task is None or self._playback_watch_task.done():
+            self._playback_watch_task = asyncio.create_task(self._playback_watch_loop())
+
     async def cleanup(self) -> None:
         """Clean up state."""
         try:
             if self._poll_task and not self._poll_task.done():
                 self._poll_task.cancel()
+            if self._playback_watch_task and not self._playback_watch_task.done():
+                self._playback_watch_task.cancel()
             # Restore any muted sources
             if self.audio_conflict:
                 await self.audio_conflict.unmute_source("raspotify")
@@ -166,6 +183,31 @@ class SendspinManager:
         except Exception as e:
             logging.error(f"Sendspin metadata poll error: {e}")
 
+    def _current_art_url(self):
+        """Album art URL from the Sendspin artwork display client, or None."""
+        ac = self.artwork_client
+        return ac.art_url if ac is not None else None
+
+    async def on_artwork_updated(self) -> None:
+        """Re-broadcast the current track with fresh album art.
+
+        Called when the artwork display client receives a new cover frame. The
+        metadata poll dedupes on track name/artist, so an art-only change would
+        otherwise not reach the now-playing view until the next track change.
+        """
+        if not self.is_playing or not self.track_info or not self.websocket_manager:
+            return
+        self.track_info["album_art_url"] = self._current_art_url()
+        await self.websocket_manager.broadcast("track_changed", {
+            "name": self.track_info.get("name"),
+            "artists": self.track_info.get("artists"),
+            "album": self.track_info.get("album", ""),
+            "album_art_url": self.track_info.get("album_art_url"),
+            "duration_ms": self.track_info.get("duration_ms", 0),
+            "spotify_url": None,
+        })
+        logging.info("Sendspin album art updated → %s", self._current_art_url())
+
     async def _read_and_broadcast_metadata(self) -> None:
         """Read current track metadata from MPRIS and broadcast if changed."""
         metadata = await self._read_mpris_metadata()
@@ -179,7 +221,10 @@ class SendspinManager:
         artists = metadata.get("xesam:artist", ["Unknown Artist"])
         artist_str = ", ".join(artists) if isinstance(artists, list) else str(artists)
         album = metadata.get("xesam:album", "")
-        artwork_url = metadata.get("mpris:artUrl")
+        # Album art comes from the Sendspin ARTWORK display client (binary frames
+        # from Music Assistant over the LAN), not MPRIS (the audio daemon's MPRIS
+        # doesn't carry artwork). Fall back to MPRIS artUrl if ever present.
+        artwork_url = self._current_art_url() or metadata.get("mpris:artUrl")
         duration_us = metadata.get("mpris:length", 0)
         duration_ms = duration_us // 1000 if duration_us else 0
 
@@ -272,6 +317,62 @@ class SendspinManager:
             return None
         except Exception:
             return None
+
+    async def _read_mpris_playback_status(self) -> Optional[str]:
+        """Read MPRIS PlaybackStatus (Playing/Paused/Stopped) from the daemon."""
+        try:
+            dest = await self._find_mpris_dest()
+            if not dest:
+                return None
+            env = {**os.environ, **_DBUS_ENV}
+            proc = await asyncio.create_subprocess_exec(
+                "dbus-send", "--session", "--print-reply",
+                f"--dest={dest}",
+                "/org/mpris/MediaPlayer2",
+                "org.freedesktop.DBus.Properties.Get",
+                "string:org.mpris.MediaPlayer2.Player",
+                "string:PlaybackStatus",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
+            if proc.returncode != 0:
+                return None
+            out = stdout.decode()
+            # Reply looks like:  variant       string "Playing"
+            if 'string "' in out:
+                return out.rsplit('string "', 1)[1].split('"')[0]
+            return None
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
+            logging.debug(f"MPRIS PlaybackStatus read error: {e}")
+            return None
+
+    async def _playback_watch_loop(self) -> None:
+        """Show/hide the now-playing view based on the daemon's MPRIS
+        PlaybackStatus, independent of the hooks.
+
+        The daemon's --hook-start only fires on stream start (stopped→playing),
+        so it misses track changes within a stream and any playback already in
+        progress when hsg-canvas (re)starts. Polling PlaybackStatus makes the
+        display self-heal to the real state.
+        """
+        while True:
+            try:
+                await asyncio.sleep(4)
+                status = await self._read_mpris_playback_status()
+                if status == "Playing" and not self.is_playing:
+                    logging.info("Sendspin playback detected via MPRIS — showing now-playing")
+                    await self.handle_hook_start()
+                elif status == "Stopped" and self.is_playing:
+                    logging.info("Sendspin playback stopped via MPRIS — hiding now-playing")
+                    await self.handle_hook_stop()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logging.debug(f"Sendspin playback watch error: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         """Get current Sendspin status for the API."""

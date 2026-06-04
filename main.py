@@ -26,6 +26,7 @@ from managers.chromecast_manager import ChromecastManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
 from managers.sendspin_manager import SendspinManager
+from managers.sendspin_artwork_client import SendspinArtworkClient
 from managers.bluetooth_manager import BluetoothManager
 from managers.audio_conflict import AudioConflictManager
 from managers.websocket_manager import WebSocketManager
@@ -51,7 +52,7 @@ from routes import (
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST
 
 # Logging setup
 logging.basicConfig(
@@ -113,10 +114,11 @@ async def lifespan(app: FastAPI):
         # /canvas/ until it returns 2xx; the await yields, lifespan finishes,
         # uvicorn binds, and the task proceeds against a healthy upstream.
         if app.state.chromium_manager:
-            # Use canvas.local rather than 127.0.0.1 so the YouTube IFrame
-            # embed's `origin` parameter is a non-loopback hostname — YouTube
-            # rejects loopback origins with Error 153 ("Video unavailable").
-            kiosk_url = "http://canvas.local/canvas/?keepalive=1"
+            # Use the canvas mDNS domain rather than 127.0.0.1 so the YouTube
+            # IFrame embed's `origin` parameter is a non-loopback hostname —
+            # YouTube rejects loopback origins with Error 153 ("Video
+            # unavailable"). CANVAS_DOMAIN is configurable per instance.
+            kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1"
 
             async def _launch_kiosk():
                 logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")
@@ -187,6 +189,17 @@ async def lifespan(app: FastAPI):
 
         # Start Sendspin listener (after all cross-refs are wired)
         await app.state.sendspin_manager.initialize()
+
+        # Sendspin ARTWORK display client — receives Music Assistant album art
+        # as binary frames over the LAN and feeds it to the now-playing view.
+        logging.info("Starting Sendspin artwork display client...")
+        app.state.sendspin_artwork_client = SendspinArtworkClient(
+            client_id=f"{CANVAS_HOST}-canvas-art",
+            client_name=f"{CANVAS_HOST} canvas",
+            on_artwork=app.state.sendspin_manager.on_artwork_updated,
+        )
+        app.state.sendspin_manager.artwork_client = app.state.sendspin_artwork_client
+        await app.state.sendspin_artwork_client.start()
 
         # Start Bluetooth polling (after all cross-refs are wired)
         await app.state.bluetooth_manager.initialize()
@@ -410,6 +423,10 @@ async def lifespan(app: FastAPI):
         # Stop Bluetooth manager
         if hasattr(app.state, 'bluetooth_manager') and app.state.bluetooth_manager:
             await app.state.bluetooth_manager.cleanup()
+
+        # Stop Sendspin artwork display client
+        if hasattr(app.state, 'sendspin_artwork_client') and app.state.sendspin_artwork_client:
+            await app.state.sendspin_artwork_client.stop()
 
         # Stop Sendspin manager
         if hasattr(app.state, 'sendspin_manager') and app.state.sendspin_manager:

@@ -1392,6 +1392,20 @@ def setup_sendspin_routes(sendspin_manager) -> APIRouter:
         await sendspin_manager.handle_hook_stop()
         return {"status": "ok"}
 
+    @router.get("/artwork")
+    async def get_sendspin_artwork():
+        """Serve the latest album art received from Music Assistant via the
+        Sendspin ARTWORK display client (binary frames over the LAN, no external
+        URL). Cache-busted by the ?v= version in the broadcast art URL."""
+        client = getattr(sendspin_manager, "artwork_client", None)
+        if client is None or not client.art_bytes:
+            raise HTTPException(status_code=404, detail="No artwork available")
+        return Response(
+            content=client.art_bytes,
+            media_type=client.art_mime,
+            headers={"Cache-Control": "no-cache"},
+        )
+
     return router
 
 

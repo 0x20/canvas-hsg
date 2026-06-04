@@ -28,11 +28,61 @@ fi
 # Get the actual user (not root when using sudo)
 ACTUAL_USER=${SUDO_USER:-$USER}
 USER_HOME=$(eval echo ~$ACTUAL_USER)
+ACTUAL_GROUP=$(id -gn "$ACTUAL_USER")
+ACTUAL_UID=$(id -u "$ACTUAL_USER")
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-echo -e "${YELLOW}Installing for user: $ACTUAL_USER${NC}"
+echo -e "${YELLOW}Installing for user: $ACTUAL_USER (group: $ACTUAL_GROUP, uid: $ACTUAL_UID)${NC}"
 echo -e "${YELLOW}Home directory: $USER_HOME${NC}"
 echo -e "${YELLOW}Script directory: $SCRIPT_DIR${NC}"
+echo ""
+
+# Render a systemd unit / drop-in from the repo, substituting the canonical
+# hsg deployment values (user, home, repo path, uid) with this install's.
+# Keeps the checked-in files readable as the hsg reference while letting the
+# canvas install under any user/path.
+render_unit() {
+    # render_unit <src> <dest>
+    sed -e "s#/home/hsg/srs_server#$SCRIPT_DIR#g" \
+        -e "s#/home/hsg#$USER_HOME#g" \
+        -e "s#^User=hsg\$#User=$ACTUAL_USER#" \
+        -e "s#^Group=hsg\$#Group=$ACTUAL_GROUP#" \
+        -e "s#/run/user/1000#/run/user/$ACTUAL_UID#g" \
+        "$1" > "$2"
+}
+
+# ============================================
+# 0. Hostname / mDNS name
+# ============================================
+# CANVAS_HOST drives the system hostname and the mDNS name the kiosk loads
+# (http://<CANVAS_HOST>.local/canvas/). Resolution: env var, then canvas.conf,
+# then default "canvas". Persist the choice to canvas.conf so the Python app
+# (config.py) reads the same value.
+CANVAS_CONF="$SCRIPT_DIR/canvas.conf"
+if [ -z "${CANVAS_HOST:-}" ] && [ -f "$CANVAS_CONF" ]; then
+    # Take the value after '=', strip surrounding quotes and whitespace/CR.
+    CANVAS_HOST=$(sed -n 's/^CANVAS_HOST=//p' "$CANVAS_CONF" | head -1 | sed "s/[\"' ]//g; s/\r//g")
+fi
+CANVAS_HOST="${CANVAS_HOST:-canvas}"
+if [ ! -f "$CANVAS_CONF" ]; then
+    echo "CANVAS_HOST=$CANVAS_HOST" > "$CANVAS_CONF"
+    chown $ACTUAL_USER:$ACTUAL_GROUP "$CANVAS_CONF"
+fi
+
+echo -e "${BLUE}[0/8] Setting hostname to '$CANVAS_HOST'...${NC}"
+CURRENT_HOST=$(hostname)
+if [ "$CURRENT_HOST" != "$CANVAS_HOST" ]; then
+    hostnamectl set-hostname "$CANVAS_HOST"
+    # Keep /etc/hosts in sync so sudo/local name resolution doesn't warn
+    sed -i "s/\b$CURRENT_HOST\b/$CANVAS_HOST/g" /etc/hosts
+    grep -q "127.0.1.1[[:space:]]\+$CANVAS_HOST" /etc/hosts || \
+        echo "127.0.1.1	$CANVAS_HOST" >> /etc/hosts
+    # avahi-daemon publishes <hostname>.local; restart so the new name is live
+    systemctl restart avahi-daemon 2>/dev/null || true
+    echo -e "${GREEN}✓ Hostname set to $CANVAS_HOST (was $CURRENT_HOST) → ${CANVAS_HOST}.local${NC}"
+else
+    echo -e "${GREEN}✓ Hostname already $CANVAS_HOST${NC}"
+fi
 echo ""
 
 # ============================================
@@ -68,7 +118,18 @@ apt-get install -y \
     python3-gi \
     dbus \
     nodejs \
-    npm
+    npm \
+    cage \
+    seatd
+
+# The kiosk renders via cage (wlroots) straight to DRM, using seatd to acquire
+# the seat without a logind graphical session. Both are required for headless
+# kiosk output and were previously assumed pre-installed.
+systemctl enable seatd.service
+# GPU/DRM access for the kiosk user, plus seatd's socket group if it exists.
+usermod -aG render,video "$ACTUAL_USER"
+getent group _seatd >/dev/null && usermod -aG _seatd "$ACTUAL_USER" || true
+getent group seat   >/dev/null && usermod -aG seat   "$ACTUAL_USER" || true
 
 echo -e "${GREEN}✓ System packages installed${NC}"
 echo ""
@@ -103,7 +164,7 @@ fi
 
 # Configure Raspotify for PulseAudio/PipeWire
 echo "Configuring Raspotify..."
-cat > /etc/raspotify/conf << 'EOF'
+cat > /etc/raspotify/conf << EOF
 # HSG Canvas Raspotify Configuration
 
 # Audio Backend - Use PulseAudio (works with PipeWire compatibility layer)
@@ -128,13 +189,13 @@ LIBRESPOT_DISABLE_CREDENTIAL_CACHE=
 TMPDIR=/tmp
 
 # Onevent hook - forward Spotify events to HSG Canvas API
-LIBRESPOT_ONEVENT=/home/hsg/srs_server/raspotify-onevent.sh
+LIBRESPOT_ONEVENT=$SCRIPT_DIR/raspotify-onevent.sh
 EOF
 
 # Install systemd drop-in for PipeWire/PulseAudio access
 # Raspotify's default sandbox (PrivateUsers, ProtectHome) blocks PulseAudio sockets
 mkdir -p /etc/systemd/system/raspotify.service.d
-cp "$SCRIPT_DIR/config/raspotify/onevent.conf" /etc/systemd/system/raspotify.service.d/onevent.conf
+render_unit "$SCRIPT_DIR/config/raspotify/onevent.conf" /etc/systemd/system/raspotify.service.d/onevent.conf
 
 systemctl daemon-reload
 systemctl enable raspotify.service
@@ -148,33 +209,58 @@ echo ""
 # ============================================
 echo -e "${BLUE}[3.5/9] Installing Sendspin audio daemon...${NC}"
 
-# Install uv if not present
-if ! command -v uv &> /dev/null; then
+# Install uv if not present. It installs into the user's ~/.local/bin, which is
+# NOT on sudo's reset PATH, so always invoke it by absolute path ($UV_BIN).
+UV_BIN="$USER_HOME/.local/bin/uv"
+if [ ! -x "$UV_BIN" ]; then
     echo "Installing uv..."
-    sudo -u $ACTUAL_USER curl -LsSf https://astral.sh/uv/install.sh | sudo -u $ACTUAL_USER sh
+    sudo -u $ACTUAL_USER sh -c 'curl -LsSf https://astral.sh/uv/install.sh | sh'
 fi
 
 # Install Python 3.13 via uv (prebuilt binary, no compilation)
 echo "Ensuring Python 3.13 is available..."
-sudo -u $ACTUAL_USER uv python install 3.13
+sudo -u $ACTUAL_USER "$UV_BIN" python install 3.13
 
-# Install sendspin CLI via uv tool (runs as hsg user)
-echo "Installing sendspin CLI..."
-sudo -u $ACTUAL_USER uv tool install sendspin --python 3.13
+# Sendspin daemon identity / output device (override via env when running
+# setup.sh, e.g. SENDSPIN_NAME="Kenwood Speakers" SENDSPIN_AUDIO_DEVICE=pipewire).
+SENDSPIN_NAME="${SENDSPIN_NAME:-HSG Canvas}"
+SENDSPIN_ID="${SENDSPIN_ID:-$(echo "$SENDSPIN_NAME" | tr '[:upper:] ' '[:lower:]-')}"
+# 'pulse' routes through the PipeWire/PulseAudio sound server to the default
+# sink (the DAC). NB: sendspin's portaudio backend exposes 'pulse'/'default',
+# not 'pipewire' — the latter errors with "Audio device not found".
+SENDSPIN_AUDIO_DEVICE="${SENDSPIN_AUDIO_DEVICE:-pulse}"
+
+# Install/upgrade the sendspin CLI to the latest release. The hook-based daemon
+# (--hook-start/--hook-stop) the canvas relies on for display/audio coordination
+# needs a modern sendspin; older installs (e.g. 1.x) have a flat CLI with no
+# daemon subcommand or hooks at all.
+echo "Installing/upgrading sendspin CLI to latest..."
+sudo -u $ACTUAL_USER "$UV_BIN" tool install sendspin@latest --python 3.13 --force
+
+# A user-level sendspin.service would fight this system daemon over the audio
+# device and the Music Assistant registration — disable it if present.
+if [ -f "$USER_HOME/.config/systemd/user/sendspin.service" ]; then
+    sudo -u $ACTUAL_USER \
+        XDG_RUNTIME_DIR=/run/user/$ACTUAL_UID \
+        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$ACTUAL_UID/bus \
+        systemctl --user disable --now sendspin.service 2>/dev/null || true
+    echo "  Disabled conflicting user-level sendspin.service"
+fi
 
 # Create sendspin config directory and settings
 mkdir -p "$USER_HOME/.config/sendspin"
 cat > "$USER_HOME/.config/sendspin/settings-daemon.json" << EOF
 {
-    "name": "HSG Canvas",
-    "client_id": "hsg-canvas-player"
+    "name": "$SENDSPIN_NAME",
+    "client_id": "$SENDSPIN_ID"
 }
 EOF
 chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/sendspin"
 
-# Install systemd service for sendspin daemon
-SENDSPIN_BIN=$(sudo -u $ACTUAL_USER bash -c 'which sendspin 2>/dev/null || echo ""')
-if [ -n "$SENDSPIN_BIN" ]; then
+# Install systemd service for sendspin daemon. uv tool installs the launcher
+# into ~/.local/bin (not on sudo's PATH), so reference it by absolute path.
+SENDSPIN_BIN="$USER_HOME/.local/bin/sendspin"
+if [ -x "$SENDSPIN_BIN" ]; then
     cat > /etc/systemd/system/sendspin.service << SVCEOF
 [Unit]
 Description=Sendspin Multi-Room Audio Client
@@ -186,7 +272,7 @@ Type=simple
 User=$ACTUAL_USER
 Environment=XDG_RUNTIME_DIR=/run/user/$(id -u $ACTUAL_USER)
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u $ACTUAL_USER)/bus
-ExecStart=$SENDSPIN_BIN daemon --name "HSG Canvas Speaker" --id "hsg-canvas-speaker" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
+ExecStart=$SENDSPIN_BIN daemon --name "$SENDSPIN_NAME" --id "$SENDSPIN_ID" --audio-device "$SENDSPIN_AUDIO_DEVICE" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -230,7 +316,7 @@ fi
 
 # Install auto-accept pairing agent (replaces bluez-tools bt-agent)
 chmod +x "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.py"
-cp "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.service" /etc/systemd/system/bt-auto-agent.service
+render_unit "$SCRIPT_DIR/config/bluetooth/bt-auto-agent.service" /etc/systemd/system/bt-auto-agent.service
 
 # Remove old bt-agent service if it exists
 systemctl disable bt-agent.service 2>/dev/null || true
@@ -266,30 +352,33 @@ DAC_DEVICE=$(aplay -l | grep -oP 'card \K3(?=.*RPi DAC Pro)' | head -1 || echo "
 if [ -n "$DAC_DEVICE" ]; then
     echo "Found RPi DAC Pro on CARD=$DAC_DEVICE"
 
-    # Set default PulseAudio/PipeWire sink to DAC Pro
-    # This is run as the actual user, not root
-    sudo -u $ACTUAL_USER bash << USEREOF
-        # Wait for PipeWire to be ready
+    # Find the PipeWire/PulseAudio sink backed by the DAC. The sink name varies
+    # by board/kernel, so detect it from the sink description rather than
+    # hardcoding (sendspin/raspotify/browser all route here via the sound server).
+    USER_RUNTIME="/run/user/$ACTUAL_UID"
+    DAC_SINK=$(sudo -u $ACTUAL_USER XDG_RUNTIME_DIR=$USER_RUNTIME pactl list sinks 2>/dev/null | \
+        awk '/^[[:space:]]*Name: /{n=$2} /RPi DAC Pro|pcm512/{print n; exit}')
+    [ -z "$DAC_SINK" ] && DAC_SINK="alsa_output.platform-soc_sound.stereo-fallback"
+    echo "Using DAC sink: $DAC_SINK"
+
+    # Set default sink + full volume on the running session
+    sudo -u $ACTUAL_USER XDG_RUNTIME_DIR=$USER_RUNTIME bash << USEREOF
         sleep 2
-
-        # Set default sink
-        pactl set-default-sink alsa_output.platform-soc_sound.stereo-fallback 2>/dev/null || true
-
-        # Set volume to 100%
-        pactl set-sink-volume alsa_output.platform-soc_sound.stereo-fallback 100% 2>/dev/null || true
+        pactl set-default-sink "$DAC_SINK" 2>/dev/null || true
+        pactl set-sink-volume "$DAC_SINK" 100% 2>/dev/null || true
 USEREOF
 
-    # Create persistent configuration for user
+    # Persist the default sink across reboots
     mkdir -p "$USER_HOME/.config/pipewire/pipewire.conf.d"
-    cat > "$USER_HOME/.config/pipewire/pipewire.conf.d/99-default-sink.conf" << 'EOF'
+    cat > "$USER_HOME/.config/pipewire/pipewire.conf.d/99-default-sink.conf" << EOF
 # HSG Canvas - Default audio sink configuration
 context.exec = [
-    { path = "pactl" args = "set-default-sink alsa_output.platform-soc_sound.stereo-fallback" }
+    { path = "pactl" args = "set-default-sink $DAC_SINK" }
 ]
 EOF
     chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/pipewire"
 
-    echo -e "${GREEN}✓ Audio configured for RPi DAC Pro${NC}"
+    echo -e "${GREEN}✓ Audio configured for RPi DAC Pro ($DAC_SINK)${NC}"
 else
     echo -e "${YELLOW}⚠ RPi DAC Pro not detected, using default audio device${NC}"
 fi
@@ -318,16 +407,16 @@ if [ -d ".venv" ]; then
     else
         echo "Recreating venv with Python 3.13 (was: $VENV_PY)..."
         rm -rf .venv
-        sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+        sudo -u $ACTUAL_USER "$UV_BIN" venv --python 3.13 .venv
         echo -e "${GREEN}✓ Virtual environment recreated with Python 3.13${NC}"
     fi
 else
-    sudo -u $ACTUAL_USER uv venv --python 3.13 .venv
+    sudo -u $ACTUAL_USER "$UV_BIN" venv --python 3.13 .venv
     echo -e "${GREEN}✓ Virtual environment created (Python 3.13)${NC}"
 fi
 
 # Install Python dependencies via uv
-sudo -u $ACTUAL_USER uv pip install --python .venv/bin/python -r requirements.txt
+sudo -u $ACTUAL_USER "$UV_BIN" pip install --python .venv/bin/python -r requirements.txt
 
 echo -e "${GREEN}✓ Python dependencies installed${NC}"
 echo ""
@@ -383,11 +472,11 @@ echo ""
 echo -e "${BLUE}[8/9] Installing systemd services...${NC}"
 
 # Install SRS Server service
-cp "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/srs-server.service" /etc/systemd/system/srs-server.service
 echo "  ✓ srs-server.service"
 
 # Install HSG Canvas service (from config/ directory)
-cp "$SCRIPT_DIR/config/hsg-canvas.service" /etc/systemd/system/
+render_unit "$SCRIPT_DIR/config/hsg-canvas.service" /etc/systemd/system/hsg-canvas.service
 echo "  ✓ hsg-canvas.service"
 
 # Reload systemd
@@ -400,12 +489,34 @@ systemctl enable raspotify.service
 
 # Install sudoers drop-in so the hsg-canvas watchdog can restart raspotify
 # when librespot wedges (auth/rate-limit errors or silent zombie state).
-install -m 0440 -o root -g root \
-    "$SCRIPT_DIR/config/sudoers.d/hsg-canvas" /etc/sudoers.d/hsg-canvas
+sed "s#^hsg ALL#$ACTUAL_USER ALL#" \
+    "$SCRIPT_DIR/config/sudoers.d/hsg-canvas" > /etc/sudoers.d/hsg-canvas
+chown root:root /etc/sudoers.d/hsg-canvas
+chmod 0440 /etc/sudoers.d/hsg-canvas
 visudo -c -f /etc/sudoers.d/hsg-canvas
 echo "  ✓ /etc/sudoers.d/hsg-canvas"
 
 echo -e "${GREEN}✓ Services installed and enabled${NC}"
+echo ""
+
+# ============================================
+# 8.5. Kiosk mode — let the canvas own the display
+# ============================================
+echo -e "${BLUE}[8.5/9] Configuring kiosk mode...${NC}"
+# The canvas renders via cage straight to DRM on the foreground VT. For that to
+# work on boot it must own the seat:
+#   - no display manager / desktop compositor holding the GPU
+#   - boot to multi-user (no graphical.target)
+#   - no getty on tty1 competing for the foreground VT (logind-vs-seatd)
+#   - the user's PipeWire session running without a graphical login (linger),
+#     since hsg-canvas + sendspin run as system services that talk to it.
+for dm in lightdm gdm gdm3 sddm; do
+    systemctl disable "$dm" 2>/dev/null && echo "  disabled $dm" || true
+done
+systemctl set-default multi-user.target
+systemctl mask getty@tty1
+loginctl enable-linger "$ACTUAL_USER"
+echo -e "${GREEN}✓ Kiosk mode configured (multi-user, getty@tty1 masked, linger on)${NC}"
 echo ""
 
 # ============================================

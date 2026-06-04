@@ -8,6 +8,10 @@
 
 set -e
 
+# Resolve the repo root from this script's location so the service works
+# regardless of install user or path (no hardcoded /home/hsg/srs_server).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=== HSG Canvas ==="
 echo ""
 
@@ -22,7 +26,7 @@ sudo rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
 sleep 1
 
 # Build the React canvas if dist is missing or older than any source file
-cd /home/hsg/srs_server/frontend
+cd "$SCRIPT_DIR/frontend"
 NEED_BUILD=0
 if [ ! -f dist/index.html ]; then
     NEED_BUILD=1
@@ -40,14 +44,14 @@ fi
 echo ""
 
 # Go back to project root
-cd /home/hsg/srs_server
+cd "$SCRIPT_DIR"
 
 # Set audio device to use PulseAudio/PipeWire (avoids conflicts with Raspotify)
 export AUDIO_DEVICE="pulse"
 echo "Audio device: $AUDIO_DEVICE"
 
 # Add venv bin and deno to PATH
-export PATH="/home/hsg/srs_server/.venv/bin:/home/hsg/.deno/bin:$PATH"
+export PATH="$SCRIPT_DIR/.venv/bin:$HOME/.deno/bin:$PATH"
 
 echo ""
 echo "Starting FastAPI server on port 8000..."

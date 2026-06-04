@@ -9,6 +9,10 @@ from typing import Tuple, Optional
 from dataclasses import dataclass
 import os
 
+# Repo root = parent of this package, so asset paths resolve regardless of
+# install location/user (no hardcoded /home/hsg/srs_server).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 @dataclass
 class BackgroundConfig:
@@ -70,7 +74,7 @@ class BackgroundConfig:
     subtitle_glow_offset: float = 0.5   # As percentage of font size
     
     # Logo settings - Larger and more prominent
-    logo_path: str = "/home/hsg/srs_server/static/hsg_logo_invert.png"
+    logo_path: str = os.path.join(_REPO_ROOT, "static", "hsg_logo_invert.png")
     logo_size_percent: float = 0.18     # 18% of canvas height (increased from 12%)
     logo_min_size: int = 150            # Larger minimum size (increased from 100)
     logo_max_size: int = 400            # Larger maximum size (increased from 300)

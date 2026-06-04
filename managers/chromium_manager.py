@@ -14,6 +14,8 @@ from typing import Optional
 
 import aiohttp
 
+from config import CANVAS_DOMAIN
+
 
 class ChromiumManager:
     """Manages Chromium browser lifecycle in kiosk mode with cage/Wayland"""
@@ -94,7 +96,7 @@ class ChromiumManager:
                 'WLR_DRM_DEVICES': '/dev/dri/card1',
                 'SEATD_SOCK': '/run/seatd.sock',
                 'WLR_RENDERER': 'gles2',  # GPU-accelerated via v3d
-                'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', '/run/user/1000'),
+                'XDG_RUNTIME_DIR': os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}'),
                 'WLR_LIBINPUT_NO_DEVICES': '1',
             })
 
@@ -104,7 +106,7 @@ class ChromiumManager:
             is_local = (
                 url.startswith("http://127.0.0.1")
                 or url.startswith("http://localhost")
-                or url.startswith("http://canvas.local")
+                or url.startswith(f"http://{CANVAS_DOMAIN}")
             )
 
             chromium_args = [
