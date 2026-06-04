@@ -63,11 +63,15 @@ music_streams:
       description: "Alternative music and indie rock from BBC"
 
 youtube_channels:
-  # Lofi Girl 24/7 Streams (youtube.com/@LofiGirl)
-  lofi_girl:
-    - name: "🎧 Lofi Hip Hop Radio - Study/Relax"
-      url: "https://www.youtube.com/watch?v=EWrX250Zhko"
-      description: "Continuous lofi hip hop beats for studying and relaxing"
+  # Lofi & Chill 24/7 Streams
+  # NOTE: Lofi Girl's flagship "beats to relax/study to" stream
+  # (jfKfPfyJRdk / EWrX250Zhko) has embedding DISABLED → YouTube IFrame
+  # Error 150. Do not re-add it. Chillhop is used as the study/relax stream
+  # because it allows embedding. Their other themed streams below are fine.
+  lofi:
+    - name: "🎧 Chillhop Radio - Lofi Hip Hop"
+      url: "https://www.youtube.com/watch?v=5yx6BWlEVcY"
+      description: "Jazzy & lofi hip hop beats for studying and relaxing"
 
     - name: "🌌 Synthwave Radio - Chill/Game"
       url: "https://www.youtube.com/watch?v=4xDzrJKXOOY"
@@ -94,10 +98,6 @@ youtube_channels:
     - name: "🏠 The Good Life Radio - 24/7 Live"
       url: "https://www.youtube.com/watch?v=36YnV9STBqc"
       description: "Chill and relaxing music for the good life"
-
-    - name: "🎵 Chillhop Radio - 24/7 Live"
-      url: "https://www.youtube.com/watch?v=5yx6BWlEVcY"
-      description: "Live chillhop and jazz hop beats"
 
   # Synthwave & Retro
   synthwave_retro:
