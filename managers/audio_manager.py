@@ -6,7 +6,9 @@ Replaces MPV audio pool with WebSocket commands to the React AudioPlayer compone
 """
 import asyncio
 import logging
+import os
 import aiohttp
+import yaml
 from datetime import datetime
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
@@ -23,6 +25,8 @@ class AudioManager:
         self.spotify_manager = None
         self.sendspin_manager = None
         self.bluetooth_manager = None
+        # Display stack — used to show fullscreen station art for audio streams.
+        self.display_stack = None
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -104,6 +108,15 @@ class AudioManager:
             # Start metadata updates
             self.start_metadata_updates()
 
+            # Fullscreen station art (silent overlay — doesn't interrupt audio)
+            if self.display_stack:
+                art_url = self._resolve_station_art(stream_url)
+                if art_url:
+                    await self.display_stack.push(
+                        "image", {"image_url": art_url}, item_id="audio-art"
+                    )
+                    logging.info(f"Audio station art shown: {art_url}")
+
             return True
 
         except Exception as e:
@@ -124,6 +137,9 @@ class AudioManager:
                 self._is_playing = False
 
                 self.stop_metadata_updates()
+                # Remove the fullscreen station art overlay
+                if self.display_stack:
+                    await self.display_stack.remove("audio-art")
                 logging.info("Audio stream stopped")
 
             return True
@@ -215,6 +231,46 @@ class AudioManager:
                 return "Audio Stream"
         else:
             return "Audio Stream"
+
+    def _resolve_station_art(self, stream_url: str) -> Optional[str]:
+        """Best fullscreen station-logo URL for an audio stream, or None.
+
+        Order: explicit `image` in media_sources.yaml → SomaFM logo (derived
+        from the station id) → site favicon. Streaming needs internet anyway,
+        so remote art URLs are fine.
+        """
+        if not stream_url:
+            return None
+
+        # 1. Curated per-preset image from media_sources.yaml
+        try:
+            cfg = os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                "media_sources.yaml",
+            )
+            with open(cfg) as f:
+                sources = yaml.safe_load(f) or {}
+            for group in (sources.get("music_streams") or {}).values():
+                for entry in group or []:
+                    if entry.get("url") == stream_url and entry.get("image"):
+                        return entry["image"]
+        except Exception as e:
+            logging.debug(f"media_sources image lookup failed: {e}")
+
+        host = (urlparse(stream_url).hostname or "").lower()
+
+        # 2. SomaFM: 512px square logo derived from the station id (the stream
+        #    basename minus any trailing bitrate digits, e.g. groovesalad256).
+        if "somafm" in host or "soma.fm" in host:
+            seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0]
+            station = seg.rstrip("0123456789")
+            if station:
+                return f"https://api.somafm.com/logos/512/{station}512.png"
+
+        # 3. Favicon fallback (low-res, but better than a blank background)
+        if host:
+            return f"https://www.google.com/s2/favicons?domain={host}&sz=128"
+        return None
 
     def _detect_stream_type(self, stream_url: str) -> Optional[Dict[str, Any]]:
         """Detect the type of audio stream for metadata fetching"""

@@ -177,6 +177,7 @@ async def lifespan(app: FastAPI):
         app.state.audio_manager.playback_manager = app.state.playback_manager
         app.state.audio_manager.spotify_manager = app.state.spotify_manager
         app.state.audio_manager.sendspin_manager = app.state.sendspin_manager
+        app.state.audio_manager.display_stack = app.state.display_stack
         app.state.sendspin_manager.playback_manager = app.state.playback_manager
         app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
         app.state.sendspin_manager.bluetooth_manager = app.state.bluetooth_manager

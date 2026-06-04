@@ -2,6 +2,12 @@
 # Edit this file to add/remove/modify music streams and YouTube channels
 
 music_streams:
+  # Optional per-stream `image:` shows a fullscreen station logo on the canvas
+  # while that audio stream plays. SomaFM logos are auto-derived from the
+  # station id (no `image:` needed). For other stations add a square image, e.g.
+  #   image: "https://example.com/logo.png"
+  # Streams with neither an `image:` nor SomaFM art fall back to the site favicon.
+
   # SomaFM Stations
   somafm:
     - name: "Groove Salad"
