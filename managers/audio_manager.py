@@ -7,6 +7,7 @@ Replaces MPV audio pool with WebSocket commands to the React AudioPlayer compone
 import asyncio
 import logging
 import os
+import time
 import aiohttp
 import yaml
 from datetime import datetime
@@ -27,6 +28,9 @@ class AudioManager:
         self.bluetooth_manager = None
         # Display stack — used to show fullscreen station art for audio streams.
         self.display_stack = None
+        # Cached SomaFM id→logo map (channels.json); extensions vary per station.
+        self._somafm_logos: Dict[str, str] = {}
+        self._somafm_logos_ts: float = 0.0
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -110,7 +114,7 @@ class AudioManager:
 
             # Fullscreen station art (silent overlay — doesn't interrupt audio)
             if self.display_stack:
-                art_url = self._resolve_station_art(stream_url)
+                art_url = await self._resolve_station_art(stream_url)
                 if art_url:
                     await self.display_stack.push(
                         "image", {"image_url": art_url}, item_id="audio-art"
@@ -232,12 +236,38 @@ class AudioManager:
         else:
             return "Audio Stream"
 
-    def _resolve_station_art(self, stream_url: str) -> Optional[str]:
+    async def _somafm_logo(self, station: str) -> str:
+        """Exact SomaFM cover URL for a station id.
+
+        Logo file extensions vary per station (e.g. thetrip is .jpg), so use the
+        API's xlimage rather than guessing. The channels list is cached for a day;
+        falls back to the derived 512px PNG if the API can't be reached.
+        """
+        fallback = f"https://api.somafm.com/logos/512/{station}512.png"
+        if not self._somafm_logos or (time.time() - self._somafm_logos_ts) > 86400:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        "https://api.somafm.com/channels.json",
+                        timeout=aiohttp.ClientTimeout(total=8),
+                    ) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            self._somafm_logos = {
+                                c["id"]: (c.get("xlimage") or c.get("largeimage") or c.get("image"))
+                                for c in data.get("channels", []) if c.get("id")
+                            }
+                            self._somafm_logos_ts = time.time()
+            except Exception as e:
+                logging.debug(f"SomaFM channels.json fetch failed: {e}")
+        return self._somafm_logos.get(station) or fallback
+
+    async def _resolve_station_art(self, stream_url: str) -> Optional[str]:
         """Best fullscreen station-logo URL for an audio stream, or None.
 
-        Order: explicit `image` in media_sources.yaml → SomaFM logo (derived
-        from the station id) → site favicon. Streaming needs internet anyway,
-        so remote art URLs are fine.
+        Order: explicit `image` in media_sources.yaml → SomaFM cover (from the
+        API, keyed by station id) → site favicon. Streaming needs internet
+        anyway, so remote art URLs are fine.
         """
         if not stream_url:
             return None
@@ -259,13 +289,13 @@ class AudioManager:
 
         host = (urlparse(stream_url).hostname or "").lower()
 
-        # 2. SomaFM: 512px square logo derived from the station id (the stream
+        # 2. SomaFM: exact cover from the API, keyed by station id (the stream
         #    basename minus any trailing bitrate digits, e.g. groovesalad256).
         if "somafm" in host or "soma.fm" in host:
             seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0]
             station = seg.rstrip("0123456789")
             if station:
-                return f"https://api.somafm.com/logos/512/{station}512.png"
+                return await self._somafm_logo(station)
 
         # 3. Favicon fallback (low-res, but better than a blank background)
         if host:
