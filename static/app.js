@@ -1183,7 +1183,6 @@ async function loadMediaSources() {
             // comes from media_sources.yaml below. (Previously sliced 2, which
             // preserved a hardcoded — and embed-blocked — Lofi stream.)
             const staticOptions = Array.from(DOM.videoPresets.options).slice(0, 1);
-            const customOption = DOM.videoPresets.querySelector('option[value="custom"]');
 
             DOM.videoPresets.innerHTML = '';
             staticOptions.forEach(opt => DOM.videoPresets.appendChild(opt));
@@ -1200,13 +1199,6 @@ async function loadMediaSources() {
                 });
                 DOM.videoPresets.appendChild(group);
             });
-
-            if (customOption) {
-                const customGroup = document.createElement('optgroup');
-                customGroup.label = 'Custom';
-                customGroup.appendChild(customOption.cloneNode(true));
-                DOM.videoPresets.appendChild(customGroup);
-            }
         }
     } catch (error) {
         console.error('Failed to load media sources:', error);

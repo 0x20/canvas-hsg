@@ -8,7 +8,6 @@ import './YouTubePlayer.css';
 export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
   const containerRef = useRef(null);
-  const [ready, setReady] = useState(false);
   const [errored, setErrored] = useState(false);
 
   const videoId = item?.content?.video_id || '';
@@ -19,6 +18,7 @@ export default function YouTubePlayer({ item }) {
 
   useEffect(() => {
     if (!videoId) return;
+    setErrored(false);  // a new video clears any prior "unavailable" state
 
     // Load YouTube IFrame API if not already loaded
     if (!window.YT) {
@@ -28,8 +28,11 @@ export default function YouTubePlayer({ item }) {
     }
 
     function createPlayer() {
+      // The API's global callback fires once, asynchronously — bail if this
+      // instance unmounted or the API isn't actually ready yet.
+      if (!containerRef.current || !window.YT || !window.YT.Player) return;
       if (playerRef.current) {
-        playerRef.current.destroy();
+        try { playerRef.current.destroy(); } catch {}
       }
 
       playerRef.current = new window.YT.Player(containerRef.current, {
@@ -50,7 +53,6 @@ export default function YouTubePlayer({ item }) {
         },
         events: {
           onReady: (e) => {
-            setReady(true);
             if (mute) e.target.mute();
           },
           onStateChange: (e) => {
@@ -80,12 +82,23 @@ export default function YouTubePlayer({ item }) {
     }
 
     return () => {
+      // Don't let a still-pending API callback fire into an unmounted instance.
+      if (window.onYouTubeIframeAPIReady === createPlayer) {
+        window.onYouTubeIframeAPIReady = undefined;
+      }
       if (playerRef.current) {
         try { playerRef.current.destroy(); } catch {}
         playerRef.current = null;
       }
     };
   }, [videoId]);
+
+  // Apply mute toggles to the live player without reloading the video.
+  useEffect(() => {
+    const p = playerRef.current;
+    if (!p || typeof p.mute !== 'function') return;
+    try { mute ? p.mute() : p.unMute(); } catch {}
+  }, [mute]);
 
   // Once an error is shown, leave the message up briefly, then pop the
   // item off the stack so the display returns to the background.
