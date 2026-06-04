@@ -55,6 +55,9 @@ class SendspinManager:
 
         # Metadata polling task
         self._poll_task: Optional[asyncio.Task] = None
+        # Self-healing playback-state watcher (MPRIS PlaybackStatus) — covers
+        # hooks missed across a restart or track changes within a stream.
+        self._playback_watch_task: Optional[asyncio.Task] = None
 
     async def initialize(self) -> None:
         """Check if sendspin daemon is running."""
@@ -71,11 +74,18 @@ class SendspinManager:
         except Exception as e:
             logging.warning(f"Could not check sendspin daemon status: {e}")
 
+        # Start the self-healing playback watcher so the now-playing view
+        # reflects actual playback even when a hook is missed.
+        if self._playback_watch_task is None or self._playback_watch_task.done():
+            self._playback_watch_task = asyncio.create_task(self._playback_watch_loop())
+
     async def cleanup(self) -> None:
         """Clean up state."""
         try:
             if self._poll_task and not self._poll_task.done():
                 self._poll_task.cancel()
+            if self._playback_watch_task and not self._playback_watch_task.done():
+                self._playback_watch_task.cancel()
             # Restore any muted sources
             if self.audio_conflict:
                 await self.audio_conflict.unmute_source("raspotify")
@@ -307,6 +317,62 @@ class SendspinManager:
             return None
         except Exception:
             return None
+
+    async def _read_mpris_playback_status(self) -> Optional[str]:
+        """Read MPRIS PlaybackStatus (Playing/Paused/Stopped) from the daemon."""
+        try:
+            dest = await self._find_mpris_dest()
+            if not dest:
+                return None
+            env = {**os.environ, **_DBUS_ENV}
+            proc = await asyncio.create_subprocess_exec(
+                "dbus-send", "--session", "--print-reply",
+                f"--dest={dest}",
+                "/org/mpris/MediaPlayer2",
+                "org.freedesktop.DBus.Properties.Get",
+                "string:org.mpris.MediaPlayer2.Player",
+                "string:PlaybackStatus",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=3)
+            if proc.returncode != 0:
+                return None
+            out = stdout.decode()
+            # Reply looks like:  variant       string "Playing"
+            if 'string "' in out:
+                return out.rsplit('string "', 1)[1].split('"')[0]
+            return None
+        except asyncio.TimeoutError:
+            return None
+        except Exception as e:
+            logging.debug(f"MPRIS PlaybackStatus read error: {e}")
+            return None
+
+    async def _playback_watch_loop(self) -> None:
+        """Show/hide the now-playing view based on the daemon's MPRIS
+        PlaybackStatus, independent of the hooks.
+
+        The daemon's --hook-start only fires on stream start (stopped→playing),
+        so it misses track changes within a stream and any playback already in
+        progress when hsg-canvas (re)starts. Polling PlaybackStatus makes the
+        display self-heal to the real state.
+        """
+        while True:
+            try:
+                await asyncio.sleep(4)
+                status = await self._read_mpris_playback_status()
+                if status == "Playing" and not self.is_playing:
+                    logging.info("Sendspin playback detected via MPRIS — showing now-playing")
+                    await self.handle_hook_start()
+                elif status == "Stopped" and self.is_playing:
+                    logging.info("Sendspin playback stopped via MPRIS — hiding now-playing")
+                    await self.handle_hook_stop()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logging.debug(f"Sendspin playback watch error: {e}")
 
     def get_status(self) -> Dict[str, Any]:
         """Get current Sendspin status for the API."""
