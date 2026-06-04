@@ -80,6 +80,10 @@ class SendspinArtworkClient:
         self._last_title: Optional[str] = None
         # Strong refs to in-flight notify tasks so they aren't GC'd mid-await.
         self._tasks: set = set()
+        # Count audio MA streams to this (muted) display player, to gauge the
+        # bandwidth cost of holding the PLAYER role just for groupability.
+        self._audio_chunks: int = 0
+        self._audio_bytes: int = 0
 
     @property
     def art_url(self) -> Optional[str]:
@@ -133,8 +137,22 @@ class SendspinArtworkClient:
         return client
 
     def _discard_audio(self, channel: int, data: bytes, fmt) -> None:
-        """No-op audio sink for the muted display player."""
-        return
+        """Drain and discard audio (display-only). Counted so we can see whether
+        the PLAYER role actually costs streaming bandwidth."""
+        if not data:
+            return
+        self._audio_chunks += 1
+        self._audio_bytes += len(data)
+        if self._audio_chunks == 1:
+            logger.info(
+                "Display player IS receiving audio from MA (discarding); first chunk %d bytes, fmt=%s",
+                len(data), fmt,
+            )
+        elif self._audio_chunks % 500 == 0:
+            logger.info(
+                "Display player discarded %d audio chunks (%.1f MB total)",
+                self._audio_chunks, self._audio_bytes / 1e6,
+            )
 
     def _on_metadata(self, payload) -> None:
         """Capture MA's absolute artwork URL from the METADATA role.

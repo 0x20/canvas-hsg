@@ -25,31 +25,15 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# Get the actual user (not root when using sudo)
-ACTUAL_USER=${SUDO_USER:-$USER}
-USER_HOME=$(eval echo ~$ACTUAL_USER)
-ACTUAL_GROUP=$(id -gn "$ACTUAL_USER")
-ACTUAL_UID=$(id -u "$ACTUAL_USER")
+# Resolve repo dir + install user via the shared install helpers.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "$SCRIPT_DIR/install-lib.sh"
+detect_install_user
 
 echo -e "${YELLOW}Installing for user: $ACTUAL_USER (group: $ACTUAL_GROUP, uid: $ACTUAL_UID)${NC}"
 echo -e "${YELLOW}Home directory: $USER_HOME${NC}"
 echo -e "${YELLOW}Script directory: $SCRIPT_DIR${NC}"
 echo ""
-
-# Render a systemd unit / drop-in from the repo, substituting the canonical
-# hsg deployment values (user, home, repo path, uid) with this install's.
-# Keeps the checked-in files readable as the hsg reference while letting the
-# canvas install under any user/path.
-render_unit() {
-    # render_unit <src> <dest>
-    sed -e "s#/home/hsg/srs_server#$SCRIPT_DIR#g" \
-        -e "s#/home/hsg#$USER_HOME#g" \
-        -e "s#^User=hsg\$#User=$ACTUAL_USER#" \
-        -e "s#^Group=hsg\$#Group=$ACTUAL_GROUP#" \
-        -e "s#/run/user/1000#/run/user/$ACTUAL_UID#g" \
-        "$1" > "$2"
-}
 
 # ============================================
 # 0. Hostname / mDNS name

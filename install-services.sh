@@ -19,21 +19,9 @@ fi
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Render units for the install user/path instead of the hardcoded hsg defaults.
-ACTUAL_USER=${SUDO_USER:-$USER}
-USER_HOME=$(eval echo ~$ACTUAL_USER)
-ACTUAL_GROUP=$(id -gn "$ACTUAL_USER")
-ACTUAL_UID=$(id -u "$ACTUAL_USER")
-
-render_unit() {
-    # render_unit <src> <dest>
-    sed -e "s#/home/hsg/srs_server#$SCRIPT_DIR#g" \
-        -e "s#/home/hsg#$USER_HOME#g" \
-        -e "s#^User=hsg\$#User=$ACTUAL_USER#" \
-        -e "s#^Group=hsg\$#Group=$ACTUAL_GROUP#" \
-        -e "s#/run/user/1000#/run/user/$ACTUAL_UID#g" \
-        "$1" > "$2"
-}
+# Shared install helpers (render_unit + install-user detection).
+source "$SCRIPT_DIR/install-lib.sh"
+detect_install_user
 
 # 1. Install SRS Server service
 echo "[1/3] Installing SRS Server service..."
