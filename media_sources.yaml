@@ -63,10 +63,10 @@ music_streams:
       description: "Alternative music and indie rock from BBC"
 
 youtube_channels:
-  # 24/7 Live Radio Streams
-  live_radio:
+  # Lofi Girl 24/7 Streams (youtube.com/@LofiGirl)
+  lofi_girl:
     - name: "🎧 Lofi Hip Hop Radio - Study/Relax"
-      url: "https://www.youtube.com/watch?v=jfKfPfyJRdk"
+      url: "https://www.youtube.com/watch?v=EWrX250Zhko"
       description: "Continuous lofi hip hop beats for studying and relaxing"
 
     - name: "🌌 Synthwave Radio - Chill/Game"
@@ -74,11 +74,11 @@ youtube_channels:
       description: "24/7 synthwave beats to chill and game to"
 
     - name: "🎷 Jazz Lofi Radio - Chill/Study"
-      url: "https://www.youtube.com/watch?v=HuFYqnbVbzY"
+      url: "https://www.youtube.com/watch?v=E2vONfzoyRI"
       description: "Jazz-influenced lofi beats for chilling and studying"
 
     - name: "💤 Lofi Hip Hop Radio - Sleep/Chill"
-      url: "https://www.youtube.com/watch?v=28KRPhVzCus"
+      url: "https://www.youtube.com/watch?v=JD-kMIpDfnY"
       description: "Sleepy lofi beats for nighttime relaxation"
 
     - name: "💤 Sleep Ambient Radio"
@@ -86,9 +86,11 @@ youtube_channels:
       description: "Relaxing ambient music to fall asleep to"
 
     - name: "⛩️ Asian Lofi Radio - Relax/Study"
-      url: "https://www.youtube.com/watch?v=Na0w3Mz46GA"
+      url: "https://www.youtube.com/watch?v=1Tl2FtV06qo"
       description: "Asian-influenced lofi beats for relaxation and study"
 
+  # 24/7 Live Radio Streams
+  live_radio:
     - name: "🏠 The Good Life Radio - 24/7 Live"
       url: "https://www.youtube.com/watch?v=36YnV9STBqc"
       description: "Chill and relaxing music for the good life"
@@ -134,7 +136,7 @@ youtube_channels:
       description: "Ambient music with deep space sounds - HD Live"
 
     - name: "🛰️ NASA Live - HD Views from the ISS"
-      url: "https://www.youtube.com/watch?v=itdpuGHAcpg"
+      url: "https://www.youtube.com/watch?v=FuuC4dpSQ1M"
       description: "Live high-definition views from the International Space Station"
 
     - name: "🐋 Whale Sounds Deep Underwater (8h)"
@@ -164,7 +166,7 @@ youtube_channels:
       description: "Relaxing jazz and bossa nova with rain sounds"
 
     - name: "🏝️ Tropical Shores - 24/7 Peaceful Music"
-      url: "https://www.youtube.com/watch?v=dXIyMS61B68"
+      url: "https://www.youtube.com/watch?v=MA2evwquK6Q"
       description: "Beautiful relaxing peaceful music by Tim Janis"
 
     - name: "🌊 Ocean Ambience 4K - Maldives Beach (24/7 Live)"

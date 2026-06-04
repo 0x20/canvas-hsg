@@ -18,3 +18,42 @@
   height: 100%;
   border: none;
 }
+
+.youtube-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5em;
+  text-align: center;
+  padding: 5vw;
+  background: #000;
+  color: #fff;
+  font-family: 'Google Sans', system-ui, sans-serif;
+  animation: youtube-error-fade 0.3s ease-out;
+}
+
+.youtube-error-icon {
+  font-size: 12vw;
+  line-height: 1;
+  color: #ffd23f;
+}
+
+.youtube-error-title {
+  font-size: 6vw;
+  font-weight: 700;
+}
+
+.youtube-error-subtitle {
+  font-size: 2.5vw;
+  font-weight: 400;
+  opacity: 0.7;
+  max-width: 70vw;
+}
+
+@keyframes youtube-error-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

@@ -9,9 +9,13 @@ export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
   const containerRef = useRef(null);
   const [ready, setReady] = useState(false);
+  const [errored, setErrored] = useState(false);
 
   const videoId = item?.content?.video_id || '';
   const mute = item?.content?.mute || false;
+
+  // How long the "video unavailable" message stays before falling back.
+  const ERROR_DISPLAY_MS = 8000;
 
   useEffect(() => {
     if (!videoId) return;
@@ -56,6 +60,15 @@ export default function YouTubePlayer({ item }) {
               fetch(`/display/${item.id}`, { method: 'DELETE' }).catch(() => {});
             }
           },
+          onError: (e) => {
+            // 2 = invalid id, 5 = HTML5 error, 100 = removed/not found,
+            // 101/150 = embedding disabled. Show a clear message, then
+            // pop from the stack and fall back to the background.
+            console.warn(`YouTube playback error ${e.data} for video ${videoId}`);
+            try { playerRef.current?.destroy(); } catch {}
+            playerRef.current = null;
+            setErrored(true);
+          },
         },
       });
     }
@@ -74,9 +87,28 @@ export default function YouTubePlayer({ item }) {
     };
   }, [videoId]);
 
+  // Once an error is shown, leave the message up briefly, then pop the
+  // item off the stack so the display returns to the background.
+  useEffect(() => {
+    if (!errored) return;
+    const timer = setTimeout(() => {
+      fetch(`/display/${item.id}`, { method: 'DELETE' }).catch(() => {});
+    }, ERROR_DISPLAY_MS);
+    return () => clearTimeout(timer);
+  }, [errored, item?.id]);
+
   return (
     <div className="youtube-player">
       <div ref={containerRef} className="youtube-container" />
+      {errored && (
+        <div className="youtube-error">
+          <div className="youtube-error-icon">⚠</div>
+          <div className="youtube-error-title">Video unavailable</div>
+          <div className="youtube-error-subtitle">
+            This video can’t be played — it may have been removed or made private.
+          </div>
+        </div>
+      )}
     </div>
   );
 }
