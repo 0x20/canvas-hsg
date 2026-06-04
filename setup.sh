@@ -84,7 +84,18 @@ apt-get install -y \
     python3-gi \
     dbus \
     nodejs \
-    npm
+    npm \
+    cage \
+    seatd
+
+# The kiosk renders via cage (wlroots) straight to DRM, using seatd to acquire
+# the seat without a logind graphical session. Both are required for headless
+# kiosk output and were previously assumed pre-installed.
+systemctl enable seatd.service
+# GPU/DRM access for the kiosk user, plus seatd's socket group if it exists.
+usermod -aG render,video "$ACTUAL_USER"
+getent group _seatd >/dev/null && usermod -aG _seatd "$ACTUAL_USER" || true
+getent group seat   >/dev/null && usermod -aG seat   "$ACTUAL_USER" || true
 
 echo -e "${GREEN}✓ System packages installed${NC}"
 echo ""
@@ -174,16 +185,35 @@ fi
 echo "Ensuring Python 3.13 is available..."
 sudo -u $ACTUAL_USER uv python install 3.13
 
-# Install sendspin CLI via uv tool (runs as hsg user)
-echo "Installing sendspin CLI..."
-sudo -u $ACTUAL_USER uv tool install sendspin --python 3.13
+# Sendspin daemon identity / output device (override via env when running
+# setup.sh, e.g. SENDSPIN_NAME="Kenwood Speakers" SENDSPIN_AUDIO_DEVICE=pipewire).
+SENDSPIN_NAME="${SENDSPIN_NAME:-HSG Canvas}"
+SENDSPIN_ID="${SENDSPIN_ID:-$(echo "$SENDSPIN_NAME" | tr '[:upper:] ' '[:lower:]-')}"
+SENDSPIN_AUDIO_DEVICE="${SENDSPIN_AUDIO_DEVICE:-pipewire}"
+
+# Install/upgrade the sendspin CLI to the latest release. The hook-based daemon
+# (--hook-start/--hook-stop) the canvas relies on for display/audio coordination
+# needs a modern sendspin; older installs (e.g. 1.x) have a flat CLI with no
+# daemon subcommand or hooks at all.
+echo "Installing/upgrading sendspin CLI to latest..."
+sudo -u $ACTUAL_USER uv tool install sendspin@latest --python 3.13 --force
+
+# A user-level sendspin.service would fight this system daemon over the audio
+# device and the Music Assistant registration — disable it if present.
+if [ -f "$USER_HOME/.config/systemd/user/sendspin.service" ]; then
+    sudo -u $ACTUAL_USER \
+        XDG_RUNTIME_DIR=/run/user/$ACTUAL_UID \
+        DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$ACTUAL_UID/bus \
+        systemctl --user disable --now sendspin.service 2>/dev/null || true
+    echo "  Disabled conflicting user-level sendspin.service"
+fi
 
 # Create sendspin config directory and settings
 mkdir -p "$USER_HOME/.config/sendspin"
 cat > "$USER_HOME/.config/sendspin/settings-daemon.json" << EOF
 {
-    "name": "HSG Canvas",
-    "client_id": "hsg-canvas-player"
+    "name": "$SENDSPIN_NAME",
+    "client_id": "$SENDSPIN_ID"
 }
 EOF
 chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/sendspin"
@@ -202,7 +232,7 @@ Type=simple
 User=$ACTUAL_USER
 Environment=XDG_RUNTIME_DIR=/run/user/$(id -u $ACTUAL_USER)
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u $ACTUAL_USER)/bus
-ExecStart=$SENDSPIN_BIN daemon --name "HSG Canvas Speaker" --id "hsg-canvas-speaker" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
+ExecStart=$SENDSPIN_BIN daemon --name "$SENDSPIN_NAME" --id "$SENDSPIN_ID" --audio-device "$SENDSPIN_AUDIO_DEVICE" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -282,30 +312,33 @@ DAC_DEVICE=$(aplay -l | grep -oP 'card \K3(?=.*RPi DAC Pro)' | head -1 || echo "
 if [ -n "$DAC_DEVICE" ]; then
     echo "Found RPi DAC Pro on CARD=$DAC_DEVICE"
 
-    # Set default PulseAudio/PipeWire sink to DAC Pro
-    # This is run as the actual user, not root
-    sudo -u $ACTUAL_USER bash << USEREOF
-        # Wait for PipeWire to be ready
+    # Find the PipeWire/PulseAudio sink backed by the DAC. The sink name varies
+    # by board/kernel, so detect it from the sink description rather than
+    # hardcoding (sendspin/raspotify/browser all route here via the sound server).
+    USER_RUNTIME="/run/user/$ACTUAL_UID"
+    DAC_SINK=$(sudo -u $ACTUAL_USER XDG_RUNTIME_DIR=$USER_RUNTIME pactl list sinks 2>/dev/null | \
+        awk '/^[[:space:]]*Name: /{n=$2} /RPi DAC Pro|pcm512/{print n; exit}')
+    [ -z "$DAC_SINK" ] && DAC_SINK="alsa_output.platform-soc_sound.stereo-fallback"
+    echo "Using DAC sink: $DAC_SINK"
+
+    # Set default sink + full volume on the running session
+    sudo -u $ACTUAL_USER XDG_RUNTIME_DIR=$USER_RUNTIME bash << USEREOF
         sleep 2
-
-        # Set default sink
-        pactl set-default-sink alsa_output.platform-soc_sound.stereo-fallback 2>/dev/null || true
-
-        # Set volume to 100%
-        pactl set-sink-volume alsa_output.platform-soc_sound.stereo-fallback 100% 2>/dev/null || true
+        pactl set-default-sink "$DAC_SINK" 2>/dev/null || true
+        pactl set-sink-volume "$DAC_SINK" 100% 2>/dev/null || true
 USEREOF
 
-    # Create persistent configuration for user
+    # Persist the default sink across reboots
     mkdir -p "$USER_HOME/.config/pipewire/pipewire.conf.d"
-    cat > "$USER_HOME/.config/pipewire/pipewire.conf.d/99-default-sink.conf" << 'EOF'
+    cat > "$USER_HOME/.config/pipewire/pipewire.conf.d/99-default-sink.conf" << EOF
 # HSG Canvas - Default audio sink configuration
 context.exec = [
-    { path = "pactl" args = "set-default-sink alsa_output.platform-soc_sound.stereo-fallback" }
+    { path = "pactl" args = "set-default-sink $DAC_SINK" }
 ]
 EOF
     chown -R $ACTUAL_USER:$ACTUAL_USER "$USER_HOME/.config/pipewire"
 
-    echo -e "${GREEN}✓ Audio configured for RPi DAC Pro${NC}"
+    echo -e "${GREEN}✓ Audio configured for RPi DAC Pro ($DAC_SINK)${NC}"
 else
     echo -e "${YELLOW}⚠ RPi DAC Pro not detected, using default audio device${NC}"
 fi
