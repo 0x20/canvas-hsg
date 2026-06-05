@@ -242,7 +242,7 @@ class OutputTargetManager:
                 return False
 
             logging.info(f"Playing video on local HDMI: {video_url}")
-            success = await self.playback_manager.play_youtube(video_url, duration=duration, **kwargs)
+            success = await self.playback_manager.play_url(video_url, duration=duration, **kwargs)
             if success:
                 self.active_video_target = target_id
             return success

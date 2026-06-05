@@ -21,6 +21,7 @@ from models.request_models import (
     AudioStreamRequest,
     AudioVolumeRequest,
     YoutubePlayRequest,
+    TwitchPlayRequest,
     QRCodeRequest,
     ImageDisplayRequest,
     ChromecastStartRequest,
@@ -290,6 +291,22 @@ def setup_playback_routes(playback_manager: 'PlaybackManager') -> APIRouter:
             else:
                 detail = f"Playback failed: {error_msg}"
             raise HTTPException(status_code=400, detail=detail)
+
+    @router.post("/playback/twitch")
+    async def play_twitch_stream(request: TwitchPlayRequest):
+        """Play a Twitch channel/VOD/clip via browser (Twitch embedded player)"""
+        try:
+            success = await playback_manager.play_twitch(request.twitch_url, request.duration, request.mute)
+            if success:
+                duration_text = f" for {request.duration}s" if request.duration else ""
+                mute_text = " (muted)" if request.mute else ""
+                return {"message": f"Playing Twitch stream{duration_text}{mute_text}"}
+            else:
+                raise HTTPException(status_code=400, detail="Invalid Twitch URL. Please check the URL and try again.")
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Playback failed: {e}")
 
     @router.put("/playback/volume")
     async def set_playback_volume(request: dict):

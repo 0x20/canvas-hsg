@@ -33,6 +33,8 @@ def detect_media_type(media_url: str, content_type: str = None) -> str:
         return 'video'
     if 'vimeo.com' in parsed.netloc:
         return 'video'
+    if 'twitch.tv' in parsed.netloc:
+        return 'video'
 
     # Common audio file extensions
     audio_extensions = ['.mp3', '.m4a', '.aac', '.ogg', '.opus', '.flac', '.wav', '.wma']

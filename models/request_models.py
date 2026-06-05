@@ -30,6 +30,12 @@ class YoutubePlayRequest(BaseModel):
     youtube_quality: Optional[str] = Field(None, description="Video quality preference (e.g., '1080p', '720p')")
 
 
+class TwitchPlayRequest(BaseModel):
+    twitch_url: str = Field(description="Twitch channel, VOD, or clip URL")
+    duration: Optional[int] = Field(None, gt=0, le=86400, description="Playback duration in seconds (max 24h)")
+    mute: Optional[bool] = Field(False, description="If true, play without audio")
+
+
 class QRCodeRequest(BaseModel):
     content: str = Field(description="URL or text to encode in QR code")
     duration: Optional[int] = Field(None, gt=0, le=3600, description="Seconds to display, None = forever")
