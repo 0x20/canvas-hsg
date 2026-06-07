@@ -5,6 +5,7 @@ Handles audio streaming via browser <audio> element controlled by WebSocket.
 Replaces MPV audio pool with WebSocket commands to the React AudioPlayer component.
 """
 import asyncio
+import ipaddress
 import logging
 import os
 import time
@@ -194,6 +195,20 @@ class AudioManager:
         self._browser_status = status
         self._is_playing = status.get("playing", False)
 
+    async def handle_browser_ended(self, src: str = ""):
+        """Browser reports a finite clip finished playing on its own.
+
+        Fire-and-forget clips (e.g. sound effects started via HA without a
+        following stop) would otherwise leave the fullscreen station-art
+        overlay stuck forever. Clear playback state and drop the overlay.
+        """
+        logging.info(f"Audio clip ended in browser: {src or '(unknown src)'}")
+        self.current_audio_stream = None
+        self._is_playing = False
+        self.stop_metadata_updates()
+        if self.display_stack:
+            await self.display_stack.remove("audio-art")
+
     def get_audio_status(self) -> Dict[str, Any]:
         """Get current audio streaming status across all sources"""
         # Collect all active sources
@@ -320,10 +335,24 @@ class AudioManager:
             if seg:
                 return await self._somafm_logo(seg)
 
-        # 3. Favicon fallback (low-res, but better than a blank background)
-        if host:
+        # 3. Favicon fallback (low-res, but better than a blank background).
+        #    Skip it for local/loopback hosts: a clip served from the Pi itself
+        #    (e.g. http://127.0.0.1/static/*.mp3 sound effects) has no "station",
+        #    and the favicon service just returns a generic globe icon.
+        if host and not self._is_local_host(host):
             return f"https://www.google.com/s2/favicons?domain={host}&sz=128"
         return None
+
+    @staticmethod
+    def _is_local_host(host: str) -> bool:
+        """True for loopback / private / non-routable hosts that have no real favicon."""
+        if host in ("localhost",) or host.endswith((".local", ".lan", ".localhost")):
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+            return ip.is_loopback or ip.is_private or ip.is_link_local
+        except ValueError:
+            return False
 
     def _detect_stream_type(self, stream_url: str) -> Optional[Dict[str, Any]]:
         """Detect the type of audio stream for metadata fetching"""

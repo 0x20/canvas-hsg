@@ -1262,6 +1262,8 @@ def setup_websocket_routes(
                     msg = json.loads(data)
                     if msg.get("type") == "audio_status" and audio_manager:
                         audio_manager.handle_browser_status(msg)
+                    elif msg.get("type") == "audio_ended" and audio_manager:
+                        await audio_manager.handle_browser_ended(msg.get("src", ""))
                 except json.JSONDecodeError:
                     if data == "ping":
                         await websocket.send_text("pong")
@@ -1542,6 +1544,12 @@ def setup_display_stack_routes(display_stack: 'DisplayStack', chromium_manager=N
             "stack": display_stack.get_stack(),
         }
 
+    @router.delete("/display/clear")
+    async def clear_display_stack():
+        """Clear all items from the display stack (back to static background)"""
+        await display_stack.clear()
+        return {"message": "Display stack cleared", "current": display_stack.current.to_dict()}
+
     @router.delete("/display/{item_id}")
     async def remove_display_item(item_id: str):
         """Remove a specific item from the display stack"""
@@ -1550,12 +1558,6 @@ def setup_display_stack_routes(display_stack: 'DisplayStack', chromium_manager=N
             return {"message": f"Removed item {item_id}", "current": display_stack.current.to_dict()}
         else:
             raise HTTPException(status_code=404, detail=f"Item {item_id} not found in stack")
-
-    @router.delete("/display/clear")
-    async def clear_display_stack():
-        """Clear all items from the display stack (back to static background)"""
-        await display_stack.clear()
-        return {"message": "Display stack cleared", "current": display_stack.current.to_dict()}
 
     @router.post("/display/reload")
     async def reload_chromium():

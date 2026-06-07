@@ -31,6 +31,16 @@ export default function AudioPlayer() {
       }));
     }
 
+    function sendEnded() {
+      const audio = audioRef.current;
+      const ws = wsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // A finite clip (e.g. a sound effect) finished playing on its own.
+      // Continuous streams (radio) never fire 'ended', so this only signals
+      // genuine end-of-clip — letting the backend clear the station-art overlay.
+      ws.send(JSON.stringify({ type: 'audio_ended', src: audio?.src || '' }));
+    }
+
     function cleanupHls() {
       if (hlsRef.current) {
         hlsRef.current.destroy();
@@ -148,12 +158,17 @@ export default function AudioPlayer() {
 
     connect();
 
+    // Report when a finite clip finishes so the backend can drop its overlay.
+    const audioEl = audioRef.current;
+    if (audioEl) audioEl.addEventListener('ended', sendEnded);
+
     // Periodic status reports
     const statusInterval = setInterval(sendStatus, 5000);
 
     return () => {
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       clearInterval(statusInterval);
+      if (audioEl) audioEl.removeEventListener('ended', sendEnded);
       cleanupHls();
       if (wsRef.current) wsRef.current.close();
       if (audioRef.current) {
