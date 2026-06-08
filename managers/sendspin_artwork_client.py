@@ -2,9 +2,12 @@
 Sendspin Artwork Client
 
 A Sendspin *display* client that connects to Music Assistant and receives album
-art as binary image frames over the local network. It registers as a muted,
-audio-discarding PLAYER (so MA assigns it a player_id and any MA UI can group it
-with the speaker) and also takes the METADATA + ARTWORK roles.
+art as binary image frames over the local network. It takes the METADATA +
+ARTWORK roles only (NOT player): in the Sendspin protocol those roles subscribe
+to their group channels independently of PLAYER, so MA still pushes the cover and
+now-playing metadata to a non-player display. (It used to also declare PLAYER to
+be groupable, but that registered a muted ghost player that broke MA's settings →
+players page; a display has no business appearing as a player.)
 This is the protocol's intended way to drive wall displays: the artwork arrives
 as raw encoded images pushed by the server, so it works fully offline on the LAN
 with no internet access and no external image URLs.
@@ -22,12 +25,9 @@ from typing import Awaitable, Callable, Optional
 
 from aiosendspin.client import ClientListener, SendspinClient
 from aiosendspin.models.artwork import ArtworkChannel, ClientHelloArtworkSupport
-from aiosendspin.models.player import ClientHelloPlayerSupport, SupportedAudioFormat
 from aiosendspin.models.types import (
     ArtworkSource,
-    AudioCodec,
     PictureFormat,
-    PlayerCommand,
     Roles,
 )
 
@@ -80,10 +80,6 @@ class SendspinArtworkClient:
         self._last_title: Optional[str] = None
         # Strong refs to in-flight notify tasks so they aren't GC'd mid-await.
         self._tasks: set = set()
-        # Count audio MA streams to this (muted) display player, to gauge the
-        # bandwidth cost of holding the PLAYER role just for groupability.
-        self._audio_chunks: int = 0
-        self._audio_bytes: int = 0
 
     @property
     def art_url(self) -> Optional[str]:
@@ -102,20 +98,13 @@ class SendspinArtworkClient:
         client = SendspinClient(
             client_id=self._client_id,
             client_name=self._client_name,
-            # PLAYER role so Music Assistant assigns a player_id (== client_id)
-            # and every MA UI can group this display with the speaker. It stays
-            # muted and discards audio (display-only), but as a group member MA
-            # streams it the metadata + artwork for the playing track.
-            roles=[Roles.PLAYER, Roles.METADATA, Roles.ARTWORK],
-            player_support=ClientHelloPlayerSupport(
-                supported_formats=[
-                    SupportedAudioFormat(codec=AudioCodec.PCM, channels=2, sample_rate=44100, bit_depth=16),
-                    SupportedAudioFormat(codec=AudioCodec.PCM, channels=2, sample_rate=48000, bit_depth=16),
-                    SupportedAudioFormat(codec=AudioCodec.FLAC, channels=2, sample_rate=48000, bit_depth=24),
-                ],
-                buffer_capacity=8_000_000,
-                supported_commands=[PlayerCommand.VOLUME, PlayerCommand.MUTE],
-            ),
+            # METADATA + ARTWORK only — NO player role. The METADATA and ARTWORK
+            # roles each subscribe to their group channel independently of PLAYER
+            # (see aiosendspin server negotiation/role wiring), so MA still pushes
+            # this display the now-playing cover + metadata. Declaring PLAYER here
+            # previously registered a muted "ghost" player in MA that broke its
+            # settings → players page; a display has no business being a player.
+            roles=[Roles.METADATA, Roles.ARTWORK],
             artwork_support=ClientHelloArtworkSupport(
                 channels=[
                     ArtworkChannel(
@@ -126,53 +115,34 @@ class SendspinArtworkClient:
                     )
                 ]
             ),
-            initial_volume=0,
-            initial_muted=True,
         )
         client.add_artwork_listener(self._on_artwork_frame)
         client.add_metadata_listener(self._on_metadata)
-        # Display-only: drain and discard audio so the receive buffer doesn't
-        # back up. Sound comes from the speaker this display is grouped with.
-        client.add_audio_chunk_listener(self._discard_audio)
         return client
-
-    def _discard_audio(self, channel: int, data: bytes, fmt) -> None:
-        """Drain and discard audio (display-only). Counted so we can see whether
-        the PLAYER role actually costs streaming bandwidth."""
-        if not data:
-            return
-        self._audio_chunks += 1
-        self._audio_bytes += len(data)
-        if self._audio_chunks == 1:
-            logger.info(
-                "Display player IS receiving audio from MA (discarding); first chunk %d bytes, fmt=%s",
-                len(data), fmt,
-            )
-        elif self._audio_chunks % 500 == 0:
-            logger.info(
-                "Display player discarded %d audio chunks (%.1f MB total)",
-                self._audio_chunks, self._audio_bytes / 1e6,
-            )
 
     def _on_metadata(self, payload) -> None:
         """Capture MA's absolute artwork URL from the METADATA role.
 
-        On a track change, drop the previous track's URL first so a new track
-        that ships no artwork_url doesn't keep showing the old cover (a fresh
-        artwork frame repopulates the binary fallback).
+        On a track change, drop the previous track's art first — both the URL
+        and the cached binary frame — so a new track that ships no artwork_url
+        doesn't keep showing the old cover. The next artwork frame for the new
+        track repopulates the binary fallback.
         """
         md = getattr(payload, "metadata", None)
         if md is None:
             return
 
         # Partial updates leave title as UndefinedField; only a real string is
-        # a track signal. A changed title means a new track → reset stale URL.
+        # a track signal. A changed title means a new track → reset stale art.
         title = getattr(md, "title", None)
         title = title if isinstance(title, str) else None
         new_track = title is not None and title != self._last_title
         if new_track:
             self._last_title = title
             self.metadata_art_url = None
+            # Drop the cached frame too: otherwise art_url falls back to the
+            # previous track's binary cover until a new frame arrives.
+            self.art_bytes = None
 
         url = getattr(md, "artwork_url", None)
         # Field may be an UndefinedField/None when unset — only accept real URLs.
