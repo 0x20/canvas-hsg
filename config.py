@@ -36,6 +36,8 @@ CANVAS_DOMAIN = f"{CANVAS_HOST}.local"
 
 # Network/Discovery Constants
 DEVICE_NAME = "HSG Canvas"
+DEVICE_MANUFACTURER = "Hackerspace Gent"
+APP_VERSION = "4.0.0-all-react"
 CHROMECAST_CACHE_DURATION = 86400  # 24 hours
 METADATA_UPDATE_INTERVAL = 15  # seconds
 

@@ -58,7 +58,7 @@ from routes import (
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION
 
 # Logging setup
 logging.basicConfig(
@@ -204,7 +204,12 @@ async def lifespan(app: FastAPI):
             logging.info("Starting Sendspin artwork display client...")
             app.state.sendspin_artwork_client = SendspinArtworkClient(
                 client_id=f"{CANVAS_HOST}-canvas-art",
-                client_name=f"{CANVAS_HOST} canvas",
+                # Friendly name MA shows for this display (and the mDNS service).
+                client_name=f"{DEVICE_NAME} ({CANVAS_HOST})",
+                # Device identity so MA doesn't log unknown/blank player details.
+                product_name=DEVICE_NAME,
+                manufacturer=DEVICE_MANUFACTURER,
+                software_version=APP_VERSION,
                 on_artwork=app.state.sendspin_manager.on_artwork_updated,
             )
             app.state.sendspin_manager.artwork_client = app.state.sendspin_artwork_client
@@ -487,7 +492,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="HSG Canvas",
     description="Media streaming and display management for Raspberry Pi",
-    version="4.0.0-all-react",
+    version=APP_VERSION,
     lifespan=lifespan
 )
 

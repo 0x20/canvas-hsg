@@ -33,6 +33,7 @@ from typing import Awaitable, Callable, Optional
 
 from aiosendspin.client import ClientListener, SendspinClient
 from aiosendspin.models.artwork import ArtworkChannel, ClientHelloArtworkSupport
+from aiosendspin.models.core import DeviceInfo
 from aiosendspin.models.types import (
     ArtworkSource,
     MediaCommand,
@@ -74,11 +75,21 @@ class SendspinArtworkClient:
         art_format: PictureFormat = PictureFormat.JPEG,
         art_size: int = ARTWORK_SIZE,
         on_artwork: Optional[Callable[[], Awaitable[None]]] = None,
+        product_name: Optional[str] = None,
+        manufacturer: Optional[str] = None,
+        software_version: Optional[str] = None,
     ):
         self._client_id = client_id
         self._client_name = client_name
         self._art_format = art_format
         self._art_size = art_size
+        # Device identity advertised to MA so it can label this display instead
+        # of logging blank/unknown player details. All optional per the protocol.
+        self._device_info = DeviceInfo(
+            product_name=product_name,
+            manufacturer=manufacturer,
+            software_version=software_version,
+        )
         # Async callback invoked (scheduled) when a new artwork frame arrives.
         self._on_artwork = on_artwork
 
@@ -133,6 +144,7 @@ class SendspinArtworkClient:
         client = SendspinClient(
             client_id=self._client_id,
             client_name=self._client_name,
+            device_info=self._device_info,
             # CONTROLLER + METADATA + ARTWORK — NO player role. CONTROLLER lets us
             # `switch` into the speaker's playing group (metadata/artwork are
             # group-scoped, so without this we'd be stuck in our own solo group
