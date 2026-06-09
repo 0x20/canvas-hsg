@@ -180,6 +180,11 @@ class SendspinManager:
         try:
             while self.is_playing:
                 await self._read_and_broadcast_metadata()
+                # Keep the artwork display in the speaker's (playing) group so MA
+                # pushes it per-track covers. No-op once joined / unsupported, so
+                # it's safe to call every tick; also covers a late MA connect.
+                if self.artwork_client:
+                    await self.artwork_client.sync_to_playing_group()
                 await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
