@@ -19,6 +19,35 @@
   border: none;
 }
 
+.youtube-unmute {
+  position: absolute;
+  top: 2vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  padding: 0.6em 1.2em;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #fff;
+  font-family: 'Google Sans', system-ui, sans-serif;
+  font-size: clamp(14px, 2vw, 22px);
+  font-weight: 600;
+  cursor: pointer;
+  animation: youtube-error-fade 0.3s ease-out;
+}
+
+.youtube-unmute:hover {
+  background: rgba(0, 0, 0, 0.9);
+}
+
+.youtube-unmute-icon {
+  font-size: 1.2em;
+  line-height: 1;
+}
+
 .youtube-error {
   position: absolute;
   inset: 0;

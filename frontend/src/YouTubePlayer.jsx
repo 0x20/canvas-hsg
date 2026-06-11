@@ -8,7 +8,9 @@ import './YouTubePlayer.css';
 export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
   const containerRef = useRef(null);
+  const autoplayCheckRef = useRef(null);
   const [errored, setErrored] = useState(false);
+  const [needsUnmute, setNeedsUnmute] = useState(false);
 
   const videoId = item?.content?.video_id || '';
   const mute = item?.content?.mute || false;
@@ -16,9 +18,13 @@ export default function YouTubePlayer({ item }) {
   // How long the "video unavailable" message stays before falling back.
   const ERROR_DISPLAY_MS = 8000;
 
+  // How long after onReady before deciding unmuted autoplay was blocked.
+  const AUTOPLAY_CHECK_MS = 1500;
+
   useEffect(() => {
     if (!videoId) return;
     setErrored(false);  // a new video clears any prior "unavailable" state
+    setNeedsUnmute(false);
 
     // Load YouTube IFrame API if not already loaded
     if (!window.YT) {
@@ -53,7 +59,25 @@ export default function YouTubePlayer({ item }) {
         },
         events: {
           onReady: (e) => {
-            if (mute) e.target.mute();
+            if (mute) {
+              e.target.mute();
+              return;
+            }
+            e.target.playVideo();
+            // The kiosk Chromium allows unmuted autoplay, but remote browsers
+            // block it until the page has a user gesture. If the player is
+            // still cued/unstarted after a moment, retry muted (always
+            // allowed) and offer a tap-to-unmute overlay.
+            autoplayCheckRef.current = setTimeout(() => {
+              let state;
+              try { state = e.target.getPlayerState(); } catch { return; }
+              // -1 = unstarted, 5 = cued: both mean autoplay never kicked in.
+              if (state === -1 || state === 5) {
+                e.target.mute();
+                e.target.playVideo();
+                setNeedsUnmute(true);
+              }
+            }, AUTOPLAY_CHECK_MS);
           },
           onStateChange: (e) => {
             // YT.PlayerState.ENDED === 0
@@ -86,6 +110,7 @@ export default function YouTubePlayer({ item }) {
       if (window.onYouTubeIframeAPIReady === createPlayer) {
         window.onYouTubeIframeAPIReady = undefined;
       }
+      clearTimeout(autoplayCheckRef.current);
       if (playerRef.current) {
         try { playerRef.current.destroy(); } catch {}
         playerRef.current = null;
@@ -98,7 +123,13 @@ export default function YouTubePlayer({ item }) {
     const p = playerRef.current;
     if (!p || typeof p.mute !== 'function') return;
     try { mute ? p.mute() : p.unMute(); } catch {}
+    if (mute) setNeedsUnmute(false);
   }, [mute]);
+
+  const handleUnmute = () => {
+    try { playerRef.current?.unMute(); } catch {}
+    setNeedsUnmute(false);
+  };
 
   // Once an error is shown, leave the message up briefly, then pop the
   // item off the stack so the display returns to the background.
@@ -113,6 +144,12 @@ export default function YouTubePlayer({ item }) {
   return (
     <div className="youtube-player">
       <div ref={containerRef} className="youtube-container" />
+      {needsUnmute && !errored && (
+        <button className="youtube-unmute" onClick={handleUnmute}>
+          <span className="youtube-unmute-icon">🔇</span>
+          <span>Tap to unmute</span>
+        </button>
+      )}
       {errored && (
         <div className="youtube-error">
           <div className="youtube-error-icon">⚠</div>
