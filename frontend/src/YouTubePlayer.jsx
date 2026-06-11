@@ -2,8 +2,28 @@ import { useEffect, useRef, useState } from 'react';
 import './YouTubePlayer.css';
 
 /**
+ * Returns true when the browser would block unmuted autoplay. A fresh
+ * AudioContext starts 'suspended' until the page has a user gesture; the
+ * kiosk Chromium (--autoplay-policy=no-user-gesture-required) and any page
+ * the user has already interacted with report 'running'.
+ */
+function autoplayBlocked() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return false;
+    const ctx = new Ctx();
+    const blocked = ctx.state === 'suspended';
+    ctx.close();
+    return blocked;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * YouTubePlayer - Fullscreen YouTube video via IFrame API
- * Plays with sound unless the backend marks the item muted.
+ * Plays with sound unless the backend marks the item muted. On browsers
+ * that block unmuted autoplay, starts muted with a tap-to-unmute overlay.
  */
 export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
@@ -14,6 +34,9 @@ export default function YouTubePlayer({ item }) {
 
   const videoId = item?.content?.video_id || '';
   const mute = item?.content?.mute || false;
+  // Re-pushing the same video bumps pushed_at (the id and video_id stay the
+  // same) — keying on it makes a "restart" actually recreate the player.
+  const pushedAt = item?.pushed_at || 0;
 
   // How long the "video unavailable" message stays before falling back.
   const ERROR_DISPLAY_MS = 8000;
@@ -41,6 +64,11 @@ export default function YouTubePlayer({ item }) {
         try { playerRef.current.destroy(); } catch {}
       }
 
+      // If unmuted autoplay would be blocked, don't even try: start muted
+      // (always allowed) and show the unmute overlay right away.
+      const startMuted = mute || autoplayBlocked();
+      if (startMuted && !mute) setNeedsUnmute(true);
+
       playerRef.current = new window.YT.Player(containerRef.current, {
         videoId: videoId,
         width: '100%',
@@ -55,19 +83,16 @@ export default function YouTubePlayer({ item }) {
           fs: 0,
           disablekb: 1,
           playsinline: 1,
-          mute: mute ? 1 : 0,
+          mute: startMuted ? 1 : 0,
         },
         events: {
           onReady: (e) => {
-            if (mute) {
-              e.target.mute();
-              return;
-            }
+            if (startMuted) e.target.mute();
             e.target.playVideo();
-            // The kiosk Chromium allows unmuted autoplay, but remote browsers
-            // block it until the page has a user gesture. If the player is
-            // still cued/unstarted after a moment, retry muted (always
-            // allowed) and offer a tap-to-unmute overlay.
+            if (startMuted) return;
+            // Backup for when the AudioContext probe was wrong: if the
+            // player is still cued/unstarted after a moment, autoplay was
+            // blocked — retry muted and offer the tap-to-unmute overlay.
             autoplayCheckRef.current = setTimeout(() => {
               let state;
               try { state = e.target.getPlayerState(); } catch { return; }
@@ -116,7 +141,7 @@ export default function YouTubePlayer({ item }) {
         playerRef.current = null;
       }
     };
-  }, [videoId]);
+  }, [videoId, pushedAt]);
 
   // Apply mute toggles to the live player without reloading the video.
   useEffect(() => {
