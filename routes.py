@@ -1129,53 +1129,40 @@ def setup_websocket_routes(
     import json
     router = APIRouter()
 
+    def _current_track_initial_data():
+        """Build the track_changed event for whichever source is active.
+
+        Single builder for all now-playing sources so every client — kiosk or
+        remote, fresh or reconnecting — hydrates from the same state the same
+        way. The managers all keep track_info in the same shape.
+        """
+        for manager in (spotify_manager, sendspin_manager, bluetooth_manager):
+            if not (manager and manager.is_playing):
+                continue
+            info = manager.track_info or {}
+            if not info.get("name"):
+                continue
+            artists = info.get("artists", "Unknown Artist")
+            if isinstance(artists, str):
+                artists = artists.replace('\n', ', ')
+            return {
+                "event": "track_changed",
+                "data": {
+                    "name": info.get("name"),
+                    "artists": artists,
+                    "album": info.get("album", ""),
+                    "album_art_url": info.get("album_art_url"),
+                    "duration_ms": info.get("duration_ms", 0),
+                    "spotify_url": info.get("spotify_url"),
+                },
+            }
+        return None
+
     @router.websocket("/ws/spotify-events")
     async def spotify_events_websocket(websocket: WebSocket):
         """WebSocket endpoint for real-time track updates (Spotify + Sendspin)"""
-        initial_data = None
         # Send initial track data from whichever source is active
-        if spotify_manager and spotify_manager.is_playing and spotify_manager.track_info.get("name"):
-            artists = spotify_manager.track_info.get("artists", "Unknown Artist")
-            if isinstance(artists, str):
-                artists = artists.replace('\n', ', ')
-
-            initial_data = {
-                "event": "track_changed",
-                "data": {
-                    "name": spotify_manager.track_info.get("name"),
-                    "artists": artists,
-                    "album": spotify_manager.track_info.get("album", ""),
-                    "album_art_url": spotify_manager.track_info.get("album_art_url"),
-                    "duration_ms": spotify_manager.track_info.get("duration_ms"),
-                    "spotify_url": spotify_manager.track_info.get("spotify_url"),
-                }
-            }
-        elif sendspin_manager and sendspin_manager.is_playing and sendspin_manager.track_info.get("name"):
-            initial_data = {
-                "event": "track_changed",
-                "data": {
-                    "name": sendspin_manager.track_info.get("name"),
-                    "artists": sendspin_manager.track_info.get("artists", "Unknown Artist"),
-                    "album": sendspin_manager.track_info.get("album", ""),
-                    "album_art_url": sendspin_manager.track_info.get("album_art_url"),
-                    "duration_ms": sendspin_manager.track_info.get("duration_ms", 0),
-                    "spotify_url": None,
-                }
-            }
-        elif bluetooth_manager and bluetooth_manager.is_playing and bluetooth_manager.track_info.get("name"):
-            initial_data = {
-                "event": "track_changed",
-                "data": {
-                    "name": bluetooth_manager.track_info.get("name"),
-                    "artists": bluetooth_manager.track_info.get("artists", "Unknown Artist"),
-                    "album": bluetooth_manager.track_info.get("album", ""),
-                    "album_art_url": None,
-                    "duration_ms": bluetooth_manager.track_info.get("duration_ms", 0),
-                    "spotify_url": None,
-                }
-            }
-
-        await websocket_manager.connect(websocket, initial_data)
+        await websocket_manager.connect(websocket, _current_track_initial_data())
         try:
             while True:
                 data = await websocket.receive_text()
@@ -1217,12 +1204,16 @@ def setup_websocket_routes(
         On connect: sends current display item.
         On change: broadcasts new display item to all clients.
         """
-        # Send current display state immediately
+        # Send current display state immediately — same shape as live
+        # broadcasts (including the stack) so a fresh client renders exactly
+        # what an always-connected one does.
         initial_data = None
         if display_stack:
+            payload = display_stack.current.to_dict()
+            payload["stack"] = display_stack.get_stack()
             initial_data = {
                 "event": "display_state",
-                "data": display_stack.current.to_dict()
+                "data": payload
             }
 
         await display_ws_manager.connect(websocket, initial_data)

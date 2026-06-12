@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import QRCode from 'qrcode';
+import useWebSocket from './useWebSocket';
 import './NowPlaying.css';
 
 /**
@@ -25,86 +26,32 @@ export default function NowPlaying() {
   const artistContainerRef = useRef(null);
   const progressFillRef = useRef(null);
 
-  // WebSocket connection
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:${window.location.port}/ws/spotify-events`;
+  // Track updates — the server replays the current track on every
+  // (re)connect, so a fresh or recovered client shows the same thing as one
+  // that's been connected all along.
+  useWebSocket('/ws/spotify-events', {
+    onMessage: (message) => {
+      if (message.event !== 'track_changed') return;
 
-    console.log('Connecting to WebSocket:', wsUrl);
-    let ws = null;
-    let reconnectAttempts = 0;
-    const MAX_RECONNECT_ATTEMPTS = 10;
-    const RECONNECT_DELAY = 2000;
-
-    function connect() {
-      try {
-        ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-          console.log('WebSocket connected');
-          reconnectAttempts = 0;
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            console.log('Received event:', message.event, message.data);
-
-            if (message.event === 'track_changed') {
-              let artists = message.data.artists || 'Unknown Artist';
-              if (Array.isArray(artists)) {
-                artists = artists.join(', ');
-              } else if (typeof artists === 'string') {
-                artists = artists.replace(/\n/g, ', ');
-              }
-
-              console.log('Track data received:', message.data);
-              setTrack({
-                name: message.data.name || 'Unknown Track',
-                artists: artists,
-                album: message.data.album || '',
-                albumArtUrl: message.data.album_art_url || null,
-                durationMs: message.data.duration_ms || 0,
-                startTime: Date.now(),
-                spotifyUrl: message.data.spotify_url || null
-              });
-              console.log('Spotify URL:', message.data.spotify_url);
-            }
-          } catch (error) {
-            console.error('Failed to parse WebSocket message:', error);
-          }
-        };
-
-        ws.onerror = (error) => {
-          console.error('WebSocket error:', error);
-        };
-
-        ws.onclose = () => {
-          console.log('WebSocket disconnected');
-          ws = null;
-
-          if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            reconnectAttempts++;
-            console.log(`Reconnecting in ${RECONNECT_DELAY}ms (attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`);
-            setTimeout(connect, RECONNECT_DELAY);
-          } else {
-            console.error('Max reconnection attempts reached');
-          }
-        };
-
-      } catch (error) {
-        console.error('Failed to create WebSocket connection:', error);
+      let artists = message.data.artists || 'Unknown Artist';
+      if (Array.isArray(artists)) {
+        artists = artists.join(', ');
+      } else if (typeof artists === 'string') {
+        artists = artists.replace(/\n/g, ', ');
       }
-    }
 
-    connect();
-
-    return () => {
-      if (ws) {
-        ws.close();
-      }
-    };
-  }, []);
+      console.log('Track data received:', message.data);
+      setTrack({
+        name: message.data.name || 'Unknown Track',
+        artists: artists,
+        album: message.data.album || '',
+        albumArtUrl: message.data.album_art_url || null,
+        durationMs: message.data.duration_ms || 0,
+        startTime: Date.now(),
+        spotifyUrl: message.data.spotify_url || null
+      });
+    },
+  });
 
   // Generate QR code as data URL string (no canvas intermediary)
   // Skip QR generation entirely if no URL (e.g. Sendspin tracks)

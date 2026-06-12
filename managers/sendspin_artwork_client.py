@@ -14,8 +14,11 @@ display showed a Body Count cover while the speaker played Boards of Canada). Th
 CONTROLLER role fixes this: it lets the client issue `switch` commands to cycle
 through the server's groups until it lands in the one that's actually PLAYING —
 i.e. the speaker's group — after which MA streams it that group's cover + metadata
-on every track change. The switch cycle is driven by SendspinManager when MPRIS
-shows the speaker is playing (see sync_to_playing_group).
+on every track change. The switch cycle is driven by SendspinManager's playback
+watcher (see sync_to_playing_group), whether or not the Pi itself is the speaker:
+the protocol only notifies a client about its *own* group, so a playing group
+elsewhere can only be discovered by actively cycling — hence the periodic,
+time-gated retry instead of a one-shot attempt.
 
 This is the protocol's intended way to drive wall displays: the artwork arrives
 as raw encoded images pushed by the server, so it works fully offline on the LAN
@@ -29,6 +32,7 @@ the URL is surfaced to the now-playing view via the SendspinManager broadcast pa
 """
 import asyncio
 import logging
+import time
 from typing import Awaitable, Callable, Optional
 
 from aiosendspin.client import ClientListener, SendspinClient
@@ -57,6 +61,11 @@ ARTWORK_SIZE = 800
 # spin us forever, and wait briefly after each switch for the group/update.
 MAX_SWITCH_ATTEMPTS = 8
 SWITCH_SETTLE_TIMEOUT = 2.5
+# After an unsuccessful full cycle, wait this long before cycling again. MA only
+# sends group/update for our own group, so playback starting in another group is
+# invisible until we go looking for it — but cycling on every poll tick would
+# spam switch commands.
+RESYNC_INTERVAL = 30.0
 
 _FORMAT_MIME = {
     PictureFormat.JPEG: "image/jpeg",
@@ -104,8 +113,13 @@ class SendspinArtworkClient:
         # over the local binary so external screens of differing resolution can
         # fetch it directly from MA at their own size (still LAN-only).
         self.metadata_art_url: Optional[str] = None
-        # Last track title seen, to detect track changes and drop stale art.
-        self._last_title: Optional[str] = None
+        # Now-playing metadata from MA's METADATA role. This is the group's
+        # track regardless of which device renders the audio, so it can drive
+        # the display even when the Pi itself isn't the speaker.
+        self.track_title: Optional[str] = None
+        self.track_artist: Optional[str] = None
+        self.track_album: Optional[str] = None
+        self.track_duration_ms: int = 0
         # Strong refs to in-flight notify tasks so they aren't GC'd mid-await.
         self._tasks: set = set()
 
@@ -118,10 +132,12 @@ class SendspinArtworkClient:
         # doesn't, auto-join is impossible and we say so once.
         self._switch_supported: bool = False
         self._logged_no_switch: bool = False
-        # Set True after a full unsuccessful switch cycle so periodic callers
-        # don't re-cycle every poll tick; reset when group state changes or on a
-        # fresh connection (i.e. when there's new reason to believe it'd work).
-        self._sync_exhausted: bool = False
+        # Monotonic time before which periodic callers shouldn't re-cycle after
+        # a full unsuccessful switch cycle; cleared when group state changes or
+        # on a fresh connection (i.e. when there's new reason to believe it'd
+        # work). Playback starting in *another* group sends us no event, so the
+        # cycle must still retry on a timer rather than latch off entirely.
+        self._sync_backoff_until: float = 0.0
         # Signalled on every group/update so a switch can await the new state.
         self._group_changed: asyncio.Event = asyncio.Event()
         # Serialises switch cycles so concurrent poll ticks don't interleave.
@@ -139,6 +155,16 @@ class SendspinArtworkClient:
         if self.art_bytes:
             return f"/sendspin/artwork?v={self.art_version}"
         return None
+
+    @property
+    def group_playing(self) -> bool:
+        """True while the group MA has us in is actively playing."""
+        return self._client is not None and self._group_playing
+
+    @property
+    def group_name(self) -> Optional[str]:
+        """Name of the group MA currently has us in, if any."""
+        return self._group_name
 
     def _make_client(self) -> SendspinClient:
         client = SendspinClient(
@@ -169,7 +195,7 @@ class SendspinArtworkClient:
         return client
 
     def _on_metadata(self, payload) -> None:
-        """Capture MA's absolute artwork URL from the METADATA role.
+        """Capture the group's now-playing metadata from MA's METADATA role.
 
         On a track change, drop the previous track's art first — both the URL
         and the cached binary frame — so a new track that ships no artwork_url
@@ -180,17 +206,33 @@ class SendspinArtworkClient:
         if md is None:
             return
 
-        # Partial updates leave title as UndefinedField; only a real string is
-        # a track signal. A changed title means a new track → reset stale art.
-        title = getattr(md, "title", None)
-        title = title if isinstance(title, str) else None
-        new_track = title is not None and title != self._last_title
+        def _str_field(name):
+            # Partial updates leave fields as UndefinedField; only a real
+            # string is a value (None would also mean "cleared", but partial
+            # updates are common enough that we only act on real strings).
+            value = getattr(md, name, None)
+            return value if isinstance(value, str) else None
+
+        # A changed title means a new track → reset stale art.
+        title = _str_field("title")
+        new_track = title is not None and title != self.track_title
         if new_track:
-            self._last_title = title
+            self.track_title = title
             self.metadata_art_url = None
             # Drop the cached frame too: otherwise art_url falls back to the
             # previous track's binary cover until a new frame arrives.
             self.art_bytes = None
+
+        artist = _str_field("artist")
+        if artist is not None:
+            self.track_artist = artist
+        album = _str_field("album")
+        if album is not None:
+            self.track_album = album
+        progress = getattr(md, "progress", None)
+        duration = getattr(progress, "track_duration", None)
+        if isinstance(duration, int):
+            self.track_duration_ms = duration
 
         url = getattr(md, "artwork_url", None)
         # Field may be an UndefinedField/None when unset — only accept real URLs.
@@ -238,7 +280,7 @@ class SendspinArtworkClient:
         playing = state == PlaybackStateType.PLAYING
 
         if group_id != self._group_id or playing != self._group_playing:
-            self._sync_exhausted = False  # new info → worth (re)trying a switch
+            self._sync_backoff_until = 0.0  # new info → worth (re)trying a switch
         self._group_id = group_id
         self._group_name = getattr(payload, "group_name", None)
         self._group_playing = playing
@@ -252,14 +294,15 @@ class SendspinArtworkClient:
     async def sync_to_playing_group(self) -> None:
         """Switch into the group that's actually playing (the speaker's group).
 
-        Called by SendspinManager when MPRIS shows the speaker is playing.
-        No-op once we're already in a playing group, when the server doesn't
-        support `switch`, or after a full unsuccessful cycle (until group state
-        changes). Cycles `switch` until a group/update reports PLAYING.
+        Called periodically by SendspinManager's playback watcher. No-op while
+        we're already in a playing group, when the server doesn't support
+        `switch`, or within the backoff window after a full unsuccessful cycle
+        (cleared early when group state changes). Cycles `switch` until a
+        group/update reports PLAYING.
         """
         if self._client is None:
             return
-        if self._group_playing or self._sync_exhausted:
+        if self._group_playing or time.monotonic() < self._sync_backoff_until:
             return
         if not self._switch_supported:
             if not self._logged_no_switch:
@@ -272,7 +315,8 @@ class SendspinArtworkClient:
 
         async with self._sync_lock:
             # Re-check under the lock — a group/update may have arrived meanwhile.
-            if self._group_playing or self._sync_exhausted or self._client is None:
+            if self._client is None or self._group_playing or \
+                    time.monotonic() < self._sync_backoff_until:
                 return
 
             tried_groups: set = set()
@@ -300,9 +344,10 @@ class SendspinArtworkClient:
             if self._group_playing:
                 logger.info("Sendspin: joined playing group '%s'", self._group_name)
             else:
-                self._sync_exhausted = True
-                logger.info(
-                    "Sendspin: no playing group found after switching; will retry when group state changes"
+                self._sync_backoff_until = time.monotonic() + RESYNC_INTERVAL
+                logger.debug(
+                    "Sendspin: no playing group found after switching; retrying in %.0fs",
+                    RESYNC_INTERVAL,
                 )
 
     def _notify(self) -> None:
@@ -335,18 +380,21 @@ class SendspinArtworkClient:
         finally:
             if self._client is client:
                 self._client = None
-            # Drop cached art so a later session never shows a previous track's
-            # cover before fresh metadata/frames arrive.
+            # Drop cached art/metadata so a later session never shows a previous
+            # track before fresh metadata/frames arrive.
             self.metadata_art_url = None
             self.art_bytes = None
-            self._last_title = None
+            self.track_title = None
+            self.track_artist = None
+            self.track_album = None
+            self.track_duration_ms = 0
             # Reset group/auto-join state — a new session re-negotiates roles,
             # starts in a fresh solo group, and must re-discover switch support.
             self._group_id = None
             self._group_name = None
             self._group_playing = False
             self._switch_supported = False
-            self._sync_exhausted = False
+            self._sync_backoff_until = 0.0
             logger.info("Music Assistant disconnected from artwork display client")
 
     async def start(self) -> None:

@@ -8,7 +8,11 @@ from Music Assistant.
 Architecture:
 - The sendspin daemon (systemd service) handles audio playback and MPRIS.
 - It sends hook events (--hook-start / --hook-stop) to FastAPI endpoints.
-- This manager reads track metadata from MPRIS via DBus (same session bus).
+- The artwork display client (CONTROLLER+METADATA+ARTWORK roles) receives the
+  playing group's track metadata and cover art from Music Assistant — this is
+  the preferred now-playing source, and it works even when the audio renders
+  on another speaker in the space (the display just joins the playing group).
+- MPRIS via DBus is the fallback metadata source for local-only playback.
 - Display and WebSocket updates use the same format as Spotify integration.
 """
 import asyncio
@@ -46,8 +50,11 @@ class SendspinManager:
         # Sendspin ARTWORK-role display client (provides album art over the LAN).
         self.artwork_client = None
 
-        # Current state
+        # Current state. is_playing means "the now-playing view is active";
+        # _local_audio means audio is actually rendering on this Pi (drives the
+        # audio-exclusivity actions, which a remote-speaker display must skip).
         self.is_playing = False
+        self._local_audio = False
         self.is_connected = False
         self.track_info: Dict[str, Any] = {}
         self.last_event_time: Optional[datetime] = None
@@ -96,14 +103,22 @@ class SendspinManager:
         except Exception as e:
             logging.error(f"Error during Sendspin cleanup: {e}")
 
-    async def handle_hook_start(self) -> None:
-        """Called when sendspin daemon starts audio playback (hook-start)."""
-        logging.info("Sendspin hook: stream started")
+    async def handle_hook_start(self, local: bool = True) -> None:
+        """Show the now-playing view.
+
+        Called by the daemon's hook-start (local audio) and by the playback
+        watcher — with local=False when the music plays on another speaker in
+        the space (then the audio-exclusivity actions must not run: nothing is
+        rendering here, so there's nothing to stop or mute).
+        """
+        logging.info("Sendspin: stream started (%s)", "local" if local else "remote group")
         self.is_connected = True
-        was_playing = self.is_playing
+        was_showing = self.is_playing
         self.is_playing = True
 
-        if not was_playing:
+        if local and not self._local_audio:
+            self._local_audio = True
+
             # Mute Raspotify (last-in wins)
             if self.audio_conflict:
                 await self.audio_conflict.mute_source("raspotify")
@@ -122,6 +137,7 @@ class SendspinManager:
             if self.playback_manager:
                 await self.playback_manager.stop_playback()
 
+        if not was_showing:
             # Push to display stack
             if self.display_stack:
                 await self.display_stack.push("sendspin", {}, item_id="sendspin")
@@ -132,25 +148,41 @@ class SendspinManager:
                     "is_playing": True,
                 })
 
-        # Read metadata from MPRIS and broadcast
+        # Read metadata and broadcast
         await self._read_and_broadcast_metadata()
 
         # Start polling for metadata changes
         self._start_metadata_polling()
 
+    def _remote_group_playing(self) -> bool:
+        """True when MA reports our group playing with a known track —
+        i.e. there is music in the space worth displaying, regardless of
+        which speaker renders it."""
+        ac = self.artwork_client
+        return bool(ac and ac.group_playing and ac.track_title)
+
     async def handle_hook_stop(self) -> None:
         """Called when sendspin daemon stops audio playback (hook-stop)."""
         logging.info("Sendspin hook: stream stopped")
-        was_playing = self.is_playing
+        if self._local_audio:
+            self._local_audio = False
+            # Unmute Raspotify
+            if self.audio_conflict:
+                await self.audio_conflict.unmute_source("raspotify")
+
+        # If the group keeps playing on another speaker, keep displaying it.
+        if self._remote_group_playing():
+            logging.info("Sendspin: local stream stopped but group still playing — keeping now-playing")
+            return
+
+        await self._hide_now_playing()
+
+    async def _hide_now_playing(self) -> None:
+        """Tear down the now-playing view and broadcast the stopped state."""
         self.is_playing = False
 
         # Stop metadata polling
         self._stop_metadata_polling()
-
-        if was_playing:
-            # Unmute Raspotify
-            if self.audio_conflict:
-                await self.audio_conflict.unmute_source("raspotify")
 
         # Remove from display stack
         if self.display_stack:
@@ -176,15 +208,11 @@ class SendspinManager:
             self._poll_task = None
 
     async def _metadata_poll_loop(self) -> None:
-        """Poll MPRIS every few seconds for metadata changes."""
+        """Poll for metadata changes (track changes) while the view is up.
+        Group syncing lives in the playback watcher, which always runs."""
         try:
             while self.is_playing:
                 await self._read_and_broadcast_metadata()
-                # Keep the artwork display in the speaker's (playing) group so MA
-                # pushes it per-track covers. No-op once joined / unsupported, so
-                # it's safe to call every tick; also covers a late MA connect.
-                if self.artwork_client:
-                    await self.artwork_client.sync_to_playing_group()
                 await asyncio.sleep(5)
         except asyncio.CancelledError:
             pass
@@ -217,32 +245,16 @@ class SendspinManager:
         logging.info("Sendspin album art updated → %s", self._current_art_url())
 
     async def _read_and_broadcast_metadata(self) -> None:
-        """Read current track metadata from MPRIS and broadcast if changed."""
-        metadata = await self._read_mpris_metadata()
-        if not metadata:
+        """Read the current track and broadcast if changed.
+
+        Single source-selection point for the now-playing view: prefer the
+        artwork client's group metadata from Music Assistant (carries artwork,
+        and exists even when the audio renders elsewhere), falling back to the
+        local daemon's MPRIS for local-only playback.
+        """
+        new_info = self._track_from_artwork_client() or await self._track_from_mpris()
+        if not new_info:
             return
-
-        title = metadata.get("xesam:title")
-        if not title:
-            return
-
-        artists = metadata.get("xesam:artist", ["Unknown Artist"])
-        artist_str = ", ".join(artists) if isinstance(artists, list) else str(artists)
-        album = metadata.get("xesam:album", "")
-        # Album art comes from the Sendspin ARTWORK display client (binary frames
-        # from Music Assistant over the LAN), not MPRIS (the audio daemon's MPRIS
-        # doesn't carry artwork). Fall back to MPRIS artUrl if ever present.
-        artwork_url = self._current_art_url() or metadata.get("mpris:artUrl")
-        duration_us = metadata.get("mpris:length", 0)
-        duration_ms = duration_us // 1000 if duration_us else 0
-
-        new_info = {
-            "name": title,
-            "artists": artist_str,
-            "album": album or "",
-            "album_art_url": artwork_url,
-            "duration_ms": duration_ms,
-        }
 
         # Only broadcast if track changed
         if new_info.get("name") != self.track_info.get("name") or \
@@ -262,6 +274,47 @@ class SendspinManager:
                 logging.info(
                     f"Sendspin track: {self.track_info['name']} - {self.track_info['artists']}"
                 )
+
+    def _track_from_artwork_client(self) -> Optional[Dict[str, Any]]:
+        """Now-playing dict from MA's group metadata, or None if unavailable."""
+        ac = self.artwork_client
+        if not (ac and ac.group_playing and ac.track_title):
+            return None
+        return {
+            "name": ac.track_title,
+            "artists": ac.track_artist or "Unknown Artist",
+            "album": ac.track_album or "",
+            "album_art_url": ac.art_url,
+            "duration_ms": ac.track_duration_ms or 0,
+        }
+
+    async def _track_from_mpris(self) -> Optional[Dict[str, Any]]:
+        """Now-playing dict from the local daemon's MPRIS, or None."""
+        metadata = await self._read_mpris_metadata()
+        if not metadata:
+            return None
+
+        title = metadata.get("xesam:title")
+        if not title:
+            return None
+
+        artists = metadata.get("xesam:artist", ["Unknown Artist"])
+        artist_str = ", ".join(artists) if isinstance(artists, list) else str(artists)
+        album = metadata.get("xesam:album", "")
+        # Album art comes from the Sendspin ARTWORK display client (binary frames
+        # from Music Assistant over the LAN), not MPRIS (the audio daemon's MPRIS
+        # doesn't carry artwork). Fall back to MPRIS artUrl if ever present.
+        artwork_url = self._current_art_url() or metadata.get("mpris:artUrl")
+        duration_us = metadata.get("mpris:length", 0)
+        duration_ms = duration_us // 1000 if duration_us else 0
+
+        return {
+            "name": title,
+            "artists": artist_str,
+            "album": album or "",
+            "album_art_url": artwork_url,
+            "duration_ms": duration_ms,
+        }
 
     async def _read_mpris_metadata(self) -> Optional[Dict[str, Any]]:
         """Read metadata from the sendspin MPRIS interface via dbus-send."""
@@ -367,28 +420,48 @@ class SendspinManager:
             return None
 
     async def _playback_watch_loop(self) -> None:
-        """Show/hide the now-playing view based on the daemon's MPRIS
-        PlaybackStatus, independent of the hooks.
+        """Reconcile the now-playing view with actual playback, independent of
+        the hooks.
 
         The daemon's --hook-start only fires on stream start (stopped→playing),
         so it misses track changes within a stream and any playback already in
-        progress when hsg-canvas (re)starts. Polling PlaybackStatus makes the
-        display self-heal to the real state.
+        progress when hsg-canvas (re)starts. And music playing on *another*
+        speaker never touches the local daemon at all — it's only visible via
+        the artwork client's group state, which this loop keeps synced to the
+        playing group. Polling both sources makes the display self-heal to the
+        real state of the space.
         """
         while True:
             try:
                 await asyncio.sleep(4)
+
+                # Keep the artwork display in the playing group so MA pushes
+                # it per-track metadata + covers. No-op once joined; rate-
+                # limited internally when nothing is playing.
+                if self.artwork_client:
+                    await self.artwork_client.sync_to_playing_group()
+
                 status = await self._read_mpris_playback_status()
-                if status == "Playing" and not self.is_playing:
+                local = status == "Playing"
+                remote = self._remote_group_playing()
+
+                if local and not self._local_audio:
                     logging.info("Sendspin playback detected via MPRIS — showing now-playing")
                     await self.handle_hook_start()
-                elif status in ("Stopped", "Paused") and self.is_playing:
-                    # Paused counts as not-actively-playing: hide the view and
-                    # (via handle_hook_stop) unmute raspotify so a paused stream
-                    # doesn't leave Spotify muted. Resume re-shows within a tick.
-                    # status None is left alone — likely a transient read failure.
-                    logging.info(f"Sendspin playback {status} via MPRIS — hiding now-playing")
+                elif self._local_audio and status in ("Stopped", "Paused"):
+                    # Paused counts as not-actively-playing: unmute raspotify so
+                    # a paused stream doesn't leave Spotify muted. The view stays
+                    # up if the group keeps playing elsewhere; resume re-shows
+                    # within a tick. status None is left alone — likely a
+                    # transient read failure.
+                    logging.info(f"Sendspin playback {status} via MPRIS — local stream ended")
                     await self.handle_hook_stop()
+                elif remote and not self.is_playing:
+                    logging.info("Sendspin: group playing on another speaker — showing now-playing")
+                    await self.handle_hook_start(local=False)
+                elif self.is_playing and not self._local_audio and not remote and not local:
+                    logging.info("Sendspin: group stopped playing — hiding now-playing")
+                    await self._hide_now_playing()
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -396,10 +469,13 @@ class SendspinManager:
 
     def get_status(self) -> Dict[str, Any]:
         """Get current Sendspin status for the API."""
+        ac = self.artwork_client
         return {
             "is_connected": self.is_connected,
             "is_playing": self.is_playing,
-            "group_name": self.group_name,
+            "local_audio": self._local_audio,
+            "group_name": (ac.group_name if ac else None) or self.group_name,
+            "group_playing": bool(ac and ac.group_playing),
             "track_info": self.track_info or None,
             "last_event_time": self.last_event_time.isoformat() if self.last_event_time else None,
             "listener_port": SENDSPIN_LISTENER_PORT,
