@@ -197,10 +197,11 @@ class SendspinArtworkClient:
     def _on_metadata(self, payload) -> None:
         """Capture the group's now-playing metadata from MA's METADATA role.
 
-        On a track change, drop the previous track's art first — both the URL
-        and the cached binary frame — so a new track that ships no artwork_url
-        doesn't keep showing the old cover. The next artwork frame for the new
-        track repopulates the binary fallback.
+        Artwork is deliberately NOT cleared on a track change. Music Assistant
+        pushes a cover only when it actually changes (artwork is album-scoped),
+        so consecutive tracks from the same album carry no new art at all. The
+        current cover is kept until MA sends a new artwork_url or binary frame —
+        clearing per track blanked the cover for the rest of every album.
         """
         md = getattr(payload, "metadata", None)
         if md is None:
@@ -213,15 +214,14 @@ class SendspinArtworkClient:
             value = getattr(md, name, None)
             return value if isinstance(value, str) else None
 
-        # A changed title means a new track → reset stale art.
+        # A changed title means a new track. Keep the current artwork: MA only
+        # sends a cover when it changes (album-scoped), so same-album tracks
+        # carry none — clearing here would blank the cover for the rest of the
+        # album. A new artwork_url / frame below replaces it when MA sends one.
         title = _str_field("title")
         new_track = title is not None and title != self.track_title
         if new_track:
             self.track_title = title
-            self.metadata_art_url = None
-            # Drop the cached frame too: otherwise art_url falls back to the
-            # previous track's binary cover until a new frame arrives.
-            self.art_bytes = None
 
         artist = _str_field("artist")
         if artist is not None:
@@ -241,9 +241,6 @@ class SendspinArtworkClient:
                 self.metadata_art_url = url
                 logger.info("Sendspin metadata artwork_url: %s", url)
                 self._notify()
-        elif new_track:
-            # New track with no art URL — refresh so the view drops the old cover.
-            self._notify()
 
     def _on_artwork_frame(self, channel: int, data: bytes) -> None:
         """Store the latest artwork frame and notify the now-playing view."""
