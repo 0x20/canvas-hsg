@@ -24,7 +24,7 @@ PyChromecast>=13.1.0
 # receive Music Assistant album art over the LAN (binary frames, no internet).
 # Pinned to the version the sendspin player/MA speak; client deps only (the
 # heavy av/numpy/pillow are server-only extras we don't install).
-aiosendspin==5.3.0
+aiosendspin==6.0.5
 
 # Configuration
 PyYAML>=6.0.1
