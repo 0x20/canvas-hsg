@@ -83,7 +83,7 @@ function App() {
 
   return (
     <>
-      {(isNowPlayingActive || keepNowPlayingMounted) && <NowPlaying />}
+      {(isNowPlayingActive || keepNowPlayingMounted) && <NowPlaying source={displayItem.type} />}
       {renderLayers()}
       <AudioPlayer />
     </>
