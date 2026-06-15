@@ -3,6 +3,7 @@ HSG Canvas Configuration
 
 Central configuration file for all constants and settings.
 """
+import json
 import os
 
 # Base directory (for resolving relative paths)
@@ -44,6 +45,29 @@ METADATA_UPDATE_INTERVAL = 15  # seconds
 # Sendspin Protocol
 # Listener port kept for status API (daemon uses 8928, display used 8929)
 SENDSPIN_LISTENER_PORT = 8928
+
+
+def _read_sendspin_name() -> str:
+    """Name the sendspin player presents in Music Assistant, used to label its
+    companion clients (e.g. the artwork display as "<name> - art").
+
+    Resolution: SENDSPIN_NAME env, then the daemon's settings-daemon.json (the
+    install-time source of truth set by setup.sh), then DEVICE_NAME.
+    """
+    name = os.environ.get("SENDSPIN_NAME")
+    if name:
+        return name.strip()
+    try:
+        with open(os.path.expanduser("~/.config/sendspin/settings-daemon.json")) as f:
+            configured = json.load(f).get("name")
+        if isinstance(configured, str) and configured.strip():
+            return configured.strip()
+    except (OSError, ValueError):
+        pass
+    return DEVICE_NAME
+
+
+SENDSPIN_NAME = _read_sendspin_name()
 
 # Server Configuration
 DEFAULT_PORT = 8000

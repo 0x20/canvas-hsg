@@ -58,7 +58,7 @@ from routes import (
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME
 
 # Logging setup
 logging.basicConfig(
@@ -204,8 +204,10 @@ async def lifespan(app: FastAPI):
             logging.info("Starting Sendspin artwork display client...")
             app.state.sendspin_artwork_client = SendspinArtworkClient(
                 client_id=f"{CANVAS_HOST}-canvas-art",
-                # Friendly name MA shows for this display (and the mDNS service).
-                client_name=f"{DEVICE_NAME} ({CANVAS_HOST})",
+                # Friendly name MA shows for this display — labelled after the
+                # speaker it accompanies so it's clearly the art companion, not
+                # a second player to cast to (e.g. "Kenwood Speakers - art").
+                client_name=f"{SENDSPIN_NAME} - art",
                 # Device identity so MA doesn't log unknown/blank player details.
                 product_name=DEVICE_NAME,
                 manufacturer=DEVICE_MANUFACTURER,
