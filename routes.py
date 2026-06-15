@@ -28,6 +28,7 @@ from models.request_models import (
     ChromecastVolumeRequest,
     SpotifyEventRequest,
     BackgroundModeRequest,
+    StaticOverlayRequest,
     SpotifyVolumeRequest,
     WebcastStartRequest,
     WebcastConfigRequest,
@@ -510,6 +511,25 @@ def setup_background_routes(background_manager: 'BackgroundManager') -> APIRoute
             }
         except Exception as e:
             logging.error(f"Failed to get background status: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.get("/background/overlays")
+    async def get_background_overlays():
+        """Current idle-screen overlay settings (logo/QR toggles + QR target)."""
+        return background_manager.get_overlay_settings()
+
+    @router.post("/background/overlays")
+    async def set_background_overlays(request: StaticOverlayRequest):
+        """Toggle the idle-screen logo/QR overlays (persisted across restarts)."""
+        try:
+            return await background_manager.set_overlay_settings(
+                show_logo=request.show_logo,
+                show_qr=request.show_qr,
+                qr_url=request.qr_url,
+                background_url=request.background_url,
+            )
+        except Exception as e:
+            logging.error(f"Failed to set background overlays: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
     @router.post("/background/refresh")

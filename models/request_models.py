@@ -89,6 +89,15 @@ class BackgroundModeRequest(BaseModel):
     mode: str = Field(description="Background display mode (currently only 'static')")
 
 
+class StaticOverlayRequest(BaseModel):
+    """Toggle the idle-screen logo/QR overlays. All fields optional — only the
+    provided ones are changed."""
+    show_logo: Optional[bool] = Field(None, description="Show the hackerspace logo overlay")
+    show_qr: Optional[bool] = Field(None, description="Show the QR-code overlay")
+    qr_url: Optional[str] = Field(None, description="URL the QR code encodes")
+    background_url: Optional[str] = Field(None, description="Idle background image URL")
+
+
 class SpotifyVolumeRequest(BaseModel):
     volume: int = Field(70, ge=0, le=100, description="Spotify volume 0-100")
 

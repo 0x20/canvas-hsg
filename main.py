@@ -113,6 +113,10 @@ async def lifespan(app: FastAPI):
             app.state.display_detector,
             app.state.display_stack
         )
+        # Apply the persisted idle-screen overlay settings (background art +
+        # logo/QR flags + QR target) to the base layer so the kiosk renders
+        # them from the first frame.
+        await app.state.background_manager.apply_overlay_settings()
 
         # Schedule Chromium launch as a background task. During lifespan
         # startup uvicorn is not yet bound, so Angie's upstream is down and

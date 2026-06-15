@@ -52,7 +52,13 @@ class DisplayStack:
     EXCLUSIVE_TYPES = {"spotify", "sendspin", "bluetooth"}
 
     def __init__(self, on_change: Optional[Callable[['DisplayItem'], Coroutine]] = None):
-        self._base = DisplayItem("static", {"background_url": "/static/canvas_background.png"}, item_id="base")
+        # Overlay flags default on; qr_url is filled in by BackgroundManager at
+        # startup (it needs the LAN hostname). No qr_url → no QR drawn yet.
+        self._base = DisplayItem("static", {
+            "background_url": "/static/canvas_background_2.png",
+            "show_logo": True,
+            "show_qr": True,
+        }, item_id="base")
         self._stack: List[DisplayItem] = []
         self._on_change = on_change
 

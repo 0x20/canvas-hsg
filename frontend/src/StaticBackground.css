@@ -35,3 +35,33 @@ html.keepalive .static-background {
   object-fit: cover;
   object-position: center center;
 }
+
+/* Logo + QR overlays. Insets use vw/vh (a % of each axis) so they clear TV
+   overscan (~5% per edge) on both axes; sizes use vmin so they scale with the
+   display. Drawn as DOM elements, never cropped by object-fit like a baked-in
+   corner would be. */
+.overlay-logo,
+.overlay-qr {
+  position: fixed;
+  bottom: 6vh;
+}
+
+.overlay-logo {
+  left: 6vw;
+  height: 15vmin;
+  width: auto;
+  /* The inverted logo is white line art on transparency — a soft shadow keeps
+     it legible over bright spots in the artwork. */
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
+}
+
+.overlay-qr {
+  right: 6vw;
+  height: 15vmin;
+  width: 15vmin;
+  border-radius: 6px;
+  /* White quiet-zone frame so the code stays scannable on any background. */
+  background: #fff;
+  padding: 1vmin;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+}

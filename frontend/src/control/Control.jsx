@@ -555,9 +555,16 @@ function ActionBtn({ label, onClick, danger }) {
 function DiagnosticsView() {
   const [diag, setDiag] = useState(null);
   const [tick, setTick] = useState(0);
+  const [overlays, setOverlays] = useState(null);
   useEffect(() => {
     api('GET', '/diagnostics').then(setDiag).catch(() => setDiag(null));
+    api('GET', '/background/overlays').then(setOverlays).catch(() => setOverlays(null));
   }, [tick]);
+
+  const setOverlay = (patch) => {
+    setOverlays((cur) => ({ ...(cur || {}), ...patch })); // optimistic update
+    api('POST', '/background/overlays', patch).then(setOverlays).catch(() => {});
+  };
   return (
     <main className="main tab-view">
       <div className="tab-head">
@@ -582,6 +589,21 @@ function DiagnosticsView() {
         <ActionBtn label="TV power on" onClick={() => api('POST', '/cec/tv/power-on')} />
         <ActionBtn label="TV power off" onClick={() => api('POST', '/cec/tv/power-off')} danger />
         <ActionBtn label="Show background" onClick={() => api('POST', '/background/show')} />
+      </div>
+      <div className="section-head" style={{ marginTop: 24 }}>
+        <span className="section-eyebrow">Idle screen overlays</span>
+      </div>
+      <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+        <label className="opt">
+          <input type="checkbox" checked={overlays?.show_logo ?? true}
+                 onChange={(e) => setOverlay({ show_logo: e.target.checked })} />
+          Show logo
+        </label>
+        <label className="opt">
+          <input type="checkbox" checked={overlays?.show_qr ?? true}
+                 onChange={(e) => setOverlay({ show_qr: e.target.checked })} />
+          Show QR code
+        </label>
       </div>
       <div className="section-head" style={{ marginTop: 24 }}>
         <span className="section-eyebrow">Raw /diagnostics</span>

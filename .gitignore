@@ -49,3 +49,6 @@ hsg-canvas.html
 
 # Per-instance config (hostname etc.) — see canvas.conf.example
 canvas.conf
+
+# Per-instance idle-screen overlay settings (logo/QR toggles), runtime-written
+overlay_settings.json
