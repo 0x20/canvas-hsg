@@ -81,10 +81,9 @@ html.keepalive .static-background {
   left: 6vw;
   height: 23vmin;
   width: 23vmin;
-  border-radius: 6px;
-  /* Semi-transparent quiet-zone frame, matching the 50%-alpha light modules so
-     the whole code blends into the artwork rather than sitting in a white box. */
-  background: rgba(255, 255, 255, 0.5);
-  padding: 1vmin;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
+  /* No white backing: the PNG itself carries the 50%-alpha light modules and a
+     quiet-zone margin, so the whole code is uniformly translucent over the
+     artwork. A backing layer here would re-opaque the centre into a white box.
+     A soft shadow keeps it legible over bright spots. */
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
 }
