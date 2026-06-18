@@ -82,8 +82,9 @@ html.keepalive .static-background {
   height: 23vmin;
   width: 23vmin;
   border-radius: 6px;
-  /* White quiet-zone frame so the code stays scannable on any background. */
-  background: #fff;
+  /* Semi-transparent quiet-zone frame, matching the 50%-alpha light modules so
+     the whole code blends into the artwork rather than sitting in a white box. */
+  background: rgba(255, 255, 255, 0.5);
   padding: 1vmin;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.45);
 }

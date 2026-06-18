@@ -28,8 +28,11 @@ export default function StaticBackground({ item }) {
     QRCode.toDataURL(qrUrl, {
       width: 256,
       margin: 2,
-      errorCorrectionLevel: 'M',
-      color: { dark: '#000000', light: '#ffffff' },
+      // Light modules at 50% alpha so the QR blends into the artwork instead of
+      // sitting in an opaque white box. High error-correction compensates for
+      // the reduced contrast so it still scans.
+      errorCorrectionLevel: 'H',
+      color: { dark: '#000000', light: '#ffffff80' },
     }).then(setQrDataUrl).catch(() => setQrDataUrl(''));
   }, [showQr, qrUrl]);
 
