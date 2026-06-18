@@ -66,17 +66,17 @@ html.keepalive .static-background {
 
 .overlay-logo {
   left: 6vw;
-  height: 24vmin;
+  height: 36vmin;
   width: auto;
-  /* The logo is white line art on transparency — a soft shadow keeps it
-     legible over bright spots in the artwork. */
-  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
+  /* The logo art sits on transparency — a soft shadow keeps it legible over
+     both bright and dark spots in the artwork. */
+  filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.6));
 }
 
 .overlay-qr {
   right: 6vw;
-  height: 22vmin;
-  width: 22vmin;
+  height: 33vmin;
+  width: 33vmin;
   border-radius: 6px;
   /* White quiet-zone frame so the code stays scannable on any background. */
   background: #fff;
