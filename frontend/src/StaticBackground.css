@@ -61,10 +61,11 @@ html.keepalive .static-background {
 .overlay-logo,
 .overlay-qr {
   position: fixed;
-  bottom: 6vh;
 }
 
+/* Top-left, top edge aligned with the CANVAS wordmark (top: 5vh). */
 .overlay-logo {
+  top: 5vh;
   left: 6vw;
   height: 25vmin;
   width: auto;
@@ -74,6 +75,7 @@ html.keepalive .static-background {
 }
 
 .overlay-qr {
+  bottom: 6vh;
   right: 6vw;
   height: 23vmin;
   width: 23vmin;
