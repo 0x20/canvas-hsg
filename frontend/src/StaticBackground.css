@@ -75,7 +75,7 @@ html.keepalive .static-background {
 }
 
 .overlay-qr {
-  bottom: 6vh;
+  top: 5vh;
   right: 6vw;
   height: 23vmin;
   width: 23vmin;
