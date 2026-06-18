@@ -74,9 +74,11 @@ html.keepalive .static-background {
   filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.6));
 }
 
+/* Stacked under the logo, left edges aligned: 5vh title inset + 25vmin logo
+   height + 3vmin gap. */
 .overlay-qr {
-  top: 5vh;
-  right: 6vw;
+  top: calc(5vh + 28vmin);
+  left: 6vw;
   height: 23vmin;
   width: 23vmin;
   border-radius: 6px;
