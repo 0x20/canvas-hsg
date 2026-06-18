@@ -36,6 +36,24 @@ html.keepalive .static-background {
   object-position: center center;
 }
 
+/* "CANVAS" wordmark, top-centre. A DOM overlay (not baked in) so it scales
+   with the display and stays inside the overscan-safe inset. */
+.overlay-title {
+  position: fixed;
+  top: 5vh;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Google Sans', system-ui, -apple-system, sans-serif;
+  font-weight: 800;
+  font-size: 11vmin;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-shadow: 0 2px 18px rgba(0, 0, 0, 0.75);
+  white-space: nowrap;
+  user-select: none;
+}
+
 /* Logo + QR overlays. Insets use vw/vh (a % of each axis) so they clear TV
    overscan (~5% per edge) on both axes; sizes use vmin so they scale with the
    display. Drawn as DOM elements, never cropped by object-fit like a baked-in
@@ -48,17 +66,17 @@ html.keepalive .static-background {
 
 .overlay-logo {
   left: 6vw;
-  height: 15vmin;
+  height: 24vmin;
   width: auto;
-  /* The inverted logo is white line art on transparency — a soft shadow keeps
-     it legible over bright spots in the artwork. */
+  /* The logo is white line art on transparency — a soft shadow keeps it
+     legible over bright spots in the artwork. */
   filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.6));
 }
 
 .overlay-qr {
   right: 6vw;
-  height: 15vmin;
-  width: 15vmin;
+  height: 22vmin;
+  width: 22vmin;
   border-radius: 6px;
   /* White quiet-zone frame so the code stays scannable on any background. */
   background: #fff;

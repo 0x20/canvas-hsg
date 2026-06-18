@@ -36,8 +36,9 @@ export default function StaticBackground({ item }) {
   return (
     <div className="static-background">
       <img src={backgroundUrl} alt="" className="background-image" />
+      <div className="overlay-title">CANVAS</div>
       {showLogo && (
-        <img src="/static/hsg_logo_invert.png" alt="" className="overlay-logo" />
+        <img src="/static/hsg_logo_overlay.png" alt="" className="overlay-logo" />
       )}
       {showQr && qrDataUrl && (
         <img src={qrDataUrl} alt="" className="overlay-qr" />
