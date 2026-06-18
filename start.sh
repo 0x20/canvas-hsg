@@ -42,6 +42,23 @@ if [ "$NEED_BUILD" = "1" ]; then
     [ -d node_modules ] || npm ci
     npm run build
     echo "Canvas built."
+
+    # A fresh bundle was built. Once the server is up, tell any screens that
+    # are already connected (remote mirrors that outlived this restart) to
+    # reload onto it. Backgrounded so it survives the `exec` below; it polls
+    # until FastAPI answers, fires one broadcast, then exits. The kiosk
+    # relaunches on the fresh bundle on its own, and reconnecting clients
+    # self-reload via the app_build staleness check — this just covers the
+    # gap for screens that stay connected across the restart.
+    (
+        for _ in $(seq 1 30); do
+            if curl -fsS -X POST http://127.0.0.1:8000/display/reload-clients >/dev/null 2>&1; then
+                echo "Pushed canvas reload to connected clients."
+                break
+            fi
+            sleep 1
+        done
+    ) &
 else
     echo "Canvas build is up to date."
 fi

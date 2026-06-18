@@ -10,33 +10,52 @@ import WebsiteFrame from './WebsiteFrame';
 import VideoPlayer from './VideoPlayer';
 import AudioPlayer from './AudioPlayer';
 
+// Our own bundle hash, parsed from this module's URL (Vite emits
+// /canvas/assets/index-<hash>.js). The server stamps its current build into
+// display messages; if they differ we reload to self-update — input-less
+// kiosks can't be hard-refreshed by hand.
+const MY_BUILD = (import.meta.url.match(/index-([\w-]+)\.js/) || [])[1] || null;
+
 function App() {
   const [displayItem, setDisplayItem] = useState({ type: 'static', content: {}, id: 'base' });
   const [displayStack, setDisplayStack] = useState([]);
-  const [spotifySeen, setSpotifySeen] = useState(false);
+  const [nowPlayingSeen, setNowPlayingSeen] = useState(false);
 
   useWebSocket('/ws/display', {
     onMessage: (message) => {
       console.log('App: Received display event:', message);
+
+      // Server-pushed refresh, or a newer bundle is available → reload.
+      if (message.event === 'reload') {
+        window.location.reload();
+        return;
+      }
+
       if (message.event === 'display_state') {
+        const serverBuild = message.data.app_build;
+        if (MY_BUILD && serverBuild && serverBuild !== MY_BUILD) {
+          console.log(`App: bundle ${MY_BUILD} stale (server ${serverBuild}), reloading`);
+          window.location.reload();
+          return;
+        }
         setDisplayItem(message.data);
         setDisplayStack(message.data.stack || []);
-        if (message.data.type === 'spotify' || message.data.type === 'sendspin' || message.data.type === 'bluetooth') {
-          setSpotifySeen(true);
+        if (message.data.type === 'spotify' || message.data.type === 'sendspin' || message.data.type === 'bluetooth' || message.data.type === 'radio') {
+          setNowPlayingSeen(true);
         }
       }
     },
   });
 
-  // Reset spotifySeen when static becomes current (spotify was actually removed from stack)
+  // Reset nowPlayingSeen when static becomes current (spotify was actually removed from stack)
   useEffect(() => {
     if (displayItem.type === 'static') {
-      setSpotifySeen(false);
+      setNowPlayingSeen(false);
     }
   }, [displayItem.type]);
 
-  const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin' || displayItem.type === 'bluetooth';
-  const keepNowPlayingMounted = spotifySeen && !isNowPlayingActive && displayItem.type !== 'static';
+  const isNowPlayingActive = displayItem.type === 'spotify' || displayItem.type === 'sendspin' || displayItem.type === 'bluetooth' || displayItem.type === 'radio';
+  const keepNowPlayingMounted = nowPlayingSeen && !isNowPlayingActive && displayItem.type !== 'static';
 
   // Silent overlays (image / qrcode / website) shouldn't interrupt audio when
   // a video (YouTube / Twitch) is already playing underneath. Find the most

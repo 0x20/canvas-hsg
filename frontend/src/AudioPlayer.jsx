@@ -1,18 +1,26 @@
 import { useEffect, useRef } from 'react';
 import useWebSocket from './useWebSocket';
 
+// Only the audio-output display (the Pi kiosk, launched with ?audio=1) plays
+// the stream and reports playback status. Every other screen loading /canvas is
+// a silent display-only mirror — if they all played, they'd double the audio
+// and their (often autoplay-blocked) status reports would flip playback off.
+const AUDIO_ENABLED = new URLSearchParams(window.location.search).get('audio') === '1';
+
 /**
  * AudioPlayer - Invisible component for browser-based audio streaming
  *
  * Replaces the MPV AudioPool. Listens to /ws/audio for commands from the backend.
  * The backend (output target + volume slider) decides what plays and how loud —
  * this component just executes those commands. Supports HLS via hls.js.
+ * Inert unless this screen is the designated audio output (?audio=1).
  */
 export default function AudioPlayer() {
   const audioRef = useRef(null);
   const hlsRef = useRef(null);
 
   const wsRef = useWebSocket('/ws/audio', {
+    enabled: AUDIO_ENABLED,
     onOpen: () => sendStatus(),
     onMessage: (msg) => handleCommand(msg),
   });
@@ -124,6 +132,8 @@ export default function AudioPlayer() {
   }
 
   useEffect(() => {
+    if (!AUDIO_ENABLED) return;  // display-only mirror: never play/report
+
     // Report when a finite clip finishes so the backend can drop its overlay.
     const audioEl = audioRef.current;
     if (audioEl) audioEl.addEventListener('ended', sendEnded);

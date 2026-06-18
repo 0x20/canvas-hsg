@@ -49,7 +49,7 @@ class DisplayStack:
 
     # These display types are mutually exclusive — pushing one removes the others.
     # Prevents stale now-playing items from lingering when a new audio source takes over.
-    EXCLUSIVE_TYPES = {"spotify", "sendspin", "bluetooth"}
+    EXCLUSIVE_TYPES = {"spotify", "sendspin", "bluetooth", "radio"}
 
     def __init__(self, on_change: Optional[Callable[['DisplayItem'], Coroutine]] = None):
         # Overlay flags default on; qr_url is filled in by BackgroundManager at

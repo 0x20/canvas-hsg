@@ -29,6 +29,15 @@ class AudioManager:
         self.bluetooth_manager = None
         # Display stack — used to show fullscreen station art for audio streams.
         self.display_stack = None
+        # Spotify-events WebSocketManager — drives the canvas now-playing card
+        # with live stream metadata (set in main.py, same instance Spotify uses).
+        self.now_playing_ws = None
+        # Resolved station logo for the current stream (reused as the card's
+        # "album art"); plus bookkeeping so we only push the card / re-broadcast
+        # when the track actually changes.
+        self._current_art_url: Optional[str] = None
+        self._radio_card_active: bool = False
+        self._last_published_key: Optional[tuple] = None
         # Cached SomaFM id→logo map (channels.json); extensions vary per station.
         self._somafm_logos: Dict[str, str] = {}
         self._somafm_logos_ts: float = 0.0
@@ -113,22 +122,25 @@ class AudioManager:
 
             logging.info(f"Audio stream command sent: {stream_url}")
 
-            # Start metadata updates
-            self.start_metadata_updates()
+            # Reset now-playing bookkeeping for the new stream.
+            self._radio_card_active = False
+            self._last_published_key = None
 
-            # Fullscreen station art (silent overlay — doesn't interrupt audio).
-            # Real logos get the blurred screen-filling backdrop + enlarged cover
-            # (like the now-playing view); tiny favicons are shown as-is.
-            if self.display_stack:
-                art_url = await self._resolve_station_art(stream_url)
-                if art_url:
-                    blurred = "favicon" not in art_url.lower()
-                    await self.display_stack.push(
-                        "image",
-                        {"image_url": art_url, "blurred_bg": blurred},
-                        item_id="audio-art",
-                    )
-                    logging.info(f"Audio station art shown: {art_url}")
+            # Show the now-playing card right away, seeded with the station
+            # name. A real logo (curated / SomaFM), when we have one, doubles
+            # as the card art; otherwise the React view shows a generic radio
+            # backdrop with the station name — never a bare favicon globe.
+            # The metadata loop fills in the live track title/artist once it
+            # polls. Local sound-effect clips (Pi-served *.mp3) get no card —
+            # they accompany an image the automation pushes separately.
+            #
+            # Seed BEFORE starting the metadata loop: the loop's first poll may
+            # publish the now-playing card, so the card must already exist.
+            self._current_art_url = await self._resolve_station_art(stream_url)
+            await self._publish_station_card(stream_url)
+
+            # Start metadata updates (may publish the now-playing card on first poll).
+            self.start_metadata_updates()
 
             return True
 
@@ -150,9 +162,13 @@ class AudioManager:
                 self._is_playing = False
 
                 self.stop_metadata_updates()
-                # Remove the fullscreen station art overlay
+                # Remove the station-art overlay and the now-playing card
                 if self.display_stack:
                     await self.display_stack.remove("audio-art")
+                    await self.display_stack.remove("radio")
+                self._radio_card_active = False
+                self._last_published_key = None
+                self._current_art_url = None
                 logging.info("Audio stream stopped")
 
             return True
@@ -208,6 +224,10 @@ class AudioManager:
         self.stop_metadata_updates()
         if self.display_stack:
             await self.display_stack.remove("audio-art")
+            await self.display_stack.remove("radio")
+        self._radio_card_active = False
+        self._last_published_key = None
+        self._current_art_url = None
 
     def get_audio_status(self) -> Dict[str, Any]:
         """Get current audio streaming status across all sources"""
@@ -335,12 +355,11 @@ class AudioManager:
             if seg:
                 return await self._somafm_logo(seg)
 
-        # 3. Favicon fallback (low-res, but better than a blank background).
-        #    Skip it for local/loopback hosts: a clip served from the Pi itself
-        #    (e.g. http://127.0.0.1/static/*.mp3 sound effects) has no "station",
-        #    and the favicon service just returns a generic globe icon.
-        if host and not self._is_local_host(host):
-            return f"https://www.google.com/s2/favicons?domain={host}&sz=128"
+        # 3. No curated/SomaFM logo. We deliberately do NOT fall back to the
+        #    favicon service: for bare CDN hosts (e.g. live-radio.vrtcdn.be) it
+        #    just returns a generic globe icon. Returning None lets the canvas
+        #    show the station name on a generic radio backdrop instead — add an
+        #    `image:` in media_sources.yaml to give a station a real logo.
         return None
 
     @staticmethod
@@ -360,11 +379,14 @@ class AudioManager:
             return None
 
         if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
-            parts = stream_url.split('/')
-            for part in parts:
-                if part and not part.startswith('http') and '.' not in part and part not in ['pls', 'm3u', 'mp3']:
-                    return {"type": "somafm", "station": part.lower()}
-            return {"type": "somafm", "station": "groovesalad"}
+            # Station id = stream basename without extension (e.g.
+            # spacestation.pls → "spacestation"), the same derivation
+            # _resolve_station_art uses for the logo, so the name and the cover
+            # always refer to the same station. (The old per-segment scan
+            # skipped any segment containing a ".", so every *.pls URL fell
+            # through to a hardcoded "groovesalad" default.)
+            seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0].lower()
+            return {"type": "somafm", "station": seg or "groovesalad"}
 
         if "radioparadise.com" in stream_url.lower():
             if "mellow" in stream_url.lower():
@@ -453,6 +475,14 @@ class AudioManager:
                             self.current_metadata = metadata
                             logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
 
+                            # Drive the canvas now-playing card, but only when the
+                            # track actually changed (avoid restarting the marquee
+                            # / re-rendering every 15s poll).
+                            key = (metadata.get('title'), metadata.get('artist'))
+                            if metadata.get('title') and key != self._last_published_key:
+                                self._last_published_key = key
+                                await self._publish_now_playing(metadata)
+
                 await asyncio.sleep(METADATA_UPDATE_INTERVAL)
 
             except asyncio.CancelledError:
@@ -460,6 +490,77 @@ class AudioManager:
             except Exception as e:
                 logging.warning(f"Metadata update failed: {e}")
                 await asyncio.sleep(30)
+
+    def now_playing_payload(self) -> Optional[Dict[str, Any]]:
+        """Now-playing card data for the current audio stream, or None.
+
+        Live track metadata when a metadata-bearing stream provides it,
+        otherwise just the friendly station name (the React view shows it over
+        a generic radio backdrop). Returns None for local sound-effect clips
+        and when nothing is playing. Used both to drive the card and to replay
+        state to a freshly-connected client so it's never blank.
+        """
+        if not self._is_playing or not self.current_audio_stream:
+            return None
+        host = (urlparse(self.current_audio_stream).hostname or "").lower()
+        if not host or self._is_local_host(host):
+            return None
+        md = self.current_metadata
+        if md.get("title"):
+            name, artists, album = md["title"], md.get("artist", ""), md.get("station", "")
+        else:
+            name, artists, album = self._get_friendly_stream_name(self.current_audio_stream), "", ""
+        return {
+            "name": name,
+            "artists": artists,
+            "album": album,
+            "album_art_url": self._current_art_url,
+            "duration_ms": 0,
+            "spotify_url": None,
+        }
+
+    async def _publish_station_card(self, stream_url: str):
+        """Show the now-playing card seeded with the station name.
+
+        Called when a stream starts (and is the only card a stream with no
+        track metadata, e.g. an HLS feed, ever gets). Does nothing for local
+        sound-effect clips.
+        """
+        payload = self.now_playing_payload()
+        if not payload:
+            return
+        if self.now_playing_ws:
+            await self.now_playing_ws.broadcast("track_changed", payload)
+        if self.display_stack and not self._radio_card_active:
+            await self.display_stack.push("radio", {}, item_id="radio")
+            await self.display_stack.remove("audio-art")
+            self._radio_card_active = True
+            logging.info(f"Audio station card shown: {payload['name']}")
+
+    async def _publish_now_playing(self, metadata: Dict[str, Any]):
+        """Show the audio stream's current track on the canvas now-playing card.
+
+        Reuses the same `track_changed` event + `radio` display type that the
+        NowPlaying React view already renders for Spotify/Sendspin/Bluetooth.
+        The station logo doubles as the album art (blurred backdrop + cover);
+        radio has no track duration, so the progress bar/QR stay hidden.
+        """
+        if not self.now_playing_ws:
+            return
+        await self.now_playing_ws.broadcast("track_changed", {
+            "name": metadata.get("title") or "Unknown Track",
+            "artists": metadata.get("artist") or "",
+            "album": metadata.get("station") or "",
+            "album_art_url": self._current_art_url,
+            "duration_ms": 0,
+            "spotify_url": None,
+        })
+        # First track for this stream: swap the static logo overlay for the card.
+        if self.display_stack and not self._radio_card_active:
+            await self.display_stack.push("radio", {}, item_id="radio")
+            await self.display_stack.remove("audio-art")
+            self._radio_card_active = True
+            logging.info("Audio now-playing card shown on canvas")
 
     def start_metadata_updates(self):
         """Start the metadata update background task"""

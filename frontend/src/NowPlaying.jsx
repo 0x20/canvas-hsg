@@ -8,6 +8,7 @@ import './NowPlaying.css';
 // every other source falls back to a generic music note.
 const MUSIC_NOTE_ICON = "M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z";
 const BLUETOOTH_ICON = "M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z";
+const RADIO_ICON = "M3.24 6.15C2.51 6.43 2 7.17 2 8v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2H8.3l8.26-3.34L15.88 1 3.24 6.15zM7 20c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm13 0h-9v-2h9v2zm0-4h-9v-2h9v2zm0-4H4V8h16v4z";
 
 /**
  * Now Playing - Spotify display with WebSocket updates
@@ -15,8 +16,8 @@ const BLUETOOTH_ICON = "M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 
  */
 export default function NowPlaying({ source }) {
   const [track, setTrack] = useState({
-    name: 'Waiting for track...',
-    artists: 'Play something on Spotify',
+    name: 'Nothing playing',
+    artists: '',
     album: '',
     albumArtUrl: null,
     durationMs: 0,
@@ -39,7 +40,9 @@ export default function NowPlaying({ source }) {
     onMessage: (message) => {
       if (message.event !== 'track_changed') return;
 
-      let artists = message.data.artists || 'Unknown Artist';
+      // No artist (e.g. a radio stream) → show nothing, not a placeholder.
+      // The artist line is hidden when empty (see render).
+      let artists = message.data.artists || '';
       if (Array.isArray(artists)) {
         artists = artists.join(', ');
       } else if (typeof artists === 'string') {
@@ -194,11 +197,15 @@ export default function NowPlaying({ source }) {
       {/* Blurred full-screen background. The dark gradient is stacked above
           the album-art URL inside a single background-image so the layer
           is opaque (no opacity:0.6 → no per-frame alpha blend). */}
-      {track.albumArtUrl && (
+      {track.albumArtUrl ? (
         <div
           className="background-blur"
           style={{ backgroundImage: `linear-gradient(rgba(15,15,26,0.4),rgba(15,15,26,0.4)), url('${track.albumArtUrl}')` }}
         />
+      ) : (
+        /* No station logo — generic radio backdrop so the station name reads
+           against more than flat black (e.g. HLS feeds with no logo). */
+        <div className="radio-fallback-bg" />
       )}
 
       {/* Centered sharp album art */}
@@ -211,7 +218,7 @@ export default function NowPlaying({ source }) {
           />
         ) : (
           <svg className="cover-art-fallback" viewBox="0 0 24 24" fill="white">
-            <path d={source === 'bluetooth' ? BLUETOOTH_ICON : MUSIC_NOTE_ICON} />
+            <path d={source === 'bluetooth' ? BLUETOOTH_ICON : source === 'radio' ? RADIO_ICON : MUSIC_NOTE_ICON} />
           </svg>
         )}
       </div>
@@ -239,15 +246,17 @@ export default function NowPlaying({ source }) {
           </div>
         </div>
 
-        <div className="artist-name" ref={artistContainerRef}>
-          <div
-            className="scrolling-text"
-            ref={artistTextRef}
-            data-text={track.artists}
-          >
-            {track.artists}
+        {track.artists && (
+          <div className="artist-name" ref={artistContainerRef}>
+            <div
+              className="scrolling-text"
+              ref={artistTextRef}
+              data-text={track.artists}
+            >
+              {track.artists}
+            </div>
           </div>
-        </div>
+        )}
 
         {track.album && (
           <div className="album-name" key={track.name}>

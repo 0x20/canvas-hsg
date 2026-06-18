@@ -14,8 +14,11 @@ import { useEffect, useRef } from 'react';
  *
  * Returns a ref holding the live WebSocket (null while disconnected) for
  * components that also send.
+ *
+ * Pass `enabled: false` to keep the hook inert (no connection) — used by
+ * display-only mirrors that must not open an audio socket.
  */
-export default function useWebSocket(path, { onMessage, onOpen } = {}) {
+export default function useWebSocket(path, { onMessage, onOpen, enabled = true } = {}) {
   const wsRef = useRef(null);
   // Live handler refs so the socket effect never needs to re-run when the
   // caller re-renders with new closures.
@@ -23,6 +26,7 @@ export default function useWebSocket(path, { onMessage, onOpen } = {}) {
   handlersRef.current = { onMessage, onOpen };
 
   useEffect(() => {
+    if (!enabled) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}${path}`;
     const RECONNECT_DELAY = 2000;
@@ -83,7 +87,7 @@ export default function useWebSocket(path, { onMessage, onOpen } = {}) {
       if (ws) ws.close();
       wsRef.current = null;
     };
-  }, [path]);
+  }, [path, enabled]);
 
   return wsRef;
 }

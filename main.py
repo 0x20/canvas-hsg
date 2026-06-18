@@ -7,10 +7,12 @@ It wires together all managers, pools, and API routes.
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 # Managers
@@ -66,6 +68,50 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
+
+_canvas_build_cache = {"mtime": 0.0, "hash": None}
+
+
+def current_canvas_build() -> Optional[str]:
+    """Hash of the currently-built canvas bundle (the `index-<hash>.js` Vite
+    emits), parsed from frontend/dist/index.html and cached by mtime.
+
+    The kiosks have no keyboard to hard-refresh, so the React app compares this
+    against its own loaded bundle hash (from import.meta.url) and reloads itself
+    when the server has a newer build — making every deploy self-propagate.
+    """
+    path = "frontend/dist/index.html"
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    if mtime != _canvas_build_cache["mtime"]:
+        try:
+            with open(path, "r") as fh:
+                m = re.search(r"index-([\w-]+)\.js", fh.read())
+            _canvas_build_cache["hash"] = m.group(1) if m else None
+            _canvas_build_cache["mtime"] = mtime
+        except OSError:
+            return _canvas_build_cache["hash"]
+    return _canvas_build_cache["hash"]
+
+
+class SPAStaticFiles(StaticFiles):
+    """StaticFiles that tells browsers to revalidate the SPA shell on every
+    load. Vite fingerprints its assets (hashed filenames), so those stay
+    cacheable forever, but index.html references the current hashes — if a
+    browser serves a stale index.html it loads a dead bundle. Kiosks can't be
+    hard-reloaded by hand, so we mark the HTML no-cache to guarantee a plain
+    reload (or power-cycle) picks up a freshly built bundle."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        # path is "." for the directory root (served as index.html via
+        # html=True) or "index.html"/"*.html" for an explicit request.
+        if path == "." or path.endswith(".html"):
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -99,6 +145,7 @@ async def lifespan(app: FastAPI):
             when HA pushes a transient visual on top."""
             payload = item.to_dict()
             payload["stack"] = app.state.display_stack.get_stack()
+            payload["app_build"] = current_canvas_build()
             await app.state.display_ws_manager.broadcast("display_state", payload)
 
         app.state.display_stack = DisplayStack(on_change=broadcast_display_state)
@@ -128,7 +175,11 @@ async def lifespan(app: FastAPI):
             # IFrame embed's `origin` parameter is a non-loopback hostname —
             # YouTube rejects loopback origins with Error 153 ("Video
             # unavailable"). CANVAS_DOMAIN is configurable per instance.
-            kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1"
+            # audio=1 marks this as THE audio-output display: only the Pi's own
+            # kiosk plays the stream and reports playback status. Other screens
+            # loading /canvas are silent display-only mirrors, so they don't
+            # double up the audio or flip playback state with their own reports.
+            kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1&audio=1"
 
             async def _launch_kiosk():
                 logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")
@@ -188,6 +239,9 @@ async def lifespan(app: FastAPI):
         app.state.audio_manager.spotify_manager = app.state.spotify_manager
         app.state.audio_manager.sendspin_manager = app.state.sendspin_manager
         app.state.audio_manager.display_stack = app.state.display_stack
+        # Same Spotify-events WS the now-playing card listens on — lets audio
+        # streams (SomaFM etc.) drive it with live track metadata.
+        app.state.audio_manager.now_playing_ws = app.state.websocket_manager
         app.state.sendspin_manager.playback_manager = app.state.playback_manager
         app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
         app.state.sendspin_manager.bluetooth_manager = app.state.bluetooth_manager
@@ -320,10 +374,26 @@ async def lifespan(app: FastAPI):
             app.state.display_stack,
         ))
 
+        # The Firefox kiosk loads `/canvas` WITHOUT a trailing slash. The
+        # StaticFiles mount answers that with a 307 to `/canvas/`, which the
+        # kiosk then serves from its own HTTP cache — so a rebuilt bundle never
+        # reaches it (only `GET /canvas` ever hits the server each boot). Serve
+        # index.html directly here with no-store: every boot fetches fresh HTML,
+        # which references the current fingerprinted bundle, forcing the new JS
+        # to download. Asset URLs are absolute (vite base=/canvas/), so serving
+        # the shell at the slashless URL resolves them fine.
+        if os.path.exists("frontend/dist/index.html"):
+            @app.get("/canvas", include_in_schema=False)
+            async def canvas_entry():
+                return FileResponse(
+                    "frontend/dist/index.html",
+                    headers={"Cache-Control": "no-store"},
+                )
+
         # Mount the built React canvas LAST. The mount catches anything
         # under /canvas/ that wasn't matched above (the SPA itself).
         if os.path.exists("frontend/dist"):
-            app.mount("/canvas", StaticFiles(directory="frontend/dist", html=True), name="canvas")
+            app.mount("/canvas", SPAStaticFiles(directory="frontend/dist", html=True), name="canvas")
 
         # Start periodic health check for Chromium and Raspotify
         async def health_check_loop():

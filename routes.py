@@ -1176,11 +1176,21 @@ def setup_websocket_routes(
                     "spotify_url": info.get("spotify_url"),
                 },
             }
+        # A radio stream is playing — replay its card so a freshly-connected
+        # client isn't blank. Carries the live track (SomaFM etc.) when the
+        # stream provides metadata, otherwise just the station name.
+        if audio_manager and (audio_payload := audio_manager.now_playing_payload()):
+            return {
+                "event": "track_changed",
+                "data": audio_payload,
+            }
         return None
 
-    @router.websocket("/ws/spotify-events")
-    async def spotify_events_websocket(websocket: WebSocket):
-        """WebSocket endpoint for real-time track updates (Spotify + Sendspin)"""
+    @router.websocket("/ws/now-playing")
+    @router.websocket("/ws/spotify-events")  # deprecated alias (carries all sources)
+    async def now_playing_websocket(websocket: WebSocket):
+        """WebSocket endpoint for real-time now-playing track updates from any
+        source (Spotify, Sendspin, Bluetooth, radio streams)."""
         # Send initial track data from whichever source is active
         await websocket_manager.connect(websocket, _current_track_initial_data())
         try:
@@ -1225,16 +1235,20 @@ def setup_websocket_routes(
         On change: broadcasts new display item to all clients.
         """
         # Send current display state immediately — same shape as live
-        # broadcasts (including the stack) so a fresh client renders exactly
-        # what an always-connected one does.
+        # broadcasts (including the stack), stamped with the server's current
+        # canvas build so a fresh client renders exactly what an always-connected
+        # one does and an older bundle reloads itself (kiosks have no keyboard).
         initial_data = None
         if display_stack:
+            from main import current_canvas_build  # lazy: avoids circular import
             payload = display_stack.current.to_dict()
             payload["stack"] = display_stack.get_stack()
+            payload["app_build"] = current_canvas_build()
             initial_data = {
                 "event": "display_state",
                 "data": payload
             }
+
 
         await display_ws_manager.connect(websocket, initial_data)
         try:
@@ -1248,6 +1262,16 @@ def setup_websocket_routes(
             logging.error(f"Display WebSocket error: {e}")
         finally:
             await display_ws_manager.disconnect(websocket)
+
+    @router.post("/display/reload-clients")
+    async def reload_display_clients():
+        """Tell every connected canvas to reload its page. Used to push a fresh
+        bundle to input-less kiosks without touching them.
+
+        Distinct from POST /display/reload (CDP kiosk reload): this reaches every
+        connected screen (kiosk + remote mirrors) via the WebSocket reload event."""
+        await display_ws_manager.broadcast("reload", {})
+        return {"message": "Reload sent to display clients"}
 
     @router.websocket("/ws/audio")
     async def audio_websocket(websocket: WebSocket):

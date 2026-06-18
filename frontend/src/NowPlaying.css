@@ -47,6 +47,18 @@ html.keepalive .now-playing {
   mask-image: radial-gradient(circle 45vh at center, transparent 99%, black 100%);
 }
 
+/* Generic backdrop for radio streams with no station logo. Synthwave-ish
+   radial wash so the station name reads against more than flat black. */
+.radio-fallback-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
+  background: radial-gradient(circle at 50% 38%, #2a1a4a 0%, #16121f 55%, #0b0a12 100%);
+}
+
 /* Centered sharp album art */
 .cover-wrapper {
   position: fixed;
