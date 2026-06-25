@@ -29,6 +29,10 @@ export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
   const containerRef = useRef(null);
   const autoplayCheckRef = useRef(null);
+  // Set once the player actually reaches PLAYING. The backup autoplay-check
+  // must never mute a video that already started — a single getPlayerState()
+  // read is racy (it can momentarily report cued/unstarted mid-playback).
+  const playedRef = useRef(false);
   const [errored, setErrored] = useState(false);
   const [needsUnmute, setNeedsUnmute] = useState(false);
 
@@ -41,13 +45,18 @@ export default function YouTubePlayer({ item }) {
   // How long the "video unavailable" message stays before falling back.
   const ERROR_DISPLAY_MS = 8000;
 
-  // How long after onReady before deciding unmuted autoplay was blocked.
-  const AUTOPLAY_CHECK_MS = 1500;
+  // How often to poll, and how long to wait, before deciding unmuted autoplay
+  // was blocked. YouTube startup on the Pi can take ~3s, so a single early
+  // read would wrongly mute a video that simply hadn't begun yet — poll until
+  // it starts, and only give up (mute + offer unmute) after the full window.
+  const AUTOPLAY_POLL_MS = 500;
+  const AUTOPLAY_GIVEUP_MS = 6000;
 
   useEffect(() => {
     if (!videoId) return;
     setErrored(false);  // a new video clears any prior "unavailable" state
     setNeedsUnmute(false);
+    playedRef.current = false;
 
     // Load YouTube IFrame API if not already loaded
     if (!window.YT) {
@@ -90,10 +99,22 @@ export default function YouTubePlayer({ item }) {
             if (startMuted) e.target.mute();
             e.target.playVideo();
             if (startMuted) return;
-            // Backup for when the AudioContext probe was wrong: if the
-            // player is still cued/unstarted after a moment, autoplay was
-            // blocked — retry muted and offer the tap-to-unmute overlay.
-            autoplayCheckRef.current = setTimeout(() => {
+            // Backup for when the AudioContext probe was wrong: poll until the
+            // video actually starts. If it never does within the give-up
+            // window, unmuted autoplay was blocked — retry muted and offer the
+            // tap-to-unmute overlay. Polling (vs a single early read) avoids
+            // muting a video that's merely slow to start on the Pi.
+            let waited = 0;
+            autoplayCheckRef.current = setInterval(() => {
+              // If the video ever reached PLAYING, unmuted autoplay worked —
+              // stop polling and leave it playing with sound.
+              if (playedRef.current) {
+                clearInterval(autoplayCheckRef.current);
+                return;
+              }
+              waited += AUTOPLAY_POLL_MS;
+              if (waited < AUTOPLAY_GIVEUP_MS) return;
+              clearInterval(autoplayCheckRef.current);
               let state;
               try { state = e.target.getPlayerState(); } catch { return; }
               // -1 = unstarted, 5 = cued: both mean autoplay never kicked in.
@@ -102,9 +123,12 @@ export default function YouTubePlayer({ item }) {
                 e.target.playVideo();
                 setNeedsUnmute(true);
               }
-            }, AUTOPLAY_CHECK_MS);
+            }, AUTOPLAY_POLL_MS);
           },
           onStateChange: (e) => {
+            // YT.PlayerState.PLAYING === 1 — record that playback truly began
+            // so the backup autoplay-check won't mute a working video.
+            if (e.data === 1) playedRef.current = true;
             // YT.PlayerState.ENDED === 0
             if (e.data === 0) {
               // Video ended — tell backend to pop from stack
@@ -135,7 +159,7 @@ export default function YouTubePlayer({ item }) {
       if (window.onYouTubeIframeAPIReady === createPlayer) {
         window.onYouTubeIframeAPIReady = undefined;
       }
-      clearTimeout(autoplayCheckRef.current);
+      clearInterval(autoplayCheckRef.current);
       if (playerRef.current) {
         try { playerRef.current.destroy(); } catch {}
         playerRef.current = null;
