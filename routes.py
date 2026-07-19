@@ -1157,7 +1157,9 @@ def setup_websocket_routes(
         way. The managers all keep track_info in the same shape.
         """
         for manager in (spotify_manager, sendspin_manager, bluetooth_manager):
-            if not (manager and manager.is_playing):
+            # A paused source still owns the view (held card), so hydrate it too.
+            paused = bool(getattr(manager, "is_paused", False))
+            if not (manager and (manager.is_playing or paused)):
                 continue
             info = manager.track_info or {}
             if not info.get("name"):
@@ -1174,6 +1176,7 @@ def setup_websocket_routes(
                     "album_art_url": info.get("album_art_url"),
                     "duration_ms": info.get("duration_ms", 0),
                     "spotify_url": info.get("spotify_url"),
+                    "paused": paused,
                 },
             }
         # A radio stream is playing — replay its card so a freshly-connected

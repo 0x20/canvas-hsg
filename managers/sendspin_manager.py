@@ -54,6 +54,10 @@ class SendspinManager:
         # _local_audio means audio is actually rendering on this Pi (drives the
         # audio-exclusivity actions, which a remote-speaker display must skip).
         self.is_playing = False
+        # is_paused means "the now-playing view is held, but paused" — the queue
+        # is stopped rather than gone, so we keep the last card + album art up
+        # with a pause overlay instead of reverting to the background.
+        self.is_paused = False
         self._local_audio = False
         self.is_connected = False
         self.track_info: Dict[str, Any] = {}
@@ -113,7 +117,9 @@ class SendspinManager:
         """
         logging.info("Sendspin: stream started (%s)", "local" if local else "remote group")
         self.is_connected = True
-        was_showing = self.is_playing
+        was_showing = self.is_playing or self.is_paused
+        was_paused = self.is_paused
+        self.is_paused = False
         self.is_playing = True
 
         if local and not self._local_audio:
@@ -151,6 +157,10 @@ class SendspinManager:
         # Read metadata and broadcast
         await self._read_and_broadcast_metadata()
 
+        # Coming out of pause: clear the paused overlay on the now-playing view.
+        if was_paused and self.websocket_manager:
+            await self.websocket_manager.broadcast("playback_state", {"paused": False})
+
         # Start polling for metadata changes
         self._start_metadata_polling()
 
@@ -160,6 +170,12 @@ class SendspinManager:
         which speaker renders it."""
         ac = self.artwork_client
         return bool(ac and ac.group_playing and ac.track_title)
+
+    def _remote_group_paused(self) -> bool:
+        """True when MA reports our group paused with a known track — a held
+        queue we should keep showing (paused), not a stop."""
+        ac = self.artwork_client
+        return bool(ac and ac.group_paused and ac.track_title)
 
     async def handle_hook_stop(self) -> None:
         """Called when sendspin daemon stops audio playback (hook-stop)."""
@@ -175,11 +191,50 @@ class SendspinManager:
             logging.info("Sendspin: local stream stopped but group still playing — keeping now-playing")
             return
 
+        # A local pause stops the stream (the daemon fires hook-stop) while MA
+        # keeps the queue paused. Hold the view and show it paused rather than
+        # reverting to the background.
+        if self._remote_group_paused():
+            logging.info("Sendspin: local stream stopped but group paused — showing paused")
+            await self.handle_pause()
+            return
+
         await self._hide_now_playing()
+
+    async def handle_pause(self) -> None:
+        """Hold the now-playing view but mark it paused.
+
+        Unlike a stop, the MA queue is only held — so we keep the last card and
+        album art on screen with a pause overlay, and re-show playing as soon as
+        playback resumes (handled by the playback watcher / hook-start).
+        """
+        if self.is_paused:
+            return
+        logging.info("Sendspin: playback paused — holding now-playing view")
+        self.is_paused = True
+        self.is_playing = False
+
+        # Release local audio ownership so a paused stream doesn't leave
+        # Raspotify muted.
+        if self._local_audio:
+            self._local_audio = False
+            if self.audio_conflict:
+                await self.audio_conflict.unmute_source("raspotify")
+
+        # Nothing changes while paused; the watcher keeps running and re-shows on
+        # resume. Keep the card on the display stack (idempotent) so the view
+        # holds even if a hook-stop popped it before we knew MA was only paused.
+        self._stop_metadata_polling()
+        if self.display_stack:
+            await self.display_stack.push("sendspin", {}, item_id="sendspin")
+
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast("playback_state", {"paused": True})
 
     async def _hide_now_playing(self) -> None:
         """Tear down the now-playing view and broadcast the stopped state."""
         self.is_playing = False
+        self.is_paused = False
 
         # Stop metadata polling
         self._stop_metadata_polling()
@@ -443,24 +498,40 @@ class SendspinManager:
 
                 status = await self._read_mpris_playback_status()
                 local = status == "Playing"
+                stopped_local = status == "Stopped"
                 remote = self._remote_group_playing()
+                remote_paused = self._remote_group_paused()
 
-                if local and not self._local_audio:
-                    logging.info("Sendspin playback detected via MPRIS — showing now-playing")
-                    await self.handle_hook_start()
-                elif self._local_audio and status in ("Stopped", "Paused"):
-                    # Paused counts as not-actively-playing: unmute raspotify so
-                    # a paused stream doesn't leave Spotify muted. The view stays
-                    # up if the group keeps playing elsewhere; resume re-shows
-                    # within a tick. status None is left alone — likely a
-                    # transient read failure.
-                    logging.info(f"Sendspin playback {status} via MPRIS — local stream ended")
+                if local or remote:
+                    # Music is playing somewhere (this Pi or another speaker) —
+                    # show it, clearing any paused overlay.
+                    if not self.is_playing:
+                        logging.info("Sendspin: playback detected — showing now-playing")
+                        await self.handle_hook_start(local=local)
+                    elif local and not self._local_audio:
+                        # View already up but audio is local again (e.g. resumed
+                        # after a remote-first tick) — re-acquire the audio lock.
+                        await self.handle_hook_start(local=True)
+                elif status == "Paused" or remote_paused:
+                    # Paused, nothing playing → hold the view and show paused.
+                    if not self.is_paused:
+                        logging.info(f"Sendspin: playback paused (mpris={status}) — showing paused")
+                        await self.handle_pause()
+                elif self._local_audio and stopped_local:
+                    # Local stream explicitly stopped. handle_hook_stop re-checks
+                    # MA and downgrades to paused if the queue is only held.
+                    logging.info("Sendspin: local stream stopped via MPRIS")
                     await self.handle_hook_stop()
-                elif remote and not self.is_playing:
-                    logging.info("Sendspin: group playing on another speaker — showing now-playing")
-                    await self.handle_hook_start(local=False)
-                elif self.is_playing and not self._local_audio and not remote and not local:
-                    logging.info("Sendspin: group stopped playing — hiding now-playing")
+                elif not self._local_audio and (self.is_playing or self.is_paused) \
+                        and self.artwork_client and not remote and not remote_paused:
+                    # A remote/paused view whose MA group is neither playing nor
+                    # paused → really stopped. MA group state is event-driven, so
+                    # this isn't a transient MPRIS read blip.
+                    logging.info("Sendspin: group stopped — hiding now-playing")
+                    await self._hide_now_playing()
+                elif self.is_paused and not self.artwork_client and stopped_local:
+                    # MPRIS-only paused view that then explicitly stopped.
+                    logging.info("Sendspin: paused stream stopped via MPRIS — hiding")
                     await self._hide_now_playing()
             except asyncio.CancelledError:
                 break
@@ -473,9 +544,11 @@ class SendspinManager:
         return {
             "is_connected": self.is_connected,
             "is_playing": self.is_playing,
+            "is_paused": self.is_paused,
             "local_audio": self._local_audio,
             "group_name": (ac.group_name if ac else None) or self.group_name,
             "group_playing": bool(ac and ac.group_playing),
+            "group_paused": bool(ac and ac.group_paused),
             "track_info": self.track_info or None,
             "last_event_time": self.last_event_time.isoformat() if self.last_event_time else None,
             "listener_port": SENDSPIN_LISTENER_PORT,

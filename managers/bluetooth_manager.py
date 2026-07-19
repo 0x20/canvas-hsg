@@ -30,6 +30,9 @@ class BluetoothManager:
 
         # Current state
         self.is_playing = False
+        # is_paused holds the now-playing view up (last card + art, pause
+        # overlay) when the device pauses, instead of reverting to background.
+        self.is_paused = False
         self.device_name: Optional[str] = None
         self.device_address: Optional[str] = None
         self.track_info: Dict[str, Any] = {}
@@ -107,11 +110,12 @@ class BluetoothManager:
         Called by other managers (Spotify, Sendspin) when they take over audio.
         We clean up state immediately rather than waiting for the poll loop.
         """
-        if not self.is_playing:
+        if not (self.is_playing or self.is_paused):
             return
 
         # Immediately update state and remove from display stack
         self.is_playing = False
+        self.is_paused = False
         self.track_info = {}
         if self.display_stack:
             await self.display_stack.remove_by_type("bluetooth")
@@ -190,8 +194,13 @@ class BluetoothManager:
             player_props = managed_objects[player_path].get("org.bluez.MediaPlayer1", {})
             await self._read_and_broadcast_track(player_props)
 
-        elif self.is_playing:
-            # Player gone or not playing anymore
+        elif player_path and player_status == "paused":
+            # Device present but paused → hold the view and show it paused.
+            if self.is_playing or self.is_paused:
+                await self._handle_pause()
+
+        elif self.is_playing or self.is_paused:
+            # Player gone (or stopped) → tear down the now-playing view.
             await self._handle_disconnect()
 
     def _update_adapter_info(self, managed_objects: Dict[str, Dict[str, Any]]) -> None:
@@ -208,10 +217,32 @@ class BluetoothManager:
                 }
                 break
 
+    async def _handle_pause(self) -> None:
+        """Bluetooth device paused: hold the now-playing view, show it paused."""
+        if self.is_paused:
+            return
+        logging.info("Bluetooth playback paused")
+        self.is_paused = True
+        self.is_playing = False
+
+        # Release the audio lock so a paused stream doesn't stay muted.
+        if self.audio_conflict:
+            await self.audio_conflict.unmute_source("raspotify")
+            await self.audio_conflict.unmute_source("sendspin")
+
+        # Keep the card on the display stack (idempotent).
+        if self.display_stack:
+            await self.display_stack.push("bluetooth", {}, item_id="bluetooth")
+
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast("playback_state", {"paused": True})
+
     async def _handle_connect(self, device_name: Optional[str] = None,
                                device_address: Optional[str] = None) -> None:
         """Handle a new Bluetooth A2DP connection starting playback."""
         logging.info(f"Bluetooth A2DP connected: {device_name or 'Unknown device'} ({device_address})")
+        was_paused = self.is_paused
+        self.is_paused = False
         self.is_playing = True
         self.device_name = device_name
         self.device_address = device_address
@@ -242,12 +273,18 @@ class BluetoothManager:
             await self.websocket_manager.broadcast("spotify_state", {
                 "is_playing": True,
             })
+            # Coming out of pause: clear the paused overlay on the view.
+            if was_paused:
+                await self.websocket_manager.broadcast("playback_state", {
+                    "paused": False,
+                })
 
     async def _handle_disconnect(self) -> None:
         """Handle Bluetooth A2DP disconnection or playback stop."""
         logging.info("Bluetooth A2DP disconnected")
-        was_playing = self.is_playing
+        was_playing = self.is_playing or self.is_paused
         self.is_playing = False
+        self.is_paused = False
         self.device_name = None
         self.device_address = None
         self.track_info = {}
@@ -366,6 +403,7 @@ class BluetoothManager:
         """Get current Bluetooth status for the API."""
         return {
             "is_playing": self.is_playing,
+            "is_paused": self.is_paused,
             "device_name": self.device_name,
             "device_address": self.device_address,
             "track_info": self.track_info or None,

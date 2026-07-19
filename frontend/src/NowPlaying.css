@@ -86,6 +86,31 @@ html.keepalive .now-playing {
   filter: drop-shadow(0 8px 40px rgba(0,0,0,0.5));
 }
 
+/* Paused: dim the cover and float a pause glyph over its centre. */
+.now-playing.paused .cover-art,
+.now-playing.paused .cover-art-fallback {
+  filter: brightness(0.5) drop-shadow(0 8px 40px rgba(0,0,0,0.5));
+  transition: filter 0.3s ease;
+}
+
+.pause-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.pause-overlay svg {
+  width: 18vh;
+  height: 18vh;
+  color: #fff;
+  opacity: 0.92;
+  filter: drop-shadow(0 4px 20px rgba(0,0,0,0.7));
+}
+
 /* Content container */
 .content {
   position: relative;

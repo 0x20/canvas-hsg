@@ -26,6 +26,7 @@ export default function NowPlaying({ source }) {
   });
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [showQr, setShowQr] = useState(false);
+  const [paused, setPaused] = useState(false);
 
   const trackTextRef = useRef(null);
   const artistTextRef = useRef(null);
@@ -38,7 +39,16 @@ export default function NowPlaying({ source }) {
   // that's been connected all along.
   useWebSocket('/ws/spotify-events', {
     onMessage: (message) => {
+      // Pause/resume of the current track — hold the view, toggle the overlay.
+      if (message.event === 'playback_state') {
+        setPaused(!!message.data?.paused);
+        return;
+      }
       if (message.event !== 'track_changed') return;
+
+      // A track change means playing again, unless the server is replaying a
+      // paused card to a freshly-connected client (data.paused).
+      setPaused(!!message.data.paused);
 
       // No artist (e.g. a radio stream) → show nothing, not a placeholder.
       // The artist line is hidden when empty (see render).
@@ -150,6 +160,14 @@ export default function NowPlaying({ source }) {
     }
   }, [track.durationMs, track.startTime]);
 
+  // Freeze the progress-bar animation while paused (the fill is driven by a
+  // CSS animation; play-state is the only longhand not reset by the inline
+  // `animation` shorthand set on track change, so toggling it here is safe).
+  useEffect(() => {
+    const fillEl = progressFillRef.current;
+    if (fillEl) fillEl.style.animationPlayState = paused ? 'paused' : 'running';
+  }, [paused]);
+
   // Marquee: forward-only loop with a pause each cycle. We measure the
   // *single-copy* text width while .scroll is OFF (no ::after duplicate
   // yet), then compute the per-cycle distance as singleWidth + gap. Once
@@ -193,7 +211,7 @@ export default function NowPlaying({ source }) {
   }, [track]);
 
   return (
-    <div className="now-playing">
+    <div className={`now-playing${paused ? ' paused' : ''}`}>
       {/* Blurred full-screen background. The dark gradient is stacked above
           the album-art URL inside a single background-image so the layer
           is opaque (no opacity:0.6 → no per-frame alpha blend). */}
@@ -222,6 +240,16 @@ export default function NowPlaying({ source }) {
           </svg>
         )}
       </div>
+
+      {/* Pause indicator over the frozen album art. Only shown while the
+          current track is paused; a resume or track change clears it. */}
+      {paused && (
+        <div className="pause-overlay" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 5h4v14H6zM14 5h4v14h-4z" />
+          </svg>
+        </div>
+      )}
 
       {/* Progress bar — width updated via ref + style mutation, no React
           re-render per tick (see useEffect above). scaleX is GPU-composited. */}

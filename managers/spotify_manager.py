@@ -37,6 +37,9 @@ class SpotifyManager:
 
         # Current Spotify state
         self.is_playing = False
+        # is_paused holds the now-playing view up (last card + art, pause
+        # overlay) instead of reverting to the background when playback pauses.
+        self.is_paused = False
         self.is_session_connected = False
         self.current_track_id: Optional[str] = None
         self.track_info: Dict[str, Any] = {}
@@ -169,6 +172,8 @@ class SpotifyManager:
                         "is_playing": True
                     })
 
+                await self._clear_paused()
+
                 logging.info(f"Spotify track changed: {name} - {artists}")
 
             elif event == "playing":
@@ -212,28 +217,39 @@ class SpotifyManager:
                         "is_playing": True
                     })
 
+                await self._clear_paused()
+
                 logging.info(f"Spotify now playing: {self.track_info.get('name', track_id)}")
 
             elif event == "paused":
+                # Hold the now-playing view but mark it paused — keep the card,
+                # album art and queue on screen with a pause overlay rather than
+                # reverting to the background. A real stop still tears it down.
                 self.is_playing = False
+                self.is_paused = True
                 logging.info("Spotify playback paused")
 
-                # Unmute Sendspin
+                # Release the audio lock so a paused stream doesn't leave
+                # Sendspin muted.
                 if self.audio_conflict:
                     await self.audio_conflict.unmute_source("sendspin")
 
-                # Remove spotify from display stack
+                # Keep spotify on the display stack (idempotent) so the view holds.
                 if self.display_stack:
-                    await self.display_stack.remove_by_type("spotify")
+                    await self.display_stack.push("spotify", {}, item_id="spotify")
 
-                # Broadcast state change via WebSocket (React will switch views)
+                # Overlay for the display; is_playing for the control panel.
                 if self.websocket_manager:
+                    await self.websocket_manager.broadcast("playback_state", {
+                        "paused": True
+                    })
                     await self.websocket_manager.broadcast("spotify_state", {
                         "is_playing": False
                     })
 
             elif event in ("stopped", "session_disconnected"):
                 self.is_playing = False
+                self.is_paused = False
                 if event == "session_disconnected":
                     self.is_session_connected = False
                 self.current_track_id = None
@@ -339,6 +355,14 @@ class SpotifyManager:
             logging.warning(f"Failed to fetch album art from track ID {spotify_id}: {e}")
 
         return None
+
+    async def _clear_paused(self) -> None:
+        """Clear a paused overlay when playback resumes."""
+        if not self.is_paused:
+            return
+        self.is_paused = False
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast("playback_state", {"paused": False})
 
     def _is_preempted(self) -> bool:
         """Check if another audio source (Bluetooth, Sendspin) is currently active.

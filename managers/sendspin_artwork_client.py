@@ -128,6 +128,9 @@ class SendspinArtworkClient:
         self._group_id: Optional[str] = None
         self._group_name: Optional[str] = None
         self._group_playing: bool = False
+        # Whether MA reports the group merely paused (queue held, not stopped) —
+        # distinguishes a pause we should keep showing from a real stop.
+        self._group_paused: bool = False
         # Whether MA advertised the `switch` command (controller support). If it
         # doesn't, auto-join is impossible and we say so once.
         self._switch_supported: bool = False
@@ -160,6 +163,11 @@ class SendspinArtworkClient:
     def group_playing(self) -> bool:
         """True while the group MA has us in is actively playing."""
         return self._client is not None and self._group_playing
+
+    @property
+    def group_paused(self) -> bool:
+        """True while the group MA has us in is paused (queue held, not stopped)."""
+        return self._client is not None and self._group_paused
 
     @property
     def group_name(self) -> Optional[str]:
@@ -275,12 +283,14 @@ class SendspinArtworkClient:
         group_id = getattr(payload, "group_id", None)
         state = getattr(payload, "playback_state", None)
         playing = state == PlaybackStateType.PLAYING
+        paused = state == PlaybackStateType.PAUSED
 
         if group_id != self._group_id or playing != self._group_playing:
             self._sync_backoff_until = 0.0  # new info → worth (re)trying a switch
         self._group_id = group_id
         self._group_name = getattr(payload, "group_name", None)
         self._group_playing = playing
+        self._group_paused = paused
 
         logger.info(
             "Sendspin group/update: group=%s (%s) playback=%s",
