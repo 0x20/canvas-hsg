@@ -113,6 +113,17 @@ Key things setup.sh must preserve:
 ### Raspotify + PipeWire/PulseAudio
 Raspotify's default systemd sandbox has `PrivateUsers=true` (remaps UIDs, breaking socket auth) and `ProtectHome=true` (blocks `/home/hsg`). Both must be overridden in the drop-in for PulseAudio to work. Symptom: `Audio Sink Error Connection Refused: <PulseAudioSink>`.
 
+### Legacy control panel caching (`index.html` + `static/app.js`)
+The control panel at `/` loads its script as `/static/app.js?v=N`. That query
+string is the **only** cache-buster — StaticFiles sends no `Cache-Control`, so a
+browser holds the previous copy indefinitely. **Bump `?v=` in `index.html`
+whenever you edit `static/app.js`**, or the change silently never reaches the
+browser. Symptom: part of a feature works and part doesn't (data read from the
+API at runtime updates, but anything requiring new JS does not).
+
+Note the React control panel (`frontend/`) is separate and Vite-fingerprinted,
+so it does not have this problem.
+
 ### Vite base path + Angie proxy
 When proxying a Vite app under a subpath (`/spotify/`), you must:
 1. Set `base: '/spotify/'` in `vite.config.js` (so asset URLs get the prefix)
