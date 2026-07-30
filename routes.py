@@ -78,6 +78,26 @@ def setup_audio_routes(audio_manager: 'AudioManager', spotify_manager: Optional[
         else:
             raise HTTPException(status_code=500, detail="Failed to start audio stream")
 
+    @router.get("/audio/station-art")
+    async def station_art_status():
+        """What the station-logo cache currently holds."""
+        if not audio_manager.station_art:
+            raise HTTPException(status_code=503, detail="Station art cache not available")
+        return audio_manager.station_art.status()
+
+    @router.post("/audio/station-art/refresh")
+    async def station_art_refresh(stream_url: Optional[str] = None):
+        """Drop cached art so it is re-resolved on the next play.
+
+        Without `stream_url` this clears the whole cache — useful after editing
+        an `image:` in media_sources.yaml, or to retry stations that had no art
+        when they were first looked up.
+        """
+        if not audio_manager.station_art:
+            raise HTTPException(status_code=503, detail="Station art cache not available")
+        removed = audio_manager.station_art.clear(stream_url)
+        return {"message": f"Cleared {removed} station art entrie(s)", "cleared": removed}
+
     @router.post("/audio/stop")
     async def stop_audio_stream():
         """Stop current audio stream"""

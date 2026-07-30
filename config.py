@@ -12,6 +12,10 @@ _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Paths
 DEFAULT_BACKGROUND_PATH = os.path.join(_BASE_DIR, "canvas_background.png")
 
+# Downloaded radio-station logos, served at /station-art. Regenerable cache —
+# safe to delete, it just refills on the next stream start.
+STATION_ART_CACHE_DIR = os.path.join(_BASE_DIR, "cache", "station_art")
+
 # Canvas instance hostname / mDNS domain.
 # Resolution order: CANVAS_HOST env var, then `CANVAS_HOST=` in canvas.conf
 # (repo root), then the default "canvas". The kiosk loads

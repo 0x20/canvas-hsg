@@ -8,6 +8,7 @@ import asyncio
 import ipaddress
 import logging
 import os
+import re
 import time
 import aiohttp
 import yaml
@@ -41,9 +42,15 @@ class AudioManager:
         # Cached SomaFM id→logo map (channels.json); extensions vary per station.
         self._somafm_logos: Dict[str, str] = {}
         self._somafm_logos_ts: float = 0.0
-        # Cached url→image map from media_sources.yaml (built once; restart to
-        # pick up edits, consistent with the rest of the config).
+        # Cached url→image / url→name maps from media_sources.yaml (built once;
+        # restart to pick up edits, consistent with the rest of the config).
         self._stream_images: Optional[Dict[str, str]] = None
+        self._stream_names: Optional[Dict[str, str]] = None
+        # Station names announced by streams via their icy-name header.
+        self._icy_names: Dict[str, str] = {}
+        # StationArtCache — resolves and stores station logos on disk (set in
+        # main.py). Without it we fall back to remote seed URLs.
+        self.station_art = None
 
         # Current audio state
         self.current_audio_stream: Optional[str] = None
@@ -261,6 +268,18 @@ class AudioManager:
         if not stream_url:
             return "Unknown Stream"
 
+        # A configured preset knows its own name ("Studio Brussel"), which beats
+        # every guess below — the host-based fallback yields eyesores like
+        # "Stream from icecast.vrtcdn.be" on the canvas.
+        preset = self._load_stream_names().get(stream_url)
+        if preset:
+            return preset
+
+        # Station name announced by the stream itself, when it sends one.
+        icy_name = self._icy_names.get(stream_url)
+        if icy_name:
+            return icy_name
+
         if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
             parts = stream_url.split('/')
             for part in parts:
@@ -279,10 +298,77 @@ class AudioManager:
         else:
             return "Audio Stream"
 
-    def _load_stream_images(self) -> Dict[str, str]:
-        """url→image map from media_sources.yaml, parsed once and cached."""
+    async def _fetch_icy_metadata(self, stream_url: str) -> Optional[Dict[str, Any]]:
+        """Live track info from the stream's own ICY metadata, if it sends any.
+
+        Shoutcast/Icecast interleave a metadata block into the audio every
+        `icy-metaint` bytes, holding `StreamTitle='Artist - Title'`. That works
+        for any station regardless of whether it has a JSON API, so it's the
+        general fallback behind SomaFM's richer feed. Stations that only
+        announce themselves (VRT sends `StreamTitle='VRT Studio Brussel'`) yield
+        no track, which we detect by comparing against the station name.
+        """
+        try:
+            timeout = aiohttp.ClientTimeout(total=15)
+            headers = {"Icy-MetaData": "1", "User-Agent": "HSGCanvas/4.0"}
+            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                async with session.get(stream_url) as resp:
+                    if resp.status not in (200, 206):
+                        return None
+
+                    icy_name = (resp.headers.get("icy-name") or "").strip()
+                    if icy_name:
+                        self._icy_names[stream_url] = icy_name
+
+                    try:
+                        interval = int(resp.headers.get("icy-metaint", 0))
+                    except ValueError:
+                        interval = 0
+                    if interval <= 0:
+                        return None
+
+                    # Skip one audio block, then read the length-prefixed
+                    # metadata block that follows it.
+                    await resp.content.readexactly(interval)
+                    length = (await resp.content.readexactly(1))[0] * 16
+                    if length <= 0:
+                        return None
+                    block = await resp.content.readexactly(length)
+        except Exception as e:
+            logging.debug(f"ICY metadata read failed for {stream_url}: {e}")
+            return None
+
+        match = re.search(r"StreamTitle='(.*?)';", block.decode("utf-8", "ignore"))
+        if not match:
+            return None
+        title = match.group(1).strip()
+        station = self._get_friendly_stream_name(stream_url)
+        if not title:
+            return None
+
+        # Many stations park their own name in StreamTitle when they broadcast
+        # no track info at all — VRT sends "VRT Studio Brussel" forever. That's
+        # not a track, so leave the plain station card up. Compare loosely: the
+        # announced name rarely matches our preset name character for character.
+        def norm(s: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", s.lower())
+
+        norm_title = norm(title)
+        for other in (station, self._icy_names.get(stream_url, "")):
+            norm_other = norm(other)
+            if norm_other and (norm_title in norm_other or norm_other in norm_title):
+                return None
+
+        artist = ""
+        if " - " in title:
+            artist, title = (p.strip() for p in title.split(" - ", 1))
+        return {"title": title, "artist": artist, "station": station, "source": "icy"}
+
+    def _load_stream_presets(self):
+        """Parse media_sources.yaml once into url→image and url→name maps."""
         if self._stream_images is None:
             images: Dict[str, str] = {}
+            names: Dict[str, str] = {}
             try:
                 cfg = os.path.join(
                     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -292,12 +378,25 @@ class AudioManager:
                     sources = yaml.safe_load(f) or {}
                 for group in (sources.get("music_streams") or {}).values():
                     for entry in group or []:
-                        if entry.get("url") and entry.get("image"):
+                        if not entry.get("url"):
+                            continue
+                        if entry.get("image"):
                             images[entry["url"]] = entry["image"]
+                        if entry.get("name"):
+                            names[entry["url"]] = entry["name"]
             except Exception as e:
-                logging.debug(f"media_sources image load failed: {e}")
+                logging.debug(f"media_sources preset load failed: {e}")
             self._stream_images = images
-        return self._stream_images
+            self._stream_names = names
+        return self._stream_images, self._stream_names
+
+    def _load_stream_images(self) -> Dict[str, str]:
+        """url→curated image map from media_sources.yaml."""
+        return self._load_stream_presets()[0]
+
+    def _load_stream_names(self) -> Dict[str, str]:
+        """url→preset name map — the station-art search needs a real name."""
+        return self._load_stream_presets()[1]
 
     async def _somafm_logo(self, seg: str) -> str:
         """Exact SomaFM cover URL for a station, given the stream basename.
@@ -334,33 +433,49 @@ class AudioManager:
     async def _resolve_station_art(self, stream_url: str) -> Optional[str]:
         """Best fullscreen station-logo URL for an audio stream, or None.
 
-        Order: explicit `image` in media_sources.yaml → SomaFM cover (from the
-        API, keyed by station id) → site favicon. Streaming needs internet
-        anyway, so remote art URLs are fine.
+        The two sources we can derive directly — a curated `image:` in
+        media_sources.yaml and SomaFM's own cover API — become *seeds* for the
+        station-art cache, which also searches the open station database and the
+        station's homepage. The cache returns a local /station-art/ URL, so the
+        canvas renders art the Pi already holds.
+
+        Falls back to the seed's remote URL if the cache can't store anything,
+        and finally to None, which lets the canvas show the station name on a
+        generic radio backdrop. We deliberately never fall back to a favicon
+        service: for bare CDN hosts it just returns a generic globe icon.
         """
         if not stream_url:
             return None
 
-        # 1. Curated per-preset image from media_sources.yaml (cached)
+        host = (urlparse(stream_url).hostname or "").lower()
+        if not host or self._is_local_host(host):
+            return None
+
+        seeds = []
         curated = self._load_stream_images().get(stream_url)
         if curated:
-            return curated
+            seeds.append(curated)
 
-        host = (urlparse(stream_url).hostname or "").lower()
-
-        # 2. SomaFM: exact cover from the API, keyed by station id (the stream
-        #    basename; bitrate suffixes are handled inside _somafm_logo).
+        # SomaFM: exact cover from the API, keyed by station id (the stream
+        # basename; bitrate suffixes are handled inside _somafm_logo).
         if "somafm" in host or "soma.fm" in host:
             seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0]
             if seg:
-                return await self._somafm_logo(seg)
+                seeds.append(await self._somafm_logo(seg))
 
-        # 3. No curated/SomaFM logo. We deliberately do NOT fall back to the
-        #    favicon service: for bare CDN hosts (e.g. live-radio.vrtcdn.be) it
-        #    just returns a generic globe icon. Returning None lets the canvas
-        #    show the station name on a generic radio backdrop instead — add an
-        #    `image:` in media_sources.yaml to give a station a real logo.
-        return None
+        if self.station_art:
+            try:
+                local = await self.station_art.resolve(
+                    stream_url,
+                    station_name=self._load_stream_names().get(stream_url),
+                    seed_candidates=seeds,
+                )
+                if local:
+                    return local
+            except Exception as e:
+                logging.warning(f"Station art lookup failed for {stream_url}: {e}")
+
+        return seeds[0] if seeds else None
 
     @staticmethod
     def _is_local_host(host: str) -> bool:
@@ -468,20 +583,27 @@ class AudioManager:
             try:
                 if self.current_audio_stream:
                     stream_info = self._detect_stream_type(self.current_audio_stream)
+                    metadata = None
                     if stream_info:
                         metadata = await self._fetch_metadata(stream_info)
-                        if metadata:
-                            metadata['last_updated'] = datetime.now().isoformat()
-                            self.current_metadata = metadata
-                            logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
+                    # No station-specific API (or it gave us nothing): fall back
+                    # to the stream's own ICY metadata, which most Icecast and
+                    # Shoutcast stations broadcast.
+                    if not metadata:
+                        metadata = await self._fetch_icy_metadata(self.current_audio_stream)
 
-                            # Drive the canvas now-playing card, but only when the
-                            # track actually changed (avoid restarting the marquee
-                            # / re-rendering every 15s poll).
-                            key = (metadata.get('title'), metadata.get('artist'))
-                            if metadata.get('title') and key != self._last_published_key:
-                                self._last_published_key = key
-                                await self._publish_now_playing(metadata)
+                    if metadata:
+                        metadata['last_updated'] = datetime.now().isoformat()
+                        self.current_metadata = metadata
+                        logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
+
+                        # Drive the canvas now-playing card, but only when the
+                        # track actually changed (avoid restarting the marquee
+                        # / re-rendering every 15s poll).
+                        key = (metadata.get('title'), metadata.get('artist'))
+                        if metadata.get('title') and key != self._last_published_key:
+                            self._last_published_key = key
+                            await self._publish_now_playing(metadata)
 
                 await asyncio.sleep(METADATA_UPDATE_INTERVAL)
 

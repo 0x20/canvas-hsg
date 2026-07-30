@@ -62,6 +62,121 @@ music_streams:
       url: "https://somafm.com/deepspaceone.pls"
       description: "Deep ambient electronic, experimental and space music"
 
+    - name: "PopTron"
+      url: "https://somafm.com/poptron.pls"
+      description: "Electropop and indie dance rock with sparkle and pop"
+
+    - name: "Seven Inch Soul"
+      url: "https://somafm.com/7soul.pls"
+      description: "Vintage soul tracks from the original 45 RPM vinyl"
+
+  # Synthwave / Retrowave — Nightride FM (320kbps MP3) and friends
+  synthwave:
+    - name: "Nightride FM"
+      url: "https://stream.nightride.fm/nightride.mp3"
+      description: "The flagship channel: classic synthwave and retrowave, neon and driving"
+
+    - name: "Datawave"
+      url: "https://stream.nightride.fm/datawave.mp3"
+      description: "Upbeat, poppy futuresynth with big hooks and vocals"
+
+    - name: "Chillsynth"
+      url: "https://stream.nightride.fm/chillsynth.mp3"
+      description: "Dreamy, laid-back synthwave for late-night cruising"
+
+    - name: "Spacesynth"
+      url: "https://stream.nightride.fm/spacesynth.mp3"
+      description: "Bright, bouncy Italo-disco-flavoured spacesynth"
+      # Without this the art cache name-matches an unrelated "Spacesynth"
+      # station and shows its generic music-note icon. Use the family logo,
+      # same as the other Nightride channels.
+      image: "https://nightride.fm/static/img/logo.png"
+
+    - name: "Darksynth"
+      url: "https://stream.nightride.fm/darksynth.mp3"
+      description: "Harder, darker synthwave with horror-movie edges"
+
+    - name: "EBSM"
+      url: "https://stream.nightride.fm/ebsm.mp3"
+      description: "Electronic body synth music — industrial dancefloor stomp"
+
+    - name: "REKT"
+      url: "https://stream.nightride.fm/rekt.mp3"
+      description: "Aggressive cyberpunk hard electro and darkwave"
+
+    - name: "Nightwave Plaza"
+      url: "https://radio.plaza.one/mp3"
+      description: "24/7 vaporwave, mallsoft and future funk from the plaza"
+
+    - name: "laut.fm Synthwave"
+      url: "https://stream.laut.fm/synthwave"
+      description: "Community-run synthwave station — 'The Future Is Now'"
+      # laut.fm is a shared host with thousands of stations, so a name search
+      # matches the wrong one. This is the station's own art from api.laut.fm.
+      image: "https://assets.laut.fm/c70091dabcd496fffc75a21de28d4c64?t=_640x640"
+
+  # Pop & Dance — upbeat, chart-leaning stations
+  pop:
+    - name: "Radio Swiss Pop"
+      url: "https://stream.srg-ssr.ch/m/rsp/mp3_128"
+      description: "Non-stop mainstream pop hits, no ads and no chatter"
+
+    - name: "181.FM Power 181"
+      url: "http://listen.181fm.com/181-power_128k.mp3"
+      description: "Today's Top 40 hits and current chart pop"
+
+    - name: "181.FM Energy 98"
+      url: "http://listen.181fm.com/181-energy98_128k.mp3"
+      description: "High-energy dance and EDM club hits"
+
+    - name: "0N 80s"
+      url: "https://0n-80s.radionetz.de/0n-80s.mp3"
+      description: "The hits of a fantastic decade — 80s pop wall to wall"
+
+    - name: "FIP Pop"
+      url: "https://icecast.radiofrance.fr/fippop-midfi.mp3"
+      description: "Radio France's pop channel — sharp, eclectic, well curated"
+
+    - name: "FIP Electro"
+      url: "https://icecast.radiofrance.fr/fipelectro-midfi.mp3"
+      description: "Electronic and dance selections from Radio France"
+
+  # Indie & Eclectic — human-curated, higher bitrate
+  indie:
+    - name: "KEXP 90.3 Seattle"
+      url: "https://kexp-mp3-128.streamguys1.com/kexp128.mp3"
+      description: "Legendary Seattle station — indie, new music, real DJs"
+      # KEXP only publishes an SVG logo, and the stream is on a shared CDN host
+      # so the art cache has nothing to scrape. Commons renders SVG to PNG.
+      image: "https://commons.wikimedia.org/wiki/Special:FilePath/KEXP%20logo%20(black%20on%20orange).svg?width=1024"
+
+    - name: "Radio Paradise (Main Mix)"
+      url: "https://stream.radioparadise.com/aac-320"
+      description: "Eclectic hand-picked rock, pop and world, 320kbps AAC"
+
+    - name: "Radio Paradise (Global Mix)"
+      url: "https://stream.radioparadise.com/global-320"
+      description: "Worldwide grooves and beats, hand-picked, 320kbps AAC"
+
+  # Belgian Radio
+  belgium:
+    - name: "Studio Brussel"
+      url: "https://icecast.vrtcdn.be/stubru-high.mp3"
+      description: "VRT's alternative pop and dance station"
+
+    - name: "MNM"
+      url: "https://icecast.vrtcdn.be/mnm-high.mp3"
+      description: "VRT's chart pop and hits station"
+
+    # Willy is DPG Media, not VRT — it isn't on icecast.vrtcdn.be at all.
+    - name: "Willy"
+      url: "https://icecast-qmusicbe-cdp.triple-it.nl/willy.mp3"
+      description: "Rock, indie and classics for grown-ups"
+
+    - name: "Willy Class X"
+      url: "https://icecast-qmusicbe-cdp.triple-it.nl/willy-class-x.aac"
+      description: "Willy's classic rock spin-off"
+
   # BBC Radio
   bbc:
     - name: "BBC Radio 6 Music (320kbps)"
