@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 # Managers
 from managers.display_stack import DisplayStack
 from managers.audio_manager import AudioManager
+from managers.station_art import StationArtCache
 from managers.playback_manager import PlaybackManager
 from managers.image_manager import ImageManager
 from managers.display_detector import DisplayCapabilityDetector
@@ -60,7 +61,7 @@ from routes import (
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME, STATION_ART_CACHE_DIR
 
 # Logging setup
 logging.basicConfig(
@@ -196,6 +197,11 @@ async def lifespan(app: FastAPI):
         # Initialize managers
         logging.info("Initializing managers...")
         app.state.audio_manager = AudioManager(app.state.audio_ws_manager)
+
+        # Station-logo cache: resolves and stores radio artwork on disk so the
+        # canvas renders it from the Pi instead of a name on a blank backdrop.
+        app.state.station_art = StationArtCache(STATION_ART_CACHE_DIR)
+        app.state.audio_manager.station_art = app.state.station_art
 
         # Initialize audio conflict manager (shared between Spotify and Sendspin)
         logging.info("Initializing audio conflict manager...")
@@ -591,6 +597,11 @@ async def web_interface():
 # Starlette matches routes in registration order.
 if os.path.exists("static"):
     app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Cached station logos. Created up front so the mount exists even before the
+# first stream fills the cache.
+os.makedirs(STATION_ART_CACHE_DIR, exist_ok=True)
+app.mount("/station-art", StaticFiles(directory=STATION_ART_CACHE_DIR), name="station-art")
 
 
 if __name__ == "__main__":

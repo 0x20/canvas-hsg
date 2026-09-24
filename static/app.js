@@ -1153,29 +1153,32 @@ async function loadMediaSources() {
                 DOM.quickStreamSelect.removeChild(DOM.quickStreamSelect.lastChild);
             }
 
-            if (mediaSources.music_streams.somafm) {
-                const somaGroup = document.createElement('optgroup');
-                somaGroup.label = 'soma.fm Stations';
-                mediaSources.music_streams.somafm.forEach(station => {
-                    const option = document.createElement('option');
-                    option.value = station.url;
-                    option.textContent = station.name;
-                    somaGroup.appendChild(option);
-                });
-                DOM.quickStreamSelect.appendChild(somaGroup);
-            }
+            // Every group in media_sources.yaml gets an optgroup, so adding a
+            // new group there needs no change here. STREAM_GROUP_LABELS only
+            // overrides the auto-generated title-cased label.
+            const STREAM_GROUP_LABELS = {
+                somafm: 'soma.fm Stations',
+                bbc: 'BBC Radio',
+                indie: 'Indie & Eclectic',
+                pop: 'Pop & Dance',
+            };
 
-            if (mediaSources.music_streams.bbc) {
-                const bbcGroup = document.createElement('optgroup');
-                bbcGroup.label = 'BBC Radio';
-                mediaSources.music_streams.bbc.forEach(station => {
+            Object.entries(mediaSources.music_streams).forEach(([category, stations]) => {
+                if (!Array.isArray(stations) || stations.length === 0) return;
+
+                const group = document.createElement('optgroup');
+                group.label = STREAM_GROUP_LABELS[category] ||
+                    category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+
+                stations.forEach(station => {
                     const option = document.createElement('option');
                     option.value = station.url;
                     option.textContent = station.name;
-                    bbcGroup.appendChild(option);
+                    group.appendChild(option);
                 });
-                DOM.quickStreamSelect.appendChild(bbcGroup);
-            }
+
+                DOM.quickStreamSelect.appendChild(group);
+            });
         }
 
         if (DOM.videoPresets && mediaSources.youtube_channels) {

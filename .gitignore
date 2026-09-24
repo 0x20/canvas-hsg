@@ -52,3 +52,6 @@ canvas.conf
 
 # Per-instance idle-screen overlay settings (logo/QR toggles), runtime-written
 overlay_settings.json
+
+# Downloaded station logos — regenerable cache, refills on next stream start
+cache/
