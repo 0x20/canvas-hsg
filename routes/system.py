@@ -9,9 +9,7 @@ from config import APP_VERSION, DEVICE_NAME
 from utils.media_sources import load_media_sources
 
 
-def setup_system_routes(
-    display_detector=None
-) -> APIRouter:
+def setup_system_routes(display_detector=None, station_store=None) -> APIRouter:
     router = APIRouter()
 
     @router.get("/health")
@@ -60,7 +58,11 @@ def setup_system_routes(
     @router.get("/media-sources")
     async def get_media_sources():
         """Get configured media sources for the web interface"""
-        return load_media_sources()
+        sources = load_media_sources()
+        # The radio part is the edited station list, not the YAML seed
+        if station_store:
+            sources["music_streams"] = station_store.as_media_sources()
+        return sources
 
     @router.get("/resolution")
     async def get_resolution():

@@ -16,7 +16,6 @@ from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
 from config import METADATA_UPDATE_INTERVAL
-from utils.media_sources import load_media_sources
 
 
 class AudioManager:
@@ -44,10 +43,8 @@ class AudioManager:
         # Cached SomaFM id→logo map (channels.json); extensions vary per station.
         self._somafm_logos: Dict[str, str] = {}
         self._somafm_logos_ts: float = 0.0
-        # Cached url→image / url→name maps from media_sources.yaml (built once;
-        # restart to pick up edits, consistent with the rest of the config).
-        self._stream_images: Optional[Dict[str, str]] = None
-        self._stream_names: Optional[Dict[str, str]] = None
+        # StationStore with the preset stations (set in main.py)
+        self.stations = None
         # Station names announced by streams via their icy-name header.
         self._icy_names: Dict[str, str] = {}
         # StationArtCache — resolves and stores station logos on disk (set in
@@ -287,7 +284,7 @@ class AudioManager:
         # A configured preset knows its own name ("Studio Brussel"), which beats
         # every guess below — the host-based fallback yields eyesores like
         # "Stream from icecast.vrtcdn.be" on the canvas.
-        preset = self._load_stream_names().get(stream_url)
+        preset = self._preset(stream_url).get("name")
         if preset:
             return preset
 
@@ -379,30 +376,29 @@ class AudioManager:
             artist, title = (p.strip() for p in title.split(" - ", 1))
         return {"title": title, "artist": artist, "station": station, "source": "icy"}
 
-    def _load_stream_presets(self):
-        """Parse media_sources.yaml once into url→image and url→name maps."""
-        if self._stream_images is None:
-            images: Dict[str, str] = {}
-            names: Dict[str, str] = {}
-            for group in (load_media_sources().get("music_streams") or {}).values():
-                for entry in group or []:
-                    if not entry.get("url"):
-                        continue
-                    if entry.get("image"):
-                        images[entry["url"]] = entry["image"]
-                    if entry.get("name"):
-                        names[entry["url"]] = entry["name"]
-            self._stream_images = images
-            self._stream_names = names
-        return self._stream_images, self._stream_names
+    def _preset(self, stream_url: str) -> Dict[str, Any]:
+        """The station list entry for this URL (name, image), or {}."""
+        return (self.stations.by_url(stream_url) if self.stations else None) or {}
 
-    def _load_stream_images(self) -> Dict[str, str]:
-        """url→curated image map from media_sources.yaml."""
-        return self._load_stream_presets()[0]
+    async def warm_station_art(self, delay: float = 1.0):
+        """Look up the logo of every preset station that has none cached yet.
 
-    def _load_stream_names(self) -> Dict[str, str]:
-        """url→preset name map — the station-art search needs a real name."""
-        return self._load_stream_presets()[1]
+        Runs in the background, one station at a time, so the control panel
+        can show logos before anyone plays a station. Stations without a
+        usable image are cached as misses and retried after a day.
+        """
+        if not self.stations or not self.station_art:
+            return
+        urls = [s["url"] for s in self.stations.stations()]
+        found = 0
+        for url in urls:
+            try:
+                if await self._resolve_station_art(url):
+                    found += 1
+            except Exception as e:
+                logging.warning(f"Station art warm-up failed for {url}: {e}")
+            await asyncio.sleep(delay)
+        logging.info(f"Station art: {found} of {len(urls)} preset stations have a logo")
 
     async def _somafm_logo(self, seg: str) -> str:
         """Exact SomaFM cover URL for a station, given the stream basename.
@@ -438,8 +434,8 @@ class AudioManager:
     async def _resolve_station_art(self, stream_url: str) -> Optional[str]:
         """Best fullscreen station-logo URL for an audio stream, or None.
 
-        The two sources we can derive directly — a curated `image:` in
-        media_sources.yaml and SomaFM's own cover API — become *seeds* for the
+        The two sources we can derive directly — a curated `image:` in the
+        station list and SomaFM's own cover API — become *seeds* for the
         station-art cache, which also searches the open station database and the
         station's homepage. The cache returns a local /station-art/ URL, so the
         canvas renders art the Pi already holds.
@@ -457,7 +453,7 @@ class AudioManager:
             return None
 
         seeds = []
-        curated = self._load_stream_images().get(stream_url)
+        curated = self._preset(stream_url).get("image")
         if curated:
             seeds.append(curated)
 
@@ -472,7 +468,7 @@ class AudioManager:
             try:
                 local = await self.station_art.resolve(
                     stream_url,
-                    station_name=self._load_stream_names().get(stream_url),
+                    station_name=self._preset(stream_url).get("name"),
                     seed_candidates=seeds,
                 )
                 if local:

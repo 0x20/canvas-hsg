@@ -126,3 +126,20 @@ class VideoDisplayRequest(BaseModel):
 class DeviceNameRequest(BaseModel):
     kind: str = Field(description="Which name: 'spotify', 'bluetooth' or 'music_assistant'")
     name: str = Field(min_length=1, max_length=40, description="The new name")
+
+
+class StationModel(BaseModel):
+    name: str = Field(min_length=1, max_length=60)
+    url: str = Field(pattern=r"^https?://\S+$", max_length=500)
+    image: Optional[str] = Field(None, pattern=r"^https?://\S+$", max_length=500)
+    description: Optional[str] = Field(None, max_length=200)
+
+
+class StationGroupModel(BaseModel):
+    name: str = Field(min_length=1, max_length=40)
+    stations: List[StationModel] = Field(default_factory=list, max_length=200)
+
+
+class StationsRequest(BaseModel):
+    """The full radio station list, in display order."""
+    groups: List[StationGroupModel] = Field(max_length=50)

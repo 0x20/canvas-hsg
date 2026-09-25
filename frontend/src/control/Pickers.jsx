@@ -2,8 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, somafmLogo, youtubeId, youtubeThumb } from './api';
 import { Icon } from './icons';
 
-const GROUP_NAMES = { somafm: 'SomaFM', bbc: 'BBC', belgium: 'Belgium' };
-const groupName = (key) => GROUP_NAMES[key] || key.replace(/_/g, ' ');
+const groupName = (key) => key.replace(/_/g, ' ');
 
 /** Runs an action, shows it busy, and returns the error text if it fails. */
 function useAction() {
@@ -44,16 +43,20 @@ function StationArt({ src, name }) {
 
 // ── Radio ───────────────────────────────────────────────────────────────
 
-export function RadioPicker({ sources, display }) {
+export function RadioPicker({ stations, display, onEdit }) {
   const [art, setArt] = useState({});
   const [current, setCurrent] = useState(null);
   const [url, setUrl] = useState('');
   const { busy, error, run } = useAction();
 
+  // The server looks up logos in the background: re-read the list now and then
   useEffect(() => {
-    api('GET', '/audio/station-art').then((s) => {
+    const load = () => api('GET', '/audio/station-art').then((s) => {
       setArt(Object.fromEntries((s.entries || []).filter((e) => e.art_url).map((e) => [e.stream_url, e.art_url])));
     }).catch(() => {});
+    load();
+    const id = setInterval(load, 20000);
+    return () => clearInterval(id);
   }, []);
 
   // Which station plays: re-read whenever the canvas changes
@@ -65,11 +68,11 @@ export function RadioPicker({ sources, display }) {
 
   return (
     <div className="picker">
-      {Object.entries(sources.music_streams || {}).map(([group, stations]) => (
-        <section key={group} className="group">
-          <h3 className="group-title">{groupName(group)}</h3>
+      {(stations?.groups || []).map((group) => (
+        <section key={group.name} className="group">
+          <h3 className="group-title">{group.name}</h3>
           <div className="tiles">
-            {(stations || []).map((s) => {
+            {group.stations.map((s) => {
               const on = current === s.url && display?.type === 'radio';
               return (
                 <button key={s.url} className={`tile ${on ? 'is-on' : ''}`} title={s.description || s.name}
@@ -92,6 +95,7 @@ export function RadioPicker({ sources, display }) {
         <button className="btn primary" disabled={!url || busy}><Icon.play /> Play</button>
       </form>
       {error && <p className="error">{error}</p>}
+      <button className="btn ghost edit-link" onClick={onEdit}><Icon.edit /> Edit stations</button>
     </div>
   );
 }

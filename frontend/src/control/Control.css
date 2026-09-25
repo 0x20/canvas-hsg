@@ -423,3 +423,53 @@ html, body { margin: 0; background: #f3efe6; }
 @media (prefers-reduced-motion: reduce) {
   .control *, .control *::before, .control *::after { animation: none !important; transition: none !important; }
 }
+
+/* ── Station editor ──────────────────────────────────────────────────── */
+
+.editor { display: grid; gap: 16px; padding-bottom: 88px; }
+@media (min-width: 1000px) { .editor { grid-column: 1 / -1; max-width: 820px; width: 100%; margin: 0 auto; } }
+.editor-title { margin: 0; font-size: 1.5rem; letter-spacing: -0.01em; }
+.edit-link { justify-self: start; }
+
+.edit-group {
+  display: grid; gap: 10px; padding: 14px;
+  border-radius: var(--radius); background: var(--card); border: 1px solid var(--line);
+}
+.edit-group-head { display: flex; align-items: center; gap: 6px; }
+.edit-group-head .group-name { flex: 1; font-weight: 700; }
+
+.edit-stations { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.edit-station {
+  display: grid; gap: 8px; grid-template-columns: 1fr;
+  padding: 10px; border-radius: 12px; background: var(--sunk);
+}
+@media (min-width: 640px) { .edit-station { grid-template-columns: 1fr auto; align-items: center; } }
+.edit-fields { display: grid; gap: 6px; min-width: 0; }
+.edit-tools { display: flex; align-items: center; gap: 4px; justify-content: flex-end; }
+
+.input.small { min-height: 38px; font-size: 0.84rem; }
+.input.is-bad { border-color: var(--signal); }
+
+.icon-btn {
+  display: grid; place-items: center; width: 38px; height: 38px; flex: none;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--ink-2);
+}
+.icon-btn.danger { color: var(--signal); }
+.icon-btn svg { width: 18px; height: 18px; }
+
+.group-select select {
+  height: 38px; max-width: 140px; padding: 0 8px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--card); font-size: 0.84rem;
+}
+.btn.small { min-height: 38px; padding: 0 12px; font-size: 0.85rem; }
+.btn.add { justify-self: start; border-style: dashed; }
+.btn.add.wide { justify-self: stretch; }
+
+.editor-bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--paper) 92%, transparent); backdrop-filter: blur(12px);
+  border-top: 1px solid var(--line);
+}
+.editor-bar > span { font-size: 0.9rem; }

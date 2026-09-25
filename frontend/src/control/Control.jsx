@@ -7,6 +7,7 @@ import { Icon } from './icons';
 import NowCard from './NowCard';
 import { RadioPicker, ScreenPicker, VideoPicker } from './Pickers';
 import Settings from './Settings';
+import StationEditor from './StationEditor';
 import useLive from './useLive';
 
 const TAB_KEY = 'hsg.control.tab';
@@ -69,10 +70,12 @@ export default function Control() {
   const [view, setView] = useState('home');
   const [picker, setPicker] = useState(readTab);
   const [sources, setSources] = useState({});
+  const [stations, setStations] = useState(null);
 
   useEffect(() => {
     document.title = 'HSG Canvas';
     api('GET', '/media-sources').then(setSources).catch(() => {});
+    api('GET', '/stations').then(setStations).catch(() => {});
   }, []);
 
   const choose = (id) => {
@@ -116,13 +119,15 @@ export default function Control() {
                   </button>
                 ))}
               </div>
-              {picker === 'radio' && <RadioPicker sources={sources} display={display} />}
+              {picker === 'radio' && <RadioPicker stations={stations} display={display} onEdit={() => setView('stations')} />}
               {picker === 'video' && <VideoPicker sources={sources} display={display} />}
               {picker === 'screen' && <ScreenPicker />}
             </section>
           </>
+        ) : view === 'stations' && stations ? (
+          <StationEditor stations={stations} onSaved={setStations} onClose={() => setView('home')} />
         ) : (
-          <Settings pin={pin} />
+          <Settings pin={pin} onEditStations={() => setView('stations')} />
         )}
       </main>
     </div>

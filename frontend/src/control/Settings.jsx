@@ -217,10 +217,22 @@ function System({ pin }) {
   );
 }
 
-export default function Settings({ pin }) {
+function Stations({ onEdit }) {
+  return (
+    <Card icon={<Icon.radio />} title="Radio stations">
+      <p className="muted">Add, remove, reorder and group the stations of the Radio tab.</p>
+      <div className="actions">
+        <button className="btn ghost" onClick={onEdit}><Icon.edit /> Edit stations</button>
+      </div>
+    </Card>
+  );
+}
+
+export default function Settings({ pin, onEditStations }) {
   return (
     <div className="settings">
       <IdleScreen />
+      <Stations onEdit={onEditStations} />
       <Names />
       <Tv />
       <Cast />

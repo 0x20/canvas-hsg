@@ -12,7 +12,11 @@ export async function api(method, path, data) {
   const type = r.headers.get('content-type') || '';
   const body = type.includes('application/json') ? await r.json() : await r.text();
   if (!r.ok) {
-    throw new Error(body?.detail ? String(body.detail) : `${method} ${path} failed (${r.status})`);
+    // FastAPI sends a string, or a list of {loc, msg} for a validation error
+    const detail = Array.isArray(body?.detail)
+      ? body.detail.map((d) => `${(d.loc || []).slice(1).join('.')}: ${d.msg}`).join('; ')
+      : body?.detail;
+    throw new Error(detail ? String(detail) : `${method} ${path} failed (${r.status})`);
   }
   return body;
 }
