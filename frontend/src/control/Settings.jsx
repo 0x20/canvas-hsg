@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from './api';
+import StaticBackground from '../StaticBackground';
 import { Icon } from './icons';
 
 /** A button that runs an action and shows the result for a moment. */
@@ -54,8 +55,11 @@ function IdleScreen() {
 
   return (
     <Card icon={<Icon.screen />} title="Idle screen">
-      {overlays?.background_url && (
-        <div className="preview" style={{ backgroundImage: `url("${overlays.background_url}")` }} />
+      {/* The real idle-screen component, so the toggles show their effect */}
+      {overlays && (
+        <div className="preview">
+          <StaticBackground item={{ content: overlays }} embedded />
+        </div>
       )}
       <div className="stack">
         <Toggle label="Show the logo" checked={overlays?.show_logo} onChange={(v) => set({ show_logo: v })} />
@@ -67,30 +71,6 @@ function IdleScreen() {
       </div>
       <input ref={fileRef} type="file" accept="image/*" hidden
              onChange={(e) => e.target.files?.[0] && upload(e.target.files[0])} />
-    </Card>
-  );
-}
-
-function SpotifyVolume() {
-  const [status, setStatus] = useState(null);
-  const pending = useRef(null);
-  useEffect(() => { api('GET', '/audio/spotify/status').then(setStatus).catch(() => {}); }, []);
-  const change = (v) => {
-    setStatus((s) => ({ ...s, volume: v }));
-    clearTimeout(pending.current);
-    pending.current = setTimeout(() => api('PUT', '/audio/spotify/volume', { volume: v }).catch(() => {}), 150);
-  };
-  return (
-    <Card icon={<Icon.speaker />} title="Spotify Connect">
-      <p className="muted">
-        {status ? (status.service_running ? `Ready as “${status.device_name}”` : 'The Raspotify service is not running') : '…'}
-      </p>
-      <label className="volume">
-        <span className="volume-lbl">Output level</span>
-        <input type="range" min="0" max="100" value={status?.volume ?? 0} disabled={!status}
-               style={{ '--fill': `${status?.volume ?? 0}%` }} onChange={(e) => change(Number(e.target.value))} />
-        <span className="volume-val mono">{status?.volume ?? '–'}</span>
-      </label>
     </Card>
   );
 }
@@ -159,12 +139,14 @@ function System({ pin }) {
   const [info, setInfo] = useState({});
   useEffect(() => {
     const get = (p) => api('GET', p).catch(() => null);
-    Promise.all([get('/health'), get('/sendspin/status'), get('/bluetooth/status'), get('/ws/status')])
-      .then(([health, sendspin, bluetooth, ws]) => setInfo({ health, sendspin, bluetooth, ws }));
+    Promise.all([get('/health'), get('/audio/spotify/status'), get('/sendspin/status'),
+                 get('/bluetooth/status'), get('/ws/status')])
+      .then(([health, spotify, sendspin, bluetooth, ws]) => setInfo({ health, spotify, sendspin, bluetooth, ws }));
   }, []);
-  const { health, sendspin, bluetooth, ws } = info;
+  const { health, spotify, sendspin, bluetooth, ws } = info;
   const rows = [
     ['Version', health?.version],
+    ['Spotify Connect', spotify ? (spotify.service_running ? `Ready as “${spotify.device_name}”` : 'Not running') : null],
     ['Music Assistant', pin ? `Waiting for PIN ${pin}` : sendspin ? (sendspin.is_connected ? 'Connected' : 'Not connected') : null],
     ['Bluetooth', bluetooth ? (bluetooth.device_name || 'No device') : null],
     ['Open screens', ws ? `${ws.display} display, ${ws.audio} audio` : null],
@@ -176,7 +158,6 @@ function System({ pin }) {
       </dl>
       <div className="actions">
         <a className="btn ghost" href="/docs" target="_blank" rel="noreferrer">API docs</a>
-        <a className="btn ghost" href="/canvas/" target="_blank" rel="noreferrer">Open the canvas</a>
       </div>
     </Card>
   );
@@ -186,7 +167,6 @@ export default function Settings({ pin }) {
   return (
     <div className="settings">
       <IdleScreen />
-      <SpotifyVolume />
       <Tv />
       <Cast />
       <System pin={pin} />

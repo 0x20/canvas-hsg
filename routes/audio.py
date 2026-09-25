@@ -10,7 +10,6 @@ from models.request_models import (
     AudioStreamRequest,
     AudioVolumeRequest,
     SpotifyEventRequest,
-    SpotifyVolumeRequest,
 )
 
 
@@ -88,24 +87,11 @@ def setup_audio_routes(audio_manager, spotify_manager=None) -> APIRouter:
     async def get_spotify_status():
         """Get Spotify Connect (Raspotify) service status"""
         is_running = await system_audio.service_active("raspotify")
-        volume = await system_audio.get_spotify_volume()
         return {
             "service_running": is_running,
             "device_name": DEVICE_NAME,
             "status": "active" if is_running else "inactive",
-            "volume": volume if volume is not None else 100,
             "message": "Spotify Connect is available - cast from your phone!" if is_running else "Spotify Connect service is not running",
-        }
-
-    @router.put("/audio/spotify/volume")
-    async def set_spotify_volume(request: SpotifyVolumeRequest):
-        """Set Spotify Connect (Raspotify) volume using ALSA mixer"""
-        if not await system_audio.set_spotify_volume(request.volume):
-            raise HTTPException(status_code=500, detail="Failed to set Spotify volume")
-        return {
-            "success": True,
-            "volume": request.volume,
-            "message": f"Spotify volume set to {request.volume}%",
         }
 
     @router.post("/audio/spotify/event")

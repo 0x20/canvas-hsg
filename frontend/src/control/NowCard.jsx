@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, hostOf, youtubeThumb, youtubeTitle } from './api';
+import StaticBackground from '../StaticBackground';
 import { Icon } from './icons';
 
 const MUSIC = { spotify: 'Spotify', sendspin: 'Music Assistant', bluetooth: 'Bluetooth', radio: 'Radio' };
@@ -41,8 +42,7 @@ function useShowing(display, track) {
     case 'qrcode':
       return { kind: 'screen', label: 'QR code', item, title: c.qr_content, sub: '', art: c.image_url, contain: true };
     default:
-      return { kind: 'idle', label: 'Idle screen', item, title: 'Nothing playing',
-               sub: 'Pick a station or a video below', art: c.background_url || null, backdrop: true };
+      return { kind: 'idle', label: 'Idle screen', item, title: '', sub: '', art: null };
   }
 }
 
@@ -73,7 +73,7 @@ function Volume() {
   return (
     <label className="volume">
       <Icon.speaker />
-      <span className="sr-only">Speaker volume</span>
+      <span className="sr-only">Speaker volume (all sources)</span>
       <input type="range" min="0" max="100" value={volume ?? 0} disabled={volume == null}
              style={{ '--fill': `${volume ?? 0}%` }}
              onChange={(e) => change(Number(e.target.value))} />
@@ -101,10 +101,14 @@ export default function NowCard({ display, track }) {
 
   return (
     <section className="now" aria-label="Now on the canvas">
-      <div className={`screen kind-${showing.kind}`}>
+      {/* The card mirrors the TV: a tap opens the full canvas */}
+      <a className={`screen kind-${showing.kind}`} href="/canvas/" target="_blank" rel="noreferrer"
+         aria-label="Open the full canvas">
+        {showing.kind === 'idle' && <StaticBackground item={showing.item} embedded />}
         {showing.art && !showing.contain && (
           <div className="screen-bg" style={{ backgroundImage: `url("${showing.art}")` }} />
         )}
+        <span className="screen-open" aria-hidden="true"><Icon.expand /></span>
         <div className="screen-inner">
           <div className={`tally ${live ? 'is-live' : ''}`}>
             <span className="tally-lamp" />
@@ -112,16 +116,18 @@ export default function NowCard({ display, track }) {
             <span className="tally-src">{showing.label}</span>
           </div>
           <div className="screen-body">
-            {showing.art && !showing.backdrop && (
+            {showing.art && (
               <img className={`screen-art ${showing.contain ? 'contain' : ''}`} src={showing.art} alt="" />
             )}
-            <div className="screen-text">
-              <h2 className="screen-title">{showing.title}</h2>
-              {showing.sub && <p className="screen-sub">{showing.sub}</p>}
-            </div>
+            {showing.title && (
+              <div className="screen-text">
+                <h2 className="screen-title">{showing.title}</h2>
+                {showing.sub && <p className="screen-sub">{showing.sub}</p>}
+              </div>
+            )}
           </div>
         </div>
-      </div>
+      </a>
 
       <div className="now-controls">
         {showing.item.type === 'radio' && (

@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Set
 
 from managers.now_playing import track_payload
-from utils.proc import run
 
 
 class SpotifyManager:
@@ -204,8 +203,6 @@ class SpotifyManager:
             self.is_playing = True
             if self.audio_conflict:
                 await self.audio_conflict.claim("spotify")
-            # Reset system volume to 100% — Spotify has its own volume via Raspotify
-            await run("pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%")
 
         # Push spotify onto display stack (auto-evicts BT/sendspin via EXCLUSIVE_TYPES)
         if self.display_stack:

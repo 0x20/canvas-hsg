@@ -10,8 +10,11 @@ import './StaticBackground.css';
  * overscan-safe inset — baked-in corner elements get clipped by object-fit
  * cover + TV overscan. Toggles and the QR target come from the display base
  * content (item.content), set by the BackgroundManager.
+ *
+ * `embedded` draws it inside its parent box instead of the full viewport: the
+ * control panel uses that for a true preview of the idle screen.
  */
-export default function StaticBackground({ item }) {
+export default function StaticBackground({ item, embedded = false }) {
   const content = item?.content || {};
   const backgroundUrl = content.background_url || '/static/canvas_background_2.png';
   const showLogo = content.show_logo !== false; // default on
@@ -37,7 +40,7 @@ export default function StaticBackground({ item }) {
   }, [showQr, qrUrl]);
 
   return (
-    <div className="static-background">
+    <div className={embedded ? 'static-background embedded' : 'static-background'}>
       <img src={backgroundUrl} alt="" className="background-image" />
       <div className="overlay-title">CANVAS</div>
       {showLogo && (

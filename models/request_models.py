@@ -81,8 +81,6 @@ class StaticOverlayRequest(BaseModel):
     background_url: Optional[str] = Field(None, description="Idle background image URL")
 
 
-class SpotifyVolumeRequest(BaseModel):
-    volume: int = Field(70, ge=0, le=100, description="Spotify volume 0-100")
 
 
 class HAConfigUpdateRequest(BaseModel):
