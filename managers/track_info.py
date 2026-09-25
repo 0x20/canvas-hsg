@@ -70,8 +70,10 @@ def _norm(s: str) -> str:
 def is_station_name(text: str, names: List[str]) -> bool:
     """True when a "title" only repeats the station name (VRT sends "VRT MNM")."""
     t = _norm(text)
-    # A very short name ("MNM") inside a longer title is not enough
-    return not t or any(n and (t in n or (len(n) >= 6 and n in t)) for n in map(_norm, names))
+    # "VRT MNM" holds the name "MNM" and is no track; "Artist - Title" with the
+    # name somewhere inside is a track
+    is_track_shaped = " - " in (text or "")
+    return not t or any(n and (t in n or (n in t and not is_track_shaped)) for n in map(_norm, names))
 
 
 def _text(value: Any) -> str:
@@ -297,7 +299,9 @@ class TrackInfo:
                 "source": "icy"}
 
     async def _icy_title(self, url: str, info: Optional[Dict[str, Any]] = None) -> Optional[str]:
-        """Raw StreamTitle of one ICY block. Fills `info` with the response headers."""
+        """Raw StreamTitle of one ICY block: "" when the stream sends ICY blocks
+        but no title now, None when it sends no ICY at all.
+        Fills `info` with the response headers."""
         try:
             async with self._http().get(url, timeout=aiohttp.ClientTimeout(total=15),
                                         headers={"Icy-MetaData": "1"}) as resp:
@@ -315,13 +319,13 @@ class TrackInfo:
                 await resp.content.readexactly(interval)
                 length = (await resp.content.readexactly(1))[0] * 16
                 if not length:
-                    return None
+                    return ""
                 block = (await resp.content.readexactly(length)).decode("utf-8", "ignore")
         except Exception as e:
             logging.debug(f"ICY read failed for {url}: {e}")
             return None
         match = re.search(r"StreamTitle='(.*?)';", block)
-        return match.group(1).strip() if match else None
+        return match.group(1).strip() if match else ""
 
     @staticmethod
     def _parse_shoutcast(url: str, text: Optional[str]) -> Optional[Tuple[str, str]]:
@@ -420,12 +424,17 @@ class TrackInfo:
         if builtin:
             return done(builtin, await self.read(builtin, names))
 
-        # 2. ICY titles, sampled a few times to skip gaps between songs
+        # 2. ICY titles, sampled a few times to skip gaps between songs.
+        # Empty titles (ads, gaps) still mean the stream can send titles; a
+        # stream that only ever sends its own name (VRT) cannot.
         info: Dict[str, Any] = {}
+        icy_empty = icy_name_only = False
         for i in range(icy_samples):
             text = await self._icy_title(resolved_url, info if i == 0 else None)
             if text and not is_station_name(text, names + [self.icy_names.get(resolved_url, "")]):
                 return done({"kind": "icy"}, text)
+            icy_empty |= text == ""
+            icy_name_only |= bool(text)
             if i < icy_samples - 1:
                 await asyncio.sleep(icy_gap)
 
@@ -463,6 +472,8 @@ class TrackInfo:
             if track and not is_station_name(track[1], names):
                 return done(method, track)
 
+        if icy_empty and not icy_name_only:
+            return done({"kind": "icy"})
         return done({"kind": "none"})
 
 
