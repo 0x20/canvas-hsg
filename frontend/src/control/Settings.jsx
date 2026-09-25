@@ -75,6 +75,60 @@ function IdleScreen() {
   );
 }
 
+const NAME_FIELDS = [
+  ['spotify', 'Spotify Connect', 'Restarts Spotify Connect; Spotify playback stops.'],
+  ['bluetooth', 'Bluetooth', 'Phones see the new name at their next scan.'],
+  ['music_assistant', 'Music Assistant player', 'Restarts the player; Music Assistant playback stops.'],
+];
+
+function NameRow({ kind, label, note, value, onSaved }) {
+  const [draft, setDraft] = useState(value || '');
+  const [state, setState] = useState(null); // 'busy' | 'ok' | error text
+  const changed = draft.trim() && draft.trim() !== (value || '');
+
+  const save = async (e) => {
+    e.preventDefault();
+    setState('busy');
+    try {
+      onSaved(await api('PUT', '/settings/names', { kind, name: draft.trim() }));
+      setState('ok');
+      setTimeout(() => setState(null), 1600);
+    } catch (err) {
+      setState(err.message);
+    }
+  };
+
+  return (
+    <form className="name-row" onSubmit={save}>
+      <label htmlFor={`name-${kind}`}>{label}</label>
+      <div className="url-row">
+        <input id={`name-${kind}`} className="input" maxLength={40} value={draft}
+               placeholder={value == null ? 'Not available' : ''} disabled={value == null}
+               onChange={(e) => setDraft(e.target.value)} />
+        <button className={`btn ${changed ? 'primary' : 'ghost'}`} disabled={!changed || state === 'busy'}>
+          {state === 'busy' ? '…' : state === 'ok' ? <><Icon.check /> Saved</> : 'Save'}
+        </button>
+      </div>
+      {state && !['busy', 'ok'].includes(state)
+        ? <p className="error">{state}</p>
+        : <p className="name-note">{note}</p>}
+    </form>
+  );
+}
+
+function Names() {
+  const [names, setNames] = useState(null);
+  useEffect(() => { api('GET', '/settings/names').then(setNames).catch(() => setNames({})); }, []);
+  return (
+    <Card icon={<Icon.tag />} title="Names">
+      <p className="muted">The names phones and Music Assistant show for the canvas.</p>
+      {names && NAME_FIELDS.map(([kind, label, note]) => (
+        <NameRow key={kind} kind={kind} label={label} note={note} value={names[kind]} onSaved={setNames} />
+      ))}
+    </Card>
+  );
+}
+
 function Cast() {
   const [devices, setDevices] = useState([]);
   const [device, setDevice] = useState('');
@@ -167,6 +221,7 @@ export default function Settings({ pin }) {
   return (
     <div className="settings">
       <IdleScreen />
+      <Names />
       <Tv />
       <Cast />
       <System pin={pin} />

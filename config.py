@@ -6,6 +6,8 @@ Central configuration file for all constants and settings.
 import json
 import os
 
+from utils.names_env import read_names
+
 # Base directory (for resolving relative paths)
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -56,10 +58,11 @@ def _read_sendspin_name() -> str:
     """Name the sendspin player presents in Music Assistant, used to label its
     companion clients (e.g. the artwork display as "<name> - art").
 
-    Resolution: SENDSPIN_NAME env, then the daemon's settings-daemon.json (the
+    Resolution: SENDSPIN_NAME env, then state/names.env (set from the control
+    panel), then the daemon's settings-daemon.json (the
     install-time source of truth set by setup.sh), then DEVICE_NAME.
     """
-    name = os.environ.get("SENDSPIN_NAME")
+    name = os.environ.get("SENDSPIN_NAME") or read_names().get("SENDSPIN_NAME")
     if name:
         return name.strip()
     try:

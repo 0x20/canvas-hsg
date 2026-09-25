@@ -9,13 +9,13 @@ import { api } from './api';
  * - track:   the now-playing card data of Spotify, Sendspin, Bluetooth or
  *            radio (/ws/now-playing)
  * - pin:     the Music Assistant pairing PIN while pairing waits
- * - online:  true while the display socket is connected
+ * - online:  null until the first check, then whether the display socket is open
  */
 export default function useLive() {
   const [display, setDisplay] = useState(null);
   const [track, setTrack] = useState(null);
   const [pin, setPin] = useState(null);
-  const [online, setOnline] = useState(false);
+  const [online, setOnline] = useState(null);
 
   const displayWs = useWebSocket('/ws/display', {
     onOpen: () => setOnline(true),

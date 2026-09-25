@@ -475,6 +475,12 @@ class SendspinArtworkClient:
         except Exception:
             logger.exception("Failed to start Sendspin artwork client")
 
+    async def rename(self, client_name: str) -> None:
+        """Announce under a new name. The key pair and pairing stay the same."""
+        self._client_name = client_name
+        await self.stop()
+        await self.start()
+
     async def stop(self) -> None:
         if self._client is not None:
             try:

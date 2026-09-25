@@ -13,6 +13,7 @@ from routes.homeassistant import setup_homeassistant_routes
 from routes.kiosk import setup_kiosk_routes
 from routes.playback import setup_playback_routes
 from routes.sendspin import setup_sendspin_routes
+from routes.settings import setup_settings_routes
 from routes.system import setup_system_routes
 from routes.websockets import display_state_payload, setup_websocket_routes
 
@@ -28,6 +29,7 @@ __all__ = [
     "setup_output_target_routes",
     "setup_playback_routes",
     "setup_sendspin_routes",
+    "setup_settings_routes",
     "setup_system_routes",
     "setup_websocket_routes",
 ]

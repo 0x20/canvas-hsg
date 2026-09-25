@@ -36,6 +36,7 @@ except Exception as _artwork_import_err:
 from managers.bluetooth_manager import BluetoothManager
 from managers.audio_conflict import AudioConflictManager
 from managers.now_playing import NowPlaying
+from managers.device_names import DeviceNamesManager
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
 from managers.homeassistant_manager import HomeAssistantManager
@@ -55,6 +56,7 @@ from routes import (
     setup_homeassistant_routes,
     setup_kiosk_routes,
     setup_sendspin_routes,
+    setup_settings_routes,
     setup_bluetooth_routes,
 )
 
@@ -265,6 +267,7 @@ async def lifespan(app: FastAPI):
             await s.sendspin_artwork_client.start()
 
         await s.bluetooth_manager.initialize()
+        s.device_names = DeviceNamesManager(s.bluetooth_manager, s.sendspin_artwork_client)
 
         s.image_manager = ImageManager(s.display_stack)
         s.cec_manager = HDMICECManager()
@@ -301,6 +304,7 @@ async def lifespan(app: FastAPI):
             setup_homeassistant_routes(s.ha_manager),
             setup_sendspin_routes(s.sendspin_manager),
             setup_bluetooth_routes(s.bluetooth_manager),
+            setup_settings_routes(s.device_names),
             setup_websocket_routes(
                 s.websocket_manager, s.now_playing, s.spotify_manager,
                 s.display_ws_manager, s.display_stack,

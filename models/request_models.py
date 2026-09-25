@@ -121,3 +121,8 @@ class VideoDisplayRequest(BaseModel):
     video_url: str = Field(description="Video file URL to display")
     mute: Optional[bool] = Field(False, description="Mute audio on the video")
     duration: Optional[int] = Field(None, gt=0, le=86400, description="Auto-expire duration in seconds")
+
+
+class DeviceNameRequest(BaseModel):
+    kind: str = Field(description="Which name: 'spotify', 'bluetooth' or 'music_assistant'")
+    name: str = Field(min_length=1, max_length=40, description="The new name")

@@ -260,7 +260,11 @@ Type=simple
 User=$ACTUAL_USER
 Environment=XDG_RUNTIME_DIR=/run/user/$(id -u $ACTUAL_USER)
 Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$(id -u $ACTUAL_USER)/bus
-ExecStart=$SENDSPIN_BIN daemon --name "$SENDSPIN_NAME" --id "$SENDSPIN_ID" --audio-device "$SENDSPIN_AUDIO_DEVICE" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
+# The name set from the control panel (SENDSPIN_NAME in state/names.env)
+# overrides this default. \${SENDSPIN_NAME} stays one argument with spaces.
+Environment="SENDSPIN_NAME=$SENDSPIN_NAME"
+EnvironmentFile=-$SCRIPT_DIR/state/names.env
+ExecStart=$SENDSPIN_BIN daemon --name \${SENDSPIN_NAME} --id "$SENDSPIN_ID" --audio-device "$SENDSPIN_AUDIO_DEVICE" --hook-start "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/start" --hook-stop "curl -s -X POST http://127.0.0.1:8000/sendspin/hook/stop"
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal

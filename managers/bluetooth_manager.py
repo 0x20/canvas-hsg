@@ -68,6 +68,18 @@ class BluetoothManager:
         cmd = "on" if enabled else "off"
         return await self._bluetoothctl("pairable", cmd)
 
+    @property
+    def adapter_name(self) -> Optional[str]:
+        """The name phones see (the adapter alias), from the last poll."""
+        return self._adapter_info.get("name") or None
+
+    async def set_adapter_name(self, name: str) -> bool:
+        """Change the name phones see. BlueZ keeps it across reboots."""
+        ok = await self._bluetoothctl("system-alias", name)
+        if ok:
+            self._adapter_info["name"] = name
+        return ok
+
     async def get_paired_devices(self) -> List[Dict[str, Any]]:
         """List paired devices from BlueZ managed objects."""
         managed_objects = await self._get_managed_objects()

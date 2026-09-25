@@ -86,7 +86,6 @@ export default function Control() {
         <div className="brand">
           <span className="brand-mark" aria-hidden="true" />
           <span className="brand-name">HSG Canvas</span>
-          <span className={`link-dot ${online ? 'is-on' : ''}`} title={online ? 'Connected' : 'Reconnecting…'} />
         </div>
         <nav className="views">
           <button className={view === 'home' ? 'is-on' : ''} onClick={() => setView('home')} aria-label="Remote">
@@ -97,6 +96,10 @@ export default function Control() {
           </button>
         </nav>
       </header>
+
+      {online === false && (
+        <div className="offline" role="status">Lost the connection to the canvas. Reconnecting…</div>
+      )}
 
       <main className="main">
         <PairingBanner pin={pin} />
