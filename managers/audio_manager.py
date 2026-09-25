@@ -18,6 +18,14 @@ from urllib.parse import urlparse
 from config import METADATA_UPDATE_INTERVAL
 
 
+# Radio France livemeta IDs of the FIP streams, by the part after "fip" in the
+# stream URL (icecast.radiofrance.fr/fip<name>-midfi.mp3)
+FIP_STATION_IDS = {
+    "": 7, "rock": 64, "jazz": 65, "groove": 66, "world": 69, "nouveautes": 70,
+    "reggae": 71, "electro": 74, "metal": 77, "pop": 78,
+}
+
+
 class AudioManager:
     """Manages audio streaming via browser WebSocket"""
 
@@ -495,6 +503,20 @@ class AudioManager:
         if not stream_url:
             return None
 
+        # Stations whose stream carries no track title, but whose own API does.
+        # Checked before the generic icecast rule: these hosts contain "icecast".
+        lower = stream_url.lower()
+        fip = re.search(r"icecast\.radiofrance\.fr/fip([a-z]*)-", lower)
+        if fip and fip.group(1) in FIP_STATION_IDS:
+            return {"type": "fip", "id": FIP_STATION_IDS[fip.group(1)]}
+        if "kexp" in lower:
+            return {"type": "kexp"}
+        bbc = re.search(r"(bbc_[a-z0-9_]+)\.m3u8", lower)
+        if bbc:
+            return {"type": "bbc", "service": bbc.group(1)}
+        if lower.endswith("/willy.mp3") and "qmusicbe" in lower:
+            return {"type": "willy"}
+
         if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
             # Station id = stream basename without extension (e.g.
             # spacestation.pls → "spacestation"), the same derivation
@@ -562,6 +584,43 @@ class AudioManager:
                     'station': f"Radio Paradise {channel_names[stream_info['channel']]}",
                     'source': 'radioparadise'
                 }
+
+        elif stream_info['type'] == 'fip':
+            data = await self._get_json(f"https://api.radiofrance.fr/livemeta/live/{stream_info['id']}/fip_extended")
+            now = (data or {}).get('now') or {}
+            # Between songs "now" is the presenter ("Le direct") without interpreters
+            if now.get('title') and now.get('interpreters'):
+                return {'title': now['title'], 'artist': now['interpreters'],
+                        'album': now.get('album') or '', 'station': 'FIP', 'source': 'fip'}
+
+        elif stream_info['type'] == 'kexp':
+            data = await self._get_json("https://api.kexp.org/v2/plays/?limit=1")
+            play = ((data or {}).get('results') or [{}])[0]
+            # An "airbreak" is the DJ talking: no track
+            if play.get('play_type') == 'trackplay' and play.get('song'):
+                return {'title': play['song'], 'artist': play.get('artist') or '',
+                        'album': play.get('album') or '', 'station': 'KEXP', 'source': 'kexp'}
+
+        elif stream_info['type'] == 'bbc':
+            data = await self._get_json(
+                f"https://rms.api.bbc.co.uk/v2/services/{stream_info['service']}/segments/latest")
+            for segment in (data or {}).get('data') or []:
+                if (segment.get('offset') or {}).get('now_playing'):
+                    titles = segment.get('titles') or {}
+                    return {'title': titles.get('secondary') or '', 'artist': titles.get('primary') or '',
+                            'album': '', 'station': 'BBC', 'source': 'bbc'}
+
+        elif stream_info['type'] == 'willy':
+            data = await self._get_json("https://api.willy.radio/2.4/tracks/plays?limit=1")
+            track = ((data or {}).get('played_tracks') or [{}])[0]
+            try:
+                ends = datetime.fromisoformat(track['played_at']).timestamp() + track.get('duration', 0)
+            except (KeyError, TypeError, ValueError):
+                ends = 0
+            # The feed lists the last track; after it ends, the DJ or an ad is on
+            if track.get('title') and ends + 30 > time.time():
+                return {'title': track['title'], 'artist': (track.get('artist') or {}).get('name', ''),
+                        'album': '', 'station': 'Willy', 'source': 'willy'}
 
         elif stream_info['type'] == 'icecast':
             data = await self._get_json(f"{stream_info['server']}/status-json.xsl")
