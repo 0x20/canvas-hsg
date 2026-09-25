@@ -470,6 +470,7 @@ class AudioManager:
                     stream_url,
                     station_name=self._preset(stream_url).get("name"),
                     seed_candidates=seeds,
+                    preferred=curated,
                 )
                 if local:
                     return local

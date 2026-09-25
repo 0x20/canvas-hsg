@@ -16,7 +16,8 @@ const withoutKeys = (groups) => groups.map((g) => ({
 }));
 
 const URL_RE = /^https?:\/\/\S+$/;
-const stationOk = (s) => s.name.trim() && URL_RE.test(s.url.trim());
+const imageOk = (s) => !(s.image || '').trim() || URL_RE.test(s.image.trim());
+const stationOk = (s) => s.name.trim() && URL_RE.test(s.url.trim()) && imageOk(s);
 
 /** Move item i of list by delta (-1 up, +1 down); returns a new list. */
 function move(list, i, delta) {
@@ -45,6 +46,9 @@ function StationRow({ station, index, count, groupIndex, groups, onChange, onMov
                maxLength={60} onChange={(e) => onChange({ name: e.target.value })} />
         <input className={`input mono small ${bad('url') ? 'is-bad' : ''}`} placeholder="https://… stream URL"
                value={station.url} onChange={(e) => onChange({ url: e.target.value })} />
+        <input className={`input mono small ${imageOk(station) ? '' : 'is-bad'}`}
+               placeholder="Logo URL (optional; replaces the found logo)"
+               value={station.image || ''} onChange={(e) => onChange({ image: e.target.value })} />
       </div>
       <div className="edit-tools">
         <IconButton label="Move up" disabled={index === 0} onClick={() => onMove(-1)}><Icon.up /></IconButton>
@@ -69,7 +73,12 @@ export default function StationEditor({ stations, onSaved, onClose }) {
   const original = useMemo(() => JSON.stringify(stations.groups || []), [stations]);
   const clean = withoutKeys(groups).map((g) => ({
     ...g, name: g.name.trim(),
-    stations: g.stations.map((s) => ({ ...s, name: s.name.trim(), url: s.url.trim() })),
+    stations: g.stations.map((s) => {
+      const out = { ...s, name: s.name.trim(), url: s.url.trim() };
+      const image = (s.image || '').trim();
+      if (image) out.image = image; else delete out.image;
+      return out;
+    }),
   }));
   const dirty = JSON.stringify(clean) !== original;
   const valid = clean.every((g) => g.name && g.stations.every(stationOk));
@@ -157,7 +166,7 @@ export default function StationEditor({ stations, onSaved, onClose }) {
       <div className="editor-bar">
         <span className={state && state !== 'busy' ? 'error' : 'muted'}>
           {state && state !== 'busy' ? state
-            : !valid ? 'Every group and station needs a name and a valid http(s) URL'
+            : !valid ? 'Every group and station needs a name, and every URL must start with http(s)://'
             : confirm === 'discard' ? 'Unsaved changes. Tap Cancel again to discard them.'
             : dirty ? 'Unsaved changes' : 'No changes'}
         </span>

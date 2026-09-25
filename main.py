@@ -303,7 +303,7 @@ async def lifespan(app: FastAPI):
             setup_display_routes(s.display_stack, s.image_manager, s.background_manager, s.chromium_manager),
             setup_cec_routes(s.cec_manager),
             setup_system_routes(display_detector=s.display_detector, station_store=s.stations),
-            setup_stations_routes(s.stations, on_saved=lambda: warm_art()),
+            setup_stations_routes(s.stations, s.station_art, on_saved=lambda: warm_art()),
             setup_chromecast_routes(s.chromecast_manager),
             setup_output_target_routes(s.output_target_manager),
             setup_homeassistant_routes(s.ha_manager),

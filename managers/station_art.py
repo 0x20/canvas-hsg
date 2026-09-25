@@ -127,6 +127,7 @@ class StationArtCache:
         station_name: Optional[str] = None,
         seed_candidates: Optional[List[str]] = None,
         force: bool = False,
+        preferred: Optional[str] = None,
     ) -> Optional[str]:
         """Local URL for this stream's art, resolving and caching it if needed.
 
@@ -153,16 +154,24 @@ class StationArtCache:
             if entry and not force and entry.get("file") and \
                     os.path.exists(os.path.join(self.cache_dir, entry["file"])):
                 return self._public_url(entry)
-            return await self._resolve_uncached(key, stream_url, station_name, seed_candidates)
+            return await self._resolve_uncached(key, stream_url, station_name, seed_candidates, preferred)
 
     async def _resolve_uncached(
         self, key: str, stream_url: str, station_name: Optional[str],
         seed_candidates: Optional[List[str]],
+        preferred: Optional[str] = None,
     ) -> Optional[str]:
         timeout = aiohttp.ClientTimeout(total=20)
         headers = {"User-Agent": USER_AGENT}
         try:
             async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+                # A logo someone chose for this station wins over any search result
+                if preferred:
+                    img = await self._fetch_image(session, preferred)
+                    if img:
+                        meta = await asyncio.to_thread(self._store, img, key, preferred)
+                        if meta:
+                            return self._record(key, meta, stream_url, station_name, "preferred", preferred)
                 candidates = await self._gather_candidates(
                     session, stream_url, station_name, seed_candidates
                 )
@@ -188,20 +197,7 @@ class StationArtCache:
                     img, source, url = best
                     meta = await asyncio.to_thread(self._store, img, key, url)
                     if meta:
-                        meta.update({
-                            "stream_url": stream_url,
-                            "name": station_name,
-                            "source": source,
-                            "remote_url": url,
-                            "ts": time.time(),
-                        })
-                        self._load_index()[key] = meta
-                        self._save_index()
-                        logging.info(
-                            f"Station art cached for {station_name or stream_url}: "
-                            f"{meta['width']}x{meta['height']} via {source}"
-                        )
-                        return self._public_url(meta)
+                        return self._record(key, meta, stream_url, station_name, source, url)
         except Exception as e:
             logging.warning(f"Station art resolution failed for {stream_url}: {e}")
             return None
@@ -214,6 +210,24 @@ class StationArtCache:
         self._save_index()
         logging.info(f"Station art: no usable image found for {station_name or stream_url}")
         return None
+
+    def _record(self, key: str, meta: Dict[str, Any], stream_url: str,
+                station_name: Optional[str], source: str, url: str) -> str:
+        """Add a stored image to the index and return its public URL."""
+        meta.update({
+            "stream_url": stream_url,
+            "name": station_name,
+            "source": source,
+            "remote_url": url,
+            "ts": time.time(),
+        })
+        self._load_index()[key] = meta
+        self._save_index()
+        logging.info(
+            f"Station art cached for {station_name or stream_url}: "
+            f"{meta['width']}x{meta['height']} via {source}"
+        )
+        return self._public_url(meta)
 
     # ── candidate sources ──────────────────────────────────────────────────
 
