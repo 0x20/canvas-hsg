@@ -486,3 +486,5 @@ html, body { margin: 0; background: #f3efe6; }
   border-top: 1px solid var(--line);
 }
 .editor-bar > span { font-size: 0.9rem; }
+.track-info { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; font-size: 0.85rem; }
+.track-info > span { flex: 1 1 200px; }

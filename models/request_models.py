@@ -133,6 +133,8 @@ class StationModel(BaseModel):
     url: str = Field(pattern=r"^https?://\S+$", max_length=500)
     image: Optional[str] = Field(None, pattern=r"^https?://\S+$", max_length=500)
     description: Optional[str] = Field(None, max_length=200)
+    # How to read the playing track, found by the station probe (see track_info.py)
+    track_info: Optional[Dict[str, Any]] = None
 
 
 class StationGroupModel(BaseModel):

@@ -8,7 +8,6 @@ import asyncio
 import ipaddress
 import logging
 import os
-import re
 import time
 import aiohttp
 from datetime import datetime
@@ -16,14 +15,6 @@ from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
 from config import METADATA_UPDATE_INTERVAL
-
-
-# Radio France livemeta IDs of the FIP streams, by the part after "fip" in the
-# stream URL (icecast.radiofrance.fr/fip<name>-midfi.mp3)
-FIP_STATION_IDS = {
-    "": 7, "rock": 64, "jazz": 65, "groove": 66, "world": 69, "nouveautes": 70,
-    "reggae": 71, "electro": 74, "metal": 77, "pop": 78,
-}
 
 
 class AudioManager:
@@ -53,8 +44,8 @@ class AudioManager:
         self._somafm_logos_ts: float = 0.0
         # StationStore with the preset stations (set in main.py)
         self.stations = None
-        # Station names announced by streams via their icy-name header.
-        self._icy_names: Dict[str, str] = {}
+        # TrackInfo: reads and detects now-playing data (set in main.py)
+        self.track_info = None
         # StationArtCache — resolves and stores station logos on disk (set in
         # main.py). Without it we fall back to remote seed URLs.
         self.station_art = None
@@ -88,6 +79,11 @@ class AudioManager:
         await self.stop_audio_stream()
         if self._session and not self._session.closed:
             await self._session.close()
+        if self.track_info:
+            await self.track_info.close()
+
+    async def resolve_url(self, stream_url: str) -> str:
+        return await self._resolve_audio_url(stream_url)
 
     async def _resolve_audio_url(self, stream_url: str) -> str:
         """Resolve PLS/M3U playlist URLs to direct stream URLs"""
@@ -297,7 +293,7 @@ class AudioManager:
             return preset
 
         # Station name announced by the stream itself, when it sends one.
-        icy_name = self._icy_names.get(stream_url)
+        icy_name = self.track_info.icy_names.get(stream_url) if self.track_info else None
         if icy_name:
             return icy_name
 
@@ -318,71 +314,6 @@ class AudioManager:
                 return "Audio Stream"
         else:
             return "Audio Stream"
-
-    async def _fetch_icy_metadata(self, stream_url: str) -> Optional[Dict[str, Any]]:
-        """Live track info from the stream's own ICY metadata, if it sends any.
-
-        Shoutcast/Icecast interleave a metadata block into the audio every
-        `icy-metaint` bytes, holding `StreamTitle='Artist - Title'`. That works
-        for any station regardless of whether it has a JSON API, so it's the
-        general fallback behind SomaFM's richer feed. Stations that only
-        announce themselves (VRT sends `StreamTitle='VRT Studio Brussel'`) yield
-        no track, which we detect by comparing against the station name.
-        """
-        try:
-            timeout = aiohttp.ClientTimeout(total=15)
-            headers = {"Icy-MetaData": "1"}
-            async with self._http().get(stream_url, timeout=timeout, headers=headers) as resp:
-                if resp.status not in (200, 206):
-                    return None
-
-                icy_name = (resp.headers.get("icy-name") or "").strip()
-                if icy_name:
-                    self._icy_names[stream_url] = icy_name
-
-                try:
-                    interval = int(resp.headers.get("icy-metaint", 0))
-                except ValueError:
-                    interval = 0
-                if interval <= 0:
-                    return None
-
-                # Skip one audio block, then read the length-prefixed
-                # metadata block that follows it.
-                await resp.content.readexactly(interval)
-                length = (await resp.content.readexactly(1))[0] * 16
-                if length <= 0:
-                    return None
-                block = await resp.content.readexactly(length)
-        except Exception as e:
-            logging.debug(f"ICY metadata read failed for {stream_url}: {e}")
-            return None
-
-        match = re.search(r"StreamTitle='(.*?)';", block.decode("utf-8", "ignore"))
-        if not match:
-            return None
-        title = match.group(1).strip()
-        station = self._get_friendly_stream_name(stream_url)
-        if not title:
-            return None
-
-        # Many stations park their own name in StreamTitle when they broadcast
-        # no track info at all — VRT sends "VRT Studio Brussel" forever. That's
-        # not a track, so leave the plain station card up. Compare loosely: the
-        # announced name rarely matches our preset name character for character.
-        def norm(s: str) -> str:
-            return re.sub(r"[^a-z0-9]", "", s.lower())
-
-        norm_title = norm(title)
-        for other in (station, self._icy_names.get(stream_url, "")):
-            norm_other = norm(other)
-            if norm_other and (norm_title in norm_other or norm_other in norm_title):
-                return None
-
-        artist = ""
-        if " - " in title:
-            artist, title = (p.strip() for p in title.split(" - ", 1))
-        return {"title": title, "artist": artist, "station": station, "source": "icy"}
 
     def _preset(self, stream_url: str) -> Dict[str, Any]:
         """The station list entry for this URL (name, image), or {}."""
@@ -498,148 +429,6 @@ class AudioManager:
         except ValueError:
             return False
 
-    def _detect_stream_type(self, stream_url: str) -> Optional[Dict[str, Any]]:
-        """Detect the type of audio stream for metadata fetching"""
-        if not stream_url:
-            return None
-
-        # Stations whose stream carries no track title, but whose own API does.
-        # Checked before the generic icecast rule: these hosts contain "icecast".
-        lower = stream_url.lower()
-        fip = re.search(r"icecast\.radiofrance\.fr/fip([a-z]*)-", lower)
-        if fip and fip.group(1) in FIP_STATION_IDS:
-            return {"type": "fip", "id": FIP_STATION_IDS[fip.group(1)]}
-        if "kexp" in lower:
-            return {"type": "kexp"}
-        bbc = re.search(r"(bbc_[a-z0-9_]+)\.m3u8", lower)
-        if bbc:
-            return {"type": "bbc", "service": bbc.group(1)}
-        if lower.endswith("/willy.mp3") and "qmusicbe" in lower:
-            return {"type": "willy"}
-
-        if "soma.fm" in stream_url.lower() or "somafm" in stream_url.lower():
-            # Station id = stream basename without extension (e.g.
-            # spacestation.pls → "spacestation"), the same derivation
-            # _resolve_station_art uses for the logo, so the name and the cover
-            # always refer to the same station. (The old per-segment scan
-            # skipped any segment containing a ".", so every *.pls URL fell
-            # through to a hardcoded "groovesalad" default.)
-            seg = os.path.splitext(os.path.basename(urlparse(stream_url).path))[0].lower()
-            return {"type": "somafm", "station": seg or "groovesalad"}
-
-        if "radioparadise.com" in stream_url.lower():
-            if "mellow" in stream_url.lower():
-                channel = 1
-            elif "rock" in stream_url.lower():
-                channel = 2
-            elif "global" in stream_url.lower():
-                channel = 3
-            else:
-                channel = 0
-            return {"type": "radioparadise", "channel": channel}
-
-        if "icecast" in stream_url.lower() or ":8000" in stream_url:
-            try:
-                parsed = urlparse(stream_url)
-                server = f"{parsed.scheme}://{parsed.netloc}"
-                return {"type": "icecast", "server": server}
-            except:
-                pass
-
-        return None
-
-    async def _get_json(self, url: str) -> Optional[Any]:
-        """GET a JSON document; None on any failure."""
-        try:
-            async with self._http().get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                if resp.status == 200:
-                    return await resp.json(content_type=None)
-        except Exception as e:
-            logging.warning(f"Failed to fetch metadata from {url}: {e}")
-        return None
-
-    async def _fetch_metadata(self, stream_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Fetch metadata from appropriate API"""
-        if stream_info['type'] == 'somafm':
-            data = await self._get_json(f"https://somafm.com/songs/{stream_info['station']}.json")
-            if data and data.get('songs'):
-                current = data['songs'][0]
-                return {
-                    'title': current.get('title', 'Unknown Track'),
-                    'artist': current.get('artist', ''),
-                    'album': current.get('album', ''),
-                    'station': f"SomaFM {stream_info['station'].title()}",
-                    'source': 'somafm'
-                }
-
-        elif stream_info['type'] == 'radioparadise':
-            data = await self._get_json(
-                f"https://api.radioparadise.com/api/now_playing?chan={stream_info['channel']}")
-            if data:
-                channel_names = ['Main Mix', 'Mellow Mix', 'Rock Mix', 'Global Mix']
-                return {
-                    'title': data.get('title', 'Unknown Track'),
-                    'artist': data.get('artist', ''),
-                    'album': data.get('album', '') + (f" ({data.get('year')})" if data.get('year') else ''),
-                    'station': f"Radio Paradise {channel_names[stream_info['channel']]}",
-                    'source': 'radioparadise'
-                }
-
-        elif stream_info['type'] == 'fip':
-            data = await self._get_json(f"https://api.radiofrance.fr/livemeta/live/{stream_info['id']}/fip_extended")
-            now = (data or {}).get('now') or {}
-            # Between songs "now" is the presenter ("Le direct") without interpreters
-            if now.get('title') and now.get('interpreters'):
-                return {'title': now['title'], 'artist': now['interpreters'],
-                        'album': now.get('album') or '', 'station': 'FIP', 'source': 'fip'}
-
-        elif stream_info['type'] == 'kexp':
-            data = await self._get_json("https://api.kexp.org/v2/plays/?limit=1")
-            play = ((data or {}).get('results') or [{}])[0]
-            # An "airbreak" is the DJ talking: no track
-            if play.get('play_type') == 'trackplay' and play.get('song'):
-                return {'title': play['song'], 'artist': play.get('artist') or '',
-                        'album': play.get('album') or '', 'station': 'KEXP', 'source': 'kexp'}
-
-        elif stream_info['type'] == 'bbc':
-            data = await self._get_json(
-                f"https://rms.api.bbc.co.uk/v2/services/{stream_info['service']}/segments/latest")
-            for segment in (data or {}).get('data') or []:
-                if (segment.get('offset') or {}).get('now_playing'):
-                    titles = segment.get('titles') or {}
-                    return {'title': titles.get('secondary') or '', 'artist': titles.get('primary') or '',
-                            'album': '', 'station': 'BBC', 'source': 'bbc'}
-
-        elif stream_info['type'] == 'willy':
-            data = await self._get_json("https://api.willy.radio/2.4/tracks/plays?limit=1")
-            track = ((data or {}).get('played_tracks') or [{}])[0]
-            try:
-                ends = datetime.fromisoformat(track['played_at']).timestamp() + track.get('duration', 0)
-            except (KeyError, TypeError, ValueError):
-                ends = 0
-            # The feed lists the last track; after it ends, the DJ or an ad is on
-            if track.get('title') and ends + 30 > time.time():
-                return {'title': track['title'], 'artist': (track.get('artist') or {}).get('name', ''),
-                        'album': '', 'station': 'Willy', 'source': 'willy'}
-
-        elif stream_info['type'] == 'icecast':
-            data = await self._get_json(f"{stream_info['server']}/status-json.xsl")
-            sources = (data or {}).get('icestats', {}).get('source', [])
-            # Icecast sends a single mount as an object, not a list
-            if isinstance(sources, dict):
-                sources = [sources]
-            for source in sources:
-                if source.get('title') and source.get('server_description'):
-                    return {
-                        'title': source.get('title', 'Unknown Track'),
-                        'artist': '',
-                        'album': '',
-                        'station': f"{source.get('server_description')} ({source.get('bitrate')}kbps)",
-                        'source': 'icecast'
-                    }
-
-        return None
-
     async def _update_metadata_loop(self):
         """Background task to periodically update metadata.
 
@@ -649,15 +438,13 @@ class AudioManager:
         while self.current_audio_stream:
             try:
                 stream_url = self.current_audio_stream
-                stream_info = self._detect_stream_type(stream_url)
-                metadata = None
-                if stream_info:
-                    metadata = await self._fetch_metadata(stream_info)
-                # No station-specific API (or it gave us nothing): fall back
-                # to the stream's own ICY metadata, which most Icecast and
-                # Shoutcast stations broadcast.
-                if not metadata:
-                    metadata = await self._fetch_icy_metadata(self.current_resolved_url or stream_url)
+                # The method the station probe found, else the provider rules;
+                # the stream's own ICY titles are always the fallback.
+                preset = self._preset(stream_url)
+                metadata = await self.track_info.fetch(
+                    stream_url, self.current_resolved_url or stream_url, preset.get("track_info"),
+                    [self._get_friendly_stream_name(stream_url)],
+                ) if self.track_info else None
 
                 if metadata and self.current_audio_stream == stream_url:
                     metadata['last_updated'] = datetime.now().isoformat()

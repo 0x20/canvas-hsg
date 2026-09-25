@@ -63,6 +63,12 @@ class StationStore:
 
     def save(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Replace the list. The caller validates the shape (see StationsRequest)."""
+        # Keep a detected track-info method when the URL did not change: an
+        # editor that loaded before the detection finished sends none.
+        known = {s["url"]: s["track_info"] for s in self.stations() if s.get("track_info")}
+        for station in self._iter(data):
+            if "track_info" not in station and station.get("url") in known:
+                station["track_info"] = known[station["url"]]
         seen = set()
         for station in self._iter(data):
             if station["url"] in seen:
@@ -74,6 +80,15 @@ class StationStore:
 
     def stations(self) -> Iterator[Dict[str, Any]]:
         return self._iter(self.get())
+
+    def set_track_info(self, url: str, method: Dict[str, Any]) -> bool:
+        """Save the detected track-info method on the station with this URL."""
+        station = self.by_url(url)
+        if not station:
+            return False
+        station["track_info"] = method
+        self._write(self._data)
+        return True
 
     def by_url(self, url: str) -> Optional[Dict[str, Any]]:
         return next((s for s in self.stations() if s["url"] == url), None)

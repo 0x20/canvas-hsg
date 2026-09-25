@@ -3,8 +3,10 @@ import { api, hostOf, somafmLogo } from './api';
 import { Icon } from './icons';
 
 let nextKey = 1;
+// savedUrl: the URL as saved on the server, so "Detect again" is offered only
+// for a station the server knows
 const withKeys = (groups) => groups.map((g) => ({
-  ...g, key: nextKey++, stations: g.stations.map((s) => ({ ...s, key: nextKey++ })),
+  ...g, key: nextKey++, stations: g.stations.map((s) => ({ ...s, key: nextKey++, savedUrl: s.url })),
 }));
 /** A copy of obj without the given fields. */
 const omit = (obj, ...fields) => Object.fromEntries(Object.entries(obj).filter(([k]) => !fields.includes(k)));
@@ -12,7 +14,7 @@ const omit = (obj, ...fields) => Object.fromEntries(Object.entries(obj).filter((
 // The editor-only fields: React keys and the "user typed here" flag
 const withoutKeys = (groups) => groups.map((g) => ({
   ...omit(g, 'key', 'stations'),
-  stations: g.stations.map((s) => omit(s, 'key', 'touched')),
+  stations: g.stations.map((s) => omit(s, 'key', 'touched', 'savedUrl')),
 }));
 
 const URL_RE = /^https?:\/\/\S+$/;
@@ -48,6 +50,47 @@ function Thumb({ src, name }) {
   );
 }
 
+const PROVIDERS = { somafm: 'SomaFM', radioparadise: 'Radio Paradise', fip: 'Radio France', kexp: 'KEXP', bbc: 'BBC', willy: 'Willy' };
+
+/** How the panel reads the playing track of this station, in words. */
+function trackInfoText(info) {
+  if (!info) return 'Not checked yet: the server checks new stations after Save';
+  const sample = info.sample ? ` (now: ${info.sample})` : '';
+  switch (info.kind) {
+    case 'icy': return `From the stream itself (ICY titles)${sample}`;
+    case 'provider': return `From the ${PROVIDERS[info.provider] || info.provider} API${sample}`;
+    case 'icecast': return `From the Icecast server status${sample}`;
+    case 'shoutcast': return `From the Shoutcast server${sample}`;
+    case 'json': return `From ${hostOf(info.url)}${sample}`;
+    default: return 'No track info found: the canvas shows the station name';
+  }
+}
+
+function TrackInfoLine({ station, onDetected }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const saved = !!station.track_info || station.url === station.savedUrl;
+  const detect = async () => {
+    setBusy(true);
+    setError(null);
+    try { onDetected(await api('POST', '/stations/detect', { url: station.url })); }
+    catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+  return (
+    <div className="track-info">
+      <span className={station.track_info?.kind === 'none' ? 'error' : 'muted'}>
+        {busy ? 'Checking the stream, the server and the homepage… (up to a minute)' : error || trackInfoText(station.track_info)}
+      </span>
+      {saved && station.url.trim() && (
+        <button type="button" className="btn ghost small" disabled={busy} onClick={detect}>
+          <Icon.refresh /> Detect again
+        </button>
+      )}
+    </div>
+  );
+}
+
 function StationRow({ station, art, index, count, groupIndex, groups, open, onToggle,
                       onChange, onMove, onMoveTo, onDelete }) {
   const bad = (field) => (station.touched && !(field === 'name' ? station.name.trim() : URL_RE.test(station.url.trim())));
@@ -69,10 +112,11 @@ function StationRow({ station, art, index, count, groupIndex, groups, open, onTo
         <input className={`input ${bad('name') ? 'is-bad' : ''}`} placeholder="Station name" value={station.name}
                maxLength={60} onChange={(e) => onChange({ name: e.target.value })} />
         <input className={`input mono small ${bad('url') ? 'is-bad' : ''}`} placeholder="https://… stream URL"
-               value={station.url} onChange={(e) => onChange({ url: e.target.value })} />
+               value={station.url} onChange={(e) => onChange({ url: e.target.value, track_info: undefined })} />
         <input className={`input mono small ${imageOk(station) ? '' : 'is-bad'}`}
                placeholder="Logo URL (optional; replaces the found logo)"
                value={station.image || ''} onChange={(e) => onChange({ image: e.target.value })} />
+        <TrackInfoLine station={station} onDetected={(info) => onChange({ track_info: info })} />
         <div className="edit-more">
           <label className="group-select select">
             <span>Group</span>
@@ -103,7 +147,9 @@ export default function StationEditor({ stations, onSaved, onClose }) {
     }).catch(() => {});
   }, []);
 
-  const original = useMemo(() => JSON.stringify(stations.groups || []), [stations]);
+  // track_info is saved by the server itself (detection), so it is no edit
+  const comparable = (gs) => JSON.stringify(gs.map((g) => ({ ...g, stations: g.stations.map((s) => omit(s, 'track_info')) })));
+  const original = useMemo(() => comparable(stations.groups || []), [stations]);
   const clean = withoutKeys(groups).map((g) => ({
     ...g, name: g.name.trim(),
     stations: g.stations.map((s) => {
@@ -113,7 +159,7 @@ export default function StationEditor({ stations, onSaved, onClose }) {
       return out;
     }),
   }));
-  const dirty = JSON.stringify(clean) !== original;
+  const dirty = comparable(clean) !== original;
   const valid = clean.every((g) => g.name && g.stations.every(stationOk));
   const total = clean.reduce((n, g) => n + g.stations.length, 0);
 

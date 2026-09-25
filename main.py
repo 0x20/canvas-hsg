@@ -38,6 +38,7 @@ from managers.audio_conflict import AudioConflictManager
 from managers.now_playing import NowPlaying
 from managers.device_names import DeviceNamesManager
 from managers.stations import StationStore
+from managers.track_info import TrackInfo, detect_stations
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
 from managers.homeassistant_manager import HomeAssistantManager
@@ -215,6 +216,8 @@ async def lifespan(app: FastAPI):
         s.audio_manager.station_art = s.station_art
         s.stations = StationStore()
         s.audio_manager.stations = s.stations
+        s.track_info = TrackInfo()
+        s.audio_manager.track_info = s.track_info
         s.audio_manager.display_stack = s.display_stack
         # Same now-playing WS the card listens on — lets audio streams
         # (SomaFM etc.) drive it with live track metadata.
@@ -303,7 +306,8 @@ async def lifespan(app: FastAPI):
             setup_display_routes(s.display_stack, s.image_manager, s.background_manager, s.chromium_manager),
             setup_cec_routes(s.cec_manager),
             setup_system_routes(display_detector=s.display_detector, station_store=s.stations),
-            setup_stations_routes(s.stations, s.station_art, on_saved=lambda: warm_art()),
+            setup_stations_routes(s.stations, s.station_art, on_saved=lambda: check_stations(),
+                                  track_info=s.track_info, resolve_url=s.audio_manager.resolve_url),
             setup_chromecast_routes(s.chromecast_manager),
             setup_output_target_routes(s.output_target_manager),
             setup_homeassistant_routes(s.ha_manager),
@@ -359,14 +363,18 @@ async def lifespan(app: FastAPI):
         kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1&audio=1"
         s.kiosk_launch_task = asyncio.create_task(s.chromium_manager.start_kiosk_when_ready(kiosk_url))
 
-        # Look up logos for the preset stations, and again after each edit
-        def warm_art():
-            if s.art_warm_task and not s.art_warm_task.done():
-                s.art_warm_task.cancel()
+        # Look up logos and track-info methods for the stations that have none,
+        # at startup and after each edit of the station list
+        def check_stations():
+            for task in (s.art_warm_task, s.track_detect_task):
+                if task and not task.done():
+                    task.cancel()
             s.art_warm_task = asyncio.create_task(s.audio_manager.warm_station_art())
+            s.track_detect_task = asyncio.create_task(
+                detect_stations(s.track_info, s.stations, s.audio_manager.resolve_url))
 
-        s.art_warm_task = None
-        warm_art()
+        s.art_warm_task = s.track_detect_task = None
+        check_stations()
 
         # Keeps the kiosk and Raspotify alive
         s.health_check_task = asyncio.create_task(health_check_loop(app))
@@ -395,6 +403,7 @@ async def lifespan(app: FastAPI):
         ("kiosk launch", lambda: cancel(s.kiosk_launch_task)),
         ("chromecast discovery", lambda: cancel(s.chromecast_discovery_task)),
         ("station art", lambda: cancel(s.art_warm_task)),
+        ("track info detection", lambda: cancel(s.track_detect_task)),
         ("bluetooth", s.bluetooth_manager.cleanup),
         ("sendspin", s.sendspin_manager.cleanup),
         ("audio unmute", s.audio_conflict.unmute_all),

@@ -1,10 +1,16 @@
 """Radio station list routes (the control panel's Radio tab and its editor)."""
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from models.request_models import StationsRequest
 
 
-def setup_stations_routes(station_store, station_art=None, on_saved=None) -> APIRouter:
+class DetectRequest(BaseModel):
+    url: str
+
+
+def setup_stations_routes(station_store, station_art=None, on_saved=None,
+                          track_info=None, resolve_url=None) -> APIRouter:
     router = APIRouter(prefix="/stations", tags=["stations"])
 
     @router.get("")
@@ -31,5 +37,16 @@ def setup_stations_routes(station_store, station_art=None, on_saved=None) -> API
         if on_saved:
             on_saved()
         return data
+
+    @router.post("/detect")
+    async def detect_track_info(request: DetectRequest):
+        """Probe one station again for how to read its playing track (takes up to a minute)."""
+        station = station_store.by_url(request.url)
+        if not station or not track_info:
+            raise HTTPException(status_code=404, detail="No station with this URL")
+        resolved = await resolve_url(station["url"]) if resolve_url else station["url"]
+        method = await track_info.detect(station["url"], resolved, [station["name"]])
+        station_store.set_track_info(station["url"], method)
+        return method
 
     return router
