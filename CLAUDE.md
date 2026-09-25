@@ -55,8 +55,8 @@ All managers live on `app.state`. Shutdown runs each cleanup step on its own, so
 - **`config/`** - Deployment config files (Angie, systemd service, raspotify drop-in)
 - **`utils/`** - Small shared helpers: `proc.run()` (non-blocking subprocess), build hash, media sources loader
 - **`tests/`** - pytest tests with pytest-asyncio for async testing
-- **`static/`** - CSS/JS for the web interface
-- **`index.html`** - Synthwave-themed web control panel (served at `/`)
+- **`static/`** - Images and sounds (logo, backgrounds); runtime uploads go to `static/uploads/`
+- **`frontend/`** - One React bundle for two views: the control panel at `/` (`src/control/`) and the canvas display at `/canvas/` (`src/App.jsx`). `src/main.jsx` picks the view from the path.
 
 ### Manager Interactions
 
@@ -114,16 +114,11 @@ Key things setup.sh must preserve:
 ### Raspotify + PipeWire/PulseAudio
 Raspotify's default systemd sandbox has `PrivateUsers=true` (remaps UIDs, breaking socket auth) and `ProtectHome=true` (blocks `/home/hsg`). Both must be overridden in the drop-in for PulseAudio to work. Symptom: `Audio Sink Error Connection Refused: <PulseAudioSink>`.
 
-### Legacy control panel caching (`index.html` + `static/app.js`)
-The control panel at `/` loads its script as `/static/app.js?v=N`. That query
-string is the **only** cache-buster — StaticFiles sends no `Cache-Control`, so a
-browser holds the previous copy indefinitely. **Bump `?v=` in `index.html`
-whenever you edit `static/app.js`**, or the change silently never reaches the
-browser. Symptom: part of a feature works and part doesn't (data read from the
-API at runtime updates, but anything requiring new JS does not).
-
-Note the React control panel (`frontend/`) is separate and Vite-fingerprinted,
-so it does not have this problem.
+### Control panel and display share one bundle
+`/` and `/canvas/` serve the same `frontend/dist/index.html` with no-store; the
+assets are fingerprinted, so there is no cache-buster to bump. The display-only
+global styles in `src/index.css` apply under `html.is-display` only, which
+`main.jsx` sets for the display view. Do not add unscoped `body` rules there.
 
 ### Vite base path + Angie proxy
 When proxying a Vite app under a subpath (`/spotify/`), you must:

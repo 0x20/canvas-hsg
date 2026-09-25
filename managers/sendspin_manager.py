@@ -547,6 +547,8 @@ class SendspinManager:
             "track_info": self.track_info or None,
             "last_event_time": self.last_event_time.isoformat() if self.last_event_time else None,
             "listener_port": SENDSPIN_LISTENER_PORT,
+            # PIN to enter in Music Assistant while the art client waits for pairing
+            "pairing_pin": ac.pairing_pin if ac else None,
         }
 
 

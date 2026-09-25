@@ -95,6 +95,7 @@ class SendspinArtworkClient:
         art_format: PictureFormat = PictureFormat.JPEG,
         art_size: int = ARTWORK_SIZE,
         on_artwork: Optional[Callable[[], Awaitable[None]]] = None,
+        on_pairing: Optional[Callable[[Optional[str]], Awaitable[None]]] = None,
         product_name: Optional[str] = None,
         manufacturer: Optional[str] = None,
         software_version: Optional[str] = None,
@@ -117,6 +118,10 @@ class SendspinArtworkClient:
         )
         # Async callback invoked (scheduled) when a new artwork frame arrives.
         self._on_artwork = on_artwork
+        # Async callback with the pairing PIN, or None when pairing ends.
+        self._on_pairing = on_pairing
+        # The PIN to enter in Music Assistant while pairing is pending
+        self.pairing_pin: Optional[str] = None
 
         self._listener: Optional[ClientListener] = None
         self._client: Optional[SendspinClient] = None
@@ -421,12 +426,17 @@ class SendspinArtworkClient:
             self._group_playing = False
             self._switch_supported = False
             self._sync_backoff_until = 0.0
+            if self.pairing_pin is not None:
+                await self._show_pairing_pin(None)
             logger.info("Music Assistant disconnected from artwork display client")
 
-    @staticmethod
-    async def _show_pairing_pin(code: Optional[str]) -> None:
+    async def _show_pairing_pin(self, code: Optional[str]) -> None:
+        """Called by aiosendspin with the PIN, and with None when pairing ends."""
         if code is not None:
             logger.warning("Sendspin artwork client: pairing required, enter PIN %s in Music Assistant", code)
+        self.pairing_pin = code
+        if self._on_pairing:
+            await self._on_pairing(code)
 
     def _load_identity(self) -> Identity:
         """Load the saved key pair, or create and save a new one."""

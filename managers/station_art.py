@@ -535,6 +535,7 @@ class StationArtCache:
                         "source": e.get("source"),
                         "size": f"{e.get('width')}x{e.get('height')}" if e.get("file") else None,
                         "cached": bool(e.get("file")),
+                        "art_url": self._public_url(e) if e.get("file") else None,
                     }
                     for e in index.values()
                 ),

@@ -9,6 +9,7 @@ import TwitchPlayer from './TwitchPlayer';
 import WebsiteFrame from './WebsiteFrame';
 import VideoPlayer from './VideoPlayer';
 import AudioPlayer from './AudioPlayer';
+import PairingNotice from './PairingNotice';
 
 // Our own bundle hash, parsed from this module's URL (Vite emits
 // /canvas/assets/index-<hash>.js). The server stamps its current build into
@@ -105,6 +106,7 @@ function App() {
       {(isNowPlayingActive || keepNowPlayingMounted) && <NowPlaying source={displayItem.type} />}
       {renderLayers()}
       <AudioPlayer />
+      <PairingNotice />
     </>
   );
 }

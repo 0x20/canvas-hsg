@@ -258,6 +258,8 @@ async def lifespan(app: FastAPI):
                 manufacturer=DEVICE_MANUFACTURER,
                 software_version=APP_VERSION,
                 on_artwork=s.sendspin_manager.on_artwork_updated,
+                # The control panel and the canvas show the PIN while pairing waits
+                on_pairing=lambda pin: s.websocket_manager.broadcast("pairing", {"pin": pin}),
             )
             s.sendspin_manager.artwork_client = s.sendspin_artwork_client
             await s.sendspin_artwork_client.start()
@@ -403,18 +405,16 @@ app = FastAPI(
 )
 
 
-@app.get("/", response_class=HTMLResponse)
-async def web_interface():
-    """Serve the web interface"""
-    try:
-        with open("index.html", "r") as f:
-            return f.read()
-    except FileNotFoundError:
-        return """
-        <h1>Error: index.html not found</h1>
-        <p>Please create an index.html file in the same directory as the Python server.</p>
-        <p>You can access the API documentation at <a href="/docs">/docs</a></p>
-        """
+@app.get("/", include_in_schema=False)
+async def control_panel():
+    """The control panel: the React bundle, which picks its view from the path."""
+    if not os.path.exists("frontend/dist/index.html"):
+        return HTMLResponse(
+            "<h1>The frontend is not built</h1><p>Run <code>npm run build</code> in frontend/. "
+            'The API docs are at <a href="/docs">/docs</a>.</p>',
+            status_code=503,
+        )
+    return FileResponse("frontend/dist/index.html", headers={"Cache-Control": "no-store"})
 
 # Mount /static at module-load (no kiosk-route conflict). The /canvas mount
 # is deferred to lifespan so the kiosk routes can be registered first —

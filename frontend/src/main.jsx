@@ -1,4 +1,4 @@
-import { createRoot, hydrateRoot } from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { lazy, Suspense } from 'react'
 import './index.css'
 import App from './App.jsx'
@@ -10,11 +10,12 @@ if (new URLSearchParams(window.location.search).get('keepalive') === '1') {
   document.documentElement.classList.add('keepalive')
 }
 
-// Sandbox switch: load the new control surface only when explicitly requested
-// via ?view=control. The kiosk path (?keepalive=1, default) keeps loading the
-// existing App so on-device behavior is unaffected while we iterate.
-const view = new URLSearchParams(window.location.search).get('view')
-const Control = view === 'control' ? lazy(() => import('./control/Control.jsx')) : null
+// The server serves this bundle at / (the control panel) and at /canvas/ (the
+// display). ?view=control forces the panel under /canvas/ too.
+const isControl = !window.location.pathname.startsWith('/canvas') ||
+  new URLSearchParams(window.location.search).get('view') === 'control'
+const Control = isControl ? lazy(() => import('./control/Control.jsx')) : null
+if (!isControl) document.documentElement.classList.add('is-display')
 
 createRoot(document.getElementById('root')).render(
   Control

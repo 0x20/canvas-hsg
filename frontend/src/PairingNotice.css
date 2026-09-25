@@ -1,0 +1,29 @@
+.pairing-notice {
+  position: fixed;
+  right: 4vw;
+  bottom: 5vh;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4vh;
+  padding: 2vh 2.4vw;
+  border-radius: 1.4vh;
+  background: rgba(10, 9, 7, 0.82);
+  border: 2px solid #ff6a3d;
+  color: #f7f3ea;
+  font-family: system-ui, sans-serif;
+  box-shadow: 0 1vh 4vh rgba(0, 0, 0, 0.6);
+}
+
+.pairing-notice-label {
+  font-size: 2.2vh;
+  opacity: 0.8;
+}
+
+.pairing-notice-pin {
+  font-size: 7vh;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  font-variant-numeric: tabular-nums;
+  color: #ff6a3d;
+}
