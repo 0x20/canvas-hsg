@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { api } from './api';
+import { useEffect, useMemo, useState } from 'react';
+import { api, hostOf, somafmLogo } from './api';
 import { Icon } from './icons';
 
 let nextKey = 1;
@@ -37,10 +37,34 @@ function IconButton({ label, onClick, disabled, children, danger }) {
   );
 }
 
-function StationRow({ station, index, count, groupIndex, groups, onChange, onMove, onMoveTo, onDelete }) {
-  const bad = (field) => (station.touched && !(field === 'name' ? station.name.trim() : URL_RE.test(station.url.trim())));
+function Thumb({ src, name }) {
+  const [failed, setFailed] = useState(false);
   return (
-    <li className="edit-station">
+    <span className="edit-thumb" aria-hidden="true">
+      {src && !failed
+        ? <img src={src} alt="" loading="lazy" onError={() => setFailed(true)} />
+        : <span className="monogram">{(name || '?').slice(0, 2)}</span>}
+    </span>
+  );
+}
+
+function StationRow({ station, art, index, count, groupIndex, groups, open, onToggle,
+                      onChange, onMove, onMoveTo, onDelete }) {
+  const bad = (field) => (station.touched && !(field === 'name' ? station.name.trim() : URL_RE.test(station.url.trim())));
+  const ok = stationOk(station);
+  return (
+    <li className={`edit-station ${open ? 'is-open' : ''}`}>
+      <div className="edit-summary">
+        <Thumb src={(station.image || '').trim() || art || somafmLogo(station.url)} name={station.name} />
+        <div className="edit-label">
+          <strong>{station.name || 'New station'}</strong>
+          <span className={ok ? '' : 'is-bad'}>{ok ? hostOf(station.url) : 'Needs a name and a stream URL'}</span>
+        </div>
+        <IconButton label="Move up" disabled={index === 0} onClick={() => onMove(-1)}><Icon.up /></IconButton>
+        <IconButton label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}><Icon.down /></IconButton>
+        <IconButton label={open ? 'Close' : 'Edit'} onClick={onToggle}>{open ? <Icon.check /> : <Icon.edit />}</IconButton>
+      </div>
+      {open && (
       <div className="edit-fields">
         <input className={`input ${bad('name') ? 'is-bad' : ''}`} placeholder="Station name" value={station.name}
                maxLength={60} onChange={(e) => onChange({ name: e.target.value })} />
@@ -49,18 +73,19 @@ function StationRow({ station, index, count, groupIndex, groups, onChange, onMov
         <input className={`input mono small ${imageOk(station) ? '' : 'is-bad'}`}
                placeholder="Logo URL (optional; replaces the found logo)"
                value={station.image || ''} onChange={(e) => onChange({ image: e.target.value })} />
+        <div className="edit-more">
+          <label className="group-select select">
+            <span>Group</span>
+            <select value={groupIndex} onChange={(e) => onMoveTo(Number(e.target.value))}>
+              {groups.map((g, gi) => <option key={g.key} value={gi}>{g.name || 'Unnamed group'}</option>)}
+            </select>
+          </label>
+          <button type="button" className="btn ghost small danger-text" onClick={onDelete}>
+            <Icon.trash /> Delete
+          </button>
+        </div>
       </div>
-      <div className="edit-tools">
-        <IconButton label="Move up" disabled={index === 0} onClick={() => onMove(-1)}><Icon.up /></IconButton>
-        <IconButton label="Move down" disabled={index === count - 1} onClick={() => onMove(1)}><Icon.down /></IconButton>
-        <label className="group-select" title="Move to another group">
-          <span className="sr-only">Group</span>
-          <select value={groupIndex} onChange={(e) => onMoveTo(Number(e.target.value))}>
-            {groups.map((g, gi) => <option key={g.key} value={gi}>{g.name || 'Unnamed group'}</option>)}
-          </select>
-        </label>
-        <IconButton label="Delete station" danger onClick={onDelete}><Icon.trash /></IconButton>
-      </div>
+      )}
     </li>
   );
 }
@@ -69,6 +94,14 @@ export default function StationEditor({ stations, onSaved, onClose }) {
   const [groups, setGroups] = useState(() => withKeys(stations.groups || []));
   const [confirm, setConfirm] = useState(null); // group key awaiting delete, or 'discard'
   const [state, setState] = useState(null); // 'busy' | error text
+  const [openKey, setOpenKey] = useState(null); // the station row with open fields
+  const [art, setArt] = useState({});
+
+  useEffect(() => {
+    api('GET', '/audio/station-art').then((s) => {
+      setArt(Object.fromEntries((s.entries || []).filter((e) => e.art_url).map((e) => [e.stream_url, e.art_url])));
+    }).catch(() => {});
+  }, []);
 
   const original = useMemo(() => JSON.stringify(stations.groups || []), [stations]);
   const clean = withoutKeys(groups).map((g) => ({
@@ -143,8 +176,10 @@ export default function StationEditor({ stations, onSaved, onClose }) {
 
           <ul className="edit-stations">
             {group.stations.map((station, si) => (
-              <StationRow key={station.key} station={station} index={si} count={group.stations.length}
-                          groupIndex={gi} groups={groups}
+              <StationRow key={station.key} station={station} art={art[station.url]}
+                          index={si} count={group.stations.length} groupIndex={gi} groups={groups}
+                          open={openKey === station.key}
+                          onToggle={() => setOpenKey((k) => (k === station.key ? null : station.key))}
                           onChange={(patch) => updateStation(gi, si, patch)}
                           onMove={(delta) => updateGroup(gi, (g) => ({ ...g, stations: move(g.stations, si, delta) }))}
                           onMoveTo={(target) => moveToGroup(gi, si, target)}
@@ -152,7 +187,11 @@ export default function StationEditor({ stations, onSaved, onClose }) {
             ))}
           </ul>
           <button type="button" className="btn ghost add"
-                  onClick={() => updateGroup(gi, (g) => ({ ...g, stations: [...g.stations, { name: '', url: '', key: nextKey++ }] }))}>
+                  onClick={() => {
+                    const key = nextKey++;
+                    updateGroup(gi, (g) => ({ ...g, stations: [...g.stations, { name: '', url: '', key }] }));
+                    setOpenKey(key);
+                  }}>
             <Icon.plus /> Add a station
           </button>
         </section>
