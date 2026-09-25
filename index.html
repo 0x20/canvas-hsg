@@ -307,40 +307,14 @@
                     </div>
                 </div>
 
-                <!-- Website Casting -->
+                <!-- Website -->
                 <div class="card">
-                    <h2>Website Casting</h2>
-                    <p>Cast websites with auto-scroll</p>
-                    <input type="url" id="webcastUrl" placeholder="https://example.com" class="full-width-input">
-                    <div class="webcast-grid">
-                        <div>
-                            <label>Scroll Delay (s):</label>
-                            <input type="number" id="scrollDelay" value="5" min="1" max="60">
-                        </div>
-                        <div>
-                            <label>Scroll %:</label>
-                            <input type="number" id="scrollPercentage" value="30" min="10" max="90">
-                        </div>
-                        <div>
-                            <label>Overlap %:</label>
-                            <input type="number" id="overlapPercentage" value="5" min="0" max="20">
-                        </div>
-                        <div>
-                            <label>Loops:</label>
-                            <input type="number" id="loopCount" value="3" min="1" max="20">
-                        </div>
-                    </div>
-                    <select id="viewportSize" class="full-width-input">
-                        <option value="1920x1080">1920x1080 (Full HD)</option>
-                        <option value="1280x720">1280x720 (HD)</option>
-                        <option value="800x600">800x600 (4:3)</option>
-                    </select>
+                    <h2>Website</h2>
+                    <p>Show a website on the canvas</p>
+                    <input type="url" id="websiteUrl" placeholder="https://example.com" class="full-width-input">
                     <div class="button-row">
-                        <button id="webcastStartBtn">Start</button>
-                        <button id="webcastStopBtn" class="danger">Stop</button>
-                    </div>
-                    <div id="webcastStatus" class="status-text">
-                        <div><strong>Status:</strong> <span id="webcastState">Stopped</span></div>
+                        <button id="websiteShowBtn">Show</button>
+                        <button id="websiteHideBtn" class="danger">Hide</button>
                     </div>
                 </div>
 
@@ -348,6 +322,6 @@
         </div>
     </div>
 
-    <script src="/static/app.js?v=5"></script>
+    <script src="/static/app.js?v=6"></script>
 </body>
 </html>

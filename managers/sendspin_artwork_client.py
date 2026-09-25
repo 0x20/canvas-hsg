@@ -31,13 +31,24 @@ The received cover is held in memory and served by FastAPI at /sendspin/artwork;
 the URL is surfaced to the now-playing view via the SendspinManager broadcast path.
 """
 import asyncio
+import json
 import logging
+import os
+import stat
 import time
+from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
-from aiosendspin.client import ClientListener, SendspinClient
+from aiosendspin.client import ClientListener, PairingSupport, SendspinClient
 from aiosendspin.models.artwork import ArtworkChannel, ClientHelloArtworkSupport
 from aiosendspin.models.core import DeviceInfo
+from aiosendspin.noise import (
+    ClientPairingStore,
+    FileClientPairingStore,
+    Identity,
+    b64url_decode,
+    b64url_encode,
+)
 from aiosendspin.models.types import (
     ArtworkSource,
     MediaCommand,
@@ -79,7 +90,7 @@ class SendspinArtworkClient:
 
     def __init__(
         self,
-        client_id: str,
+        state_dir: str,
         client_name: str,
         art_format: PictureFormat = PictureFormat.JPEG,
         art_size: int = ARTWORK_SIZE,
@@ -88,7 +99,12 @@ class SendspinArtworkClient:
         manufacturer: Optional[str] = None,
         software_version: Optional[str] = None,
     ):
-        self._client_id = client_id
+        # The key pair and the pairing records live here. The public key is
+        # the client_id that Music Assistant sees, so it must stay the same
+        # over restarts.
+        self._state_dir = Path(state_dir)
+        self._identity: Optional[Identity] = None
+        self._pairing_store: Optional[ClientPairingStore] = None
         self._client_name = client_name
         self._art_format = art_format
         self._art_size = art_size
@@ -176,8 +192,11 @@ class SendspinArtworkClient:
 
     def _make_client(self) -> SendspinClient:
         client = SendspinClient(
-            client_id=self._client_id,
+            identity=self._identity,
             client_name=self._client_name,
+            pairing_store=self._pairing_store,
+            # Headless: when MA asks for pairing, the PIN goes to the log
+            pairing_support=PairingSupport(pin_display=self._show_pairing_pin),
             device_info=self._device_info,
             # CONTROLLER + METADATA + ARTWORK — NO player role. CONTROLLER lets us
             # `switch` into the speaker's playing group (metadata/artwork are
@@ -404,11 +423,35 @@ class SendspinArtworkClient:
             self._sync_backoff_until = 0.0
             logger.info("Music Assistant disconnected from artwork display client")
 
+    @staticmethod
+    async def _show_pairing_pin(code: Optional[str]) -> None:
+        if code is not None:
+            logger.warning("Sendspin artwork client: pairing required, enter PIN %s in Music Assistant", code)
+
+    def _load_identity(self) -> Identity:
+        """Load the saved key pair, or create and save a new one."""
+        path = self._state_dir / "identity-art.json"
+        try:
+            data = json.loads(path.read_text())
+            return Identity.from_private_bytes(b64url_decode(data["private_key"]))
+        except FileNotFoundError:
+            pass
+        except (OSError, ValueError, KeyError) as e:
+            logger.warning("Sendspin artwork identity at %s unreadable, creating a new one: %s", path, e)
+        identity = Identity.generate()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({"private_key": b64url_encode(identity.private_bytes)}))
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        return identity
+
     async def start(self) -> None:
         """Start the mDNS-advertised listener so Music Assistant can connect."""
         try:
+            self._identity = await asyncio.to_thread(self._load_identity)
+            self._pairing_store = await FileClientPairingStore.open(
+                self._state_dir / "pairing-store-art.json")
             self._listener = ClientListener(
-                client_id=self._client_id,
+                client_id=self._identity.peer_id,
                 on_connection=self._handle_connection,
                 port=ARTWORK_LISTEN_PORT,
                 client_name=self._client_name,

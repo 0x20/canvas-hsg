@@ -2,14 +2,12 @@
 HSG Canvas Main Application
 
 This is the entry point for the HSG Canvas application.
-It wires together all managers, pools, and API routes.
+It wires together all managers and API routes.
 """
 import asyncio
 import logging
 import os
-import re
 from contextlib import asynccontextmanager
-from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, FileResponse
@@ -24,7 +22,6 @@ from managers.image_manager import ImageManager
 from managers.display_detector import DisplayCapabilityDetector
 from managers.hdmi_cec import HDMICECManager
 from managers.background_modes import BackgroundManager
-from managers.webcast_manager import WebcastManager
 from managers.chromecast_manager import ChromecastManager
 from managers.output_target_manager import OutputTargetManager
 from managers.spotify_manager import SpotifyManager
@@ -38,30 +35,31 @@ except Exception as _artwork_import_err:
     logging.warning(f"Sendspin artwork display client unavailable: {_artwork_import_err}")
 from managers.bluetooth_manager import BluetoothManager
 from managers.audio_conflict import AudioConflictManager
+from managers.now_playing import NowPlaying
 from managers.websocket_manager import WebSocketManager
 from managers.chromium_manager import ChromiumManager
 from managers.homeassistant_manager import HomeAssistantManager
+from utils.proc import run
 
 # API routes
 from routes import (
+    display_state_payload,
     setup_audio_routes,
     setup_playback_routes,
     setup_display_routes,
-    setup_background_routes,
     setup_cec_routes,
     setup_system_routes,
-    setup_webcast_routes,
     setup_chromecast_routes,
     setup_output_target_routes,
     setup_websocket_routes,
     setup_homeassistant_routes,
-    setup_display_stack_routes,
+    setup_kiosk_routes,
     setup_sendspin_routes,
     setup_bluetooth_routes,
 )
 
 # Config
-from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, CANVAS_HOST, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME, STATION_ART_CACHE_DIR
+from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME, SENDSPIN_ART_STATE_DIR, STATION_ART_CACHE_DIR
 
 # Logging setup
 logging.basicConfig(
@@ -69,32 +67,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 
-
-_canvas_build_cache = {"mtime": 0.0, "hash": None}
-
-
-def current_canvas_build() -> Optional[str]:
-    """Hash of the currently-built canvas bundle (the `index-<hash>.js` Vite
-    emits), parsed from frontend/dist/index.html and cached by mtime.
-
-    The kiosks have no keyboard to hard-refresh, so the React app compares this
-    against its own loaded bundle hash (from import.meta.url) and reloads itself
-    when the server has a newer build — making every deploy self-propagate.
-    """
-    path = "frontend/dist/index.html"
-    try:
-        mtime = os.path.getmtime(path)
-    except OSError:
-        return None
-    if mtime != _canvas_build_cache["mtime"]:
-        try:
-            with open(path, "r") as fh:
-                m = re.search(r"index-([\w-]+)\.js", fh.read())
-            _canvas_build_cache["hash"] = m.group(1) if m else None
-            _canvas_build_cache["mtime"] = mtime
-        except OSError:
-            return _canvas_build_cache["hash"]
-    return _canvas_build_cache["hash"]
+HEALTH_CHECK_INTERVAL = 30
 
 
 class SPAStaticFiles(StaticFiles):
@@ -113,6 +86,86 @@ class SPAStaticFiles(StaticFiles):
             response.headers["Cache-Control"] = "no-cache"
         return response
 
+
+async def _restart_raspotify(reason: str):
+    logging.warning(f"Restarting raspotify: {reason}")
+    await run("sudo", "systemctl", "restart", "raspotify", timeout=10)
+    logging.info("Raspotify restarted")
+
+
+async def _check_raspotify_health(spotify_manager):
+    """Restart raspotify if it's stuck on fatal errors or has gone silent
+    while the Spotify session is supposed to be active."""
+    # ── 1. Fatal errors in the last 60 seconds ──
+    _, recent_logs = await run("journalctl", "-u", "raspotify", "--since", "60 sec ago", "--no-pager", "-q")
+    error_count = (
+        recent_logs.count("429 Too Many Requests")
+        + recent_logs.count("StatusCode(403)")
+        + recent_logs.count("FailedPrecondition")
+    )
+    if error_count >= 3:
+        await _restart_raspotify(f"{error_count} fatal errors in 60s")
+        return
+
+    # ── 2. Liveness: silent logs while Spotify thinks it's playing ──
+    # If our SpotifyManager believes a session is connected but raspotify
+    # has produced no log output in the last 10 minutes, it's a zombie.
+    if spotify_manager.is_playing or spotify_manager.is_session_connected:
+        rc, silent = await run("journalctl", "-u", "raspotify", "--since", "10 min ago", "--no-pager", "-q")
+        if rc == 0 and not silent.strip():
+            await _restart_raspotify("silent for 10 min while session active")
+
+
+async def _check_kiosk_health(chromium_manager, display_ws_manager, state: dict):
+    """Start the kiosk again after a crash; reload it when it shows the wrong page."""
+    if not await chromium_manager.check_health():
+        state["no_ws"] = 0
+        return
+
+    # Fast path: if the kiosk landed on an error page (e.g. 502 from Angie
+    # during a restart race), the title won't contain "HSG Canvas". Reload
+    # immediately instead of waiting for the 60s no-WS heuristic.
+    title = await chromium_manager.get_page_title()
+    if title is not None and "HSG Canvas" not in title:
+        logging.warning(f"Kiosk on unexpected page (title={title!r}) — reloading")
+        await chromium_manager.reload_page()
+        state["no_ws"] = 0
+        return
+
+    # Reload if no display WebSocket connections for 2+ checks (60s)
+    if display_ws_manager.get_connection_count() == 0:
+        state["no_ws"] += 1
+        if state["no_ws"] >= 2:
+            logging.warning("No display WebSocket connections for 60s — reloading Chromium page")
+            await chromium_manager.reload_page()
+            state["no_ws"] = 0
+    else:
+        state["no_ws"] = 0
+
+
+async def health_check_loop(app: FastAPI):
+    await asyncio.sleep(HEALTH_CHECK_INTERVAL)  # Initial delay
+    state = {"no_ws": 0}
+    while True:
+        for check in (
+            lambda: _check_kiosk_health(app.state.chromium_manager, app.state.display_ws_manager, state),
+            lambda: _check_raspotify_health(app.state.spotify_manager),
+        ):
+            try:
+                await check()
+            except Exception as e:
+                logging.error(f"Health check error: {e}")
+        await asyncio.sleep(HEALTH_CHECK_INTERVAL)
+
+
+async def _discover_chromecasts(output_target_manager):
+    """Chromecast discovery takes up to ~10 s: run it after startup."""
+    try:
+        await output_target_manager.discover_chromecast_targets()
+    except Exception as e:
+        logging.error(f"Chromecast discovery failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
@@ -122,152 +175,80 @@ async def lifespan(app: FastAPI):
     """
     # STARTUP
     logging.info("Starting HSG Canvas application...")
+    s = app.state
 
     try:
-        # Initialize display detector
-        logging.info("Initializing display detector...")
-        app.state.display_detector = DisplayCapabilityDetector()
-        await app.state.display_detector.initialize()
+        s.display_detector = DisplayCapabilityDetector()
+        await s.display_detector.initialize()
 
-        # Initialize WebSocket managers (3 separate instances)
-        logging.info("Initializing WebSocket managers...")
-        app.state.websocket_manager = WebSocketManager()      # Spotify events
-        app.state.display_ws_manager = WebSocketManager()      # Display state
-        app.state.audio_ws_manager = WebSocketManager()        # Audio commands
+        # WebSocket managers (3 separate instances)
+        s.websocket_manager = WebSocketManager()      # Now-playing events
+        s.display_ws_manager = WebSocketManager()     # Display state
+        s.audio_ws_manager = WebSocketManager()       # Audio commands
 
-        # Initialize display stack
-        logging.info("Initializing display stack...")
+        async def on_display_change(_item):
+            """Broadcast every stack change, and release the video's audio
+            claim when no video is left on the stack."""
+            await s.display_ws_manager.broadcast("display_state", display_state_payload(s.display_stack))
+            await s.playback_manager.on_stack_change()
 
-        async def broadcast_display_state(item):
-            """Callback: broadcast display state change to all connected clients.
-            Sends both the topmost item (`current`) and the full stack so the
-            kiosk can keep a persistent YouTube layer mounted underneath
-            silent overlays like image/qrcode/website — keeps audio alive
-            when HA pushes a transient visual on top."""
-            payload = item.to_dict()
-            payload["stack"] = app.state.display_stack.get_stack()
-            payload["app_build"] = current_canvas_build()
-            await app.state.display_ws_manager.broadcast("display_state", payload)
+        s.display_stack = DisplayStack(on_change=on_display_change)
+        # Audio: one coordinator decides which source is audible
+        s.audio_conflict = AudioConflictManager()
+        s.playback_manager = PlaybackManager(s.display_stack, s.audio_conflict)
+        s.chromium_manager = ChromiumManager(s.display_detector)
 
-        app.state.display_stack = DisplayStack(on_change=broadcast_display_state)
+        # Apply the persisted idle-screen settings (background art + logo/QR
+        # flags + QR target) to the base layer so the kiosk renders them from
+        # the first frame.
+        s.background_manager = BackgroundManager(s.display_stack)
+        await s.background_manager.apply_overlay_settings()
 
-        # Initialize Chromium manager
-        logging.info("Initializing Chromium manager...")
-        app.state.chromium_manager = ChromiumManager(app.state.display_detector)
-
-        # Initialize background manager with display stack
-        logging.info("Initializing background manager...")
-        app.state.background_manager = BackgroundManager(
-            app.state.display_detector,
-            app.state.display_stack
-        )
-        # Apply the persisted idle-screen overlay settings (background art +
-        # logo/QR flags + QR target) to the base layer so the kiosk renders
-        # them from the first frame.
-        await app.state.background_manager.apply_overlay_settings()
-
-        # Schedule Chromium launch as a background task. During lifespan
-        # startup uvicorn is not yet bound, so Angie's upstream is down and
-        # Chromium would land on a 502 page. start_kiosk_when_ready polls
-        # /canvas/ until it returns 2xx; the await yields, lifespan finishes,
-        # uvicorn binds, and the task proceeds against a healthy upstream.
-        if app.state.chromium_manager:
-            # Use the canvas mDNS domain rather than 127.0.0.1 so the YouTube
-            # IFrame embed's `origin` parameter is a non-loopback hostname —
-            # YouTube rejects loopback origins with Error 153 ("Video
-            # unavailable"). CANVAS_DOMAIN is configurable per instance.
-            # audio=1 marks this as THE audio-output display: only the Pi's own
-            # kiosk plays the stream and reports playback status. Other screens
-            # loading /canvas are silent display-only mirrors, so they don't
-            # double up the audio or flip playback state with their own reports.
-            kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1&audio=1"
-
-            async def _launch_kiosk():
-                logging.info("Waiting for /canvas/ to be healthy before launching Chromium...")
-                success = await app.state.chromium_manager.start_kiosk_when_ready(kiosk_url)
-                if success:
-                    app.state.background_manager.current_mode = "static_web"
-                    app.state.background_manager.is_running = True
-                    logging.info("Chromium started — React app managing display")
-                else:
-                    logging.error("Failed to start Chromium kiosk mode")
-
-            app.state._kiosk_launch_task = asyncio.create_task(_launch_kiosk())
-
-        # Initialize managers
-        logging.info("Initializing managers...")
-        app.state.audio_manager = AudioManager(app.state.audio_ws_manager)
-
+        s.audio_manager = AudioManager(s.audio_ws_manager, s.audio_conflict)
         # Station-logo cache: resolves and stores radio artwork on disk so the
         # canvas renders it from the Pi instead of a name on a blank backdrop.
-        app.state.station_art = StationArtCache(STATION_ART_CACHE_DIR)
-        app.state.audio_manager.station_art = app.state.station_art
+        s.station_art = StationArtCache(STATION_ART_CACHE_DIR)
+        s.audio_manager.station_art = s.station_art
+        s.audio_manager.display_stack = s.display_stack
+        # Same now-playing WS the card listens on — lets audio streams
+        # (SomaFM etc.) drive it with live track metadata.
+        s.audio_manager.now_playing_ws = s.websocket_manager
 
-        # Initialize audio conflict manager (shared between Spotify and Sendspin)
-        logging.info("Initializing audio conflict manager...")
-        app.state.audio_conflict = AudioConflictManager()
+        s.spotify_manager = SpotifyManager(s.websocket_manager)
+        s.sendspin_manager = SendspinManager(s.websocket_manager, s.audio_conflict)
+        s.bluetooth_manager = BluetoothManager(s.websocket_manager, s.audio_conflict)
+        for manager in (s.spotify_manager, s.sendspin_manager, s.bluetooth_manager):
+            manager.display_stack = s.display_stack
+        s.spotify_manager.audio_conflict = s.audio_conflict
+        # Spotify stays silent while Bluetooth or Sendspin shows
+        s.spotify_manager.bluetooth_manager = s.bluetooth_manager
+        s.spotify_manager.sendspin_manager = s.sendspin_manager
 
-        # Initialize Spotify manager
-        logging.info("Initializing Spotify manager...")
-        app.state.spotify_manager = SpotifyManager(
-            app.state.audio_manager, app.state.background_manager, app.state.websocket_manager
-        )
-        app.state.spotify_manager.display_stack = app.state.display_stack
-        app.state.spotify_manager.audio_conflict = app.state.audio_conflict
-        await app.state.spotify_manager.initialize()
+        s.audio_conflict.audio_manager = s.audio_manager
+        s.audio_conflict.playback_manager = s.playback_manager
+        s.audio_conflict.spotify_manager = s.spotify_manager
+        s.audio_conflict.sendspin_manager = s.sendspin_manager
+        s.audio_conflict.bluetooth_manager = s.bluetooth_manager
 
-        # Initialize Sendspin manager
-        logging.info("Initializing Sendspin manager...")
-        app.state.sendspin_manager = SendspinManager(
-            audio_manager=app.state.audio_manager,
-            websocket_manager=app.state.websocket_manager,
-            audio_conflict=app.state.audio_conflict,
-        )
-        app.state.sendspin_manager.display_stack = app.state.display_stack
+        # Read only: the combined /audio/status report
+        s.audio_manager.playback_manager = s.playback_manager
+        s.audio_manager.spotify_manager = s.spotify_manager
+        s.audio_manager.sendspin_manager = s.sendspin_manager
+        s.audio_manager.bluetooth_manager = s.bluetooth_manager
 
-        # Initialize Bluetooth manager
-        logging.info("Initializing Bluetooth manager...")
-        app.state.bluetooth_manager = BluetoothManager(
-            audio_manager=app.state.audio_manager,
-            websocket_manager=app.state.websocket_manager,
-            audio_conflict=app.state.audio_conflict,
-        )
-        app.state.bluetooth_manager.display_stack = app.state.display_stack
+        s.now_playing = NowPlaying(s.spotify_manager, s.sendspin_manager,
+                                   s.bluetooth_manager, s.audio_manager)
 
-        app.state.playback_manager = PlaybackManager(
-            app.state.display_stack, app.state.display_detector,
-            app.state.background_manager, app.state.audio_manager
-        )
-
-        # Wire cross-references between managers
-        app.state.spotify_manager.playback_manager = app.state.playback_manager
-        app.state.audio_manager.playback_manager = app.state.playback_manager
-        app.state.audio_manager.spotify_manager = app.state.spotify_manager
-        app.state.audio_manager.sendspin_manager = app.state.sendspin_manager
-        app.state.audio_manager.display_stack = app.state.display_stack
-        # Same Spotify-events WS the now-playing card listens on — lets audio
-        # streams (SomaFM etc.) drive it with live track metadata.
-        app.state.audio_manager.now_playing_ws = app.state.websocket_manager
-        app.state.sendspin_manager.playback_manager = app.state.playback_manager
-        app.state.sendspin_manager.spotify_manager = app.state.spotify_manager
-        app.state.sendspin_manager.bluetooth_manager = app.state.bluetooth_manager
-        app.state.bluetooth_manager.playback_manager = app.state.playback_manager
-        app.state.bluetooth_manager.spotify_manager = app.state.spotify_manager
-        app.state.bluetooth_manager.sendspin_manager = app.state.sendspin_manager
-        app.state.spotify_manager.bluetooth_manager = app.state.bluetooth_manager
-        app.state.spotify_manager.sendspin_manager = app.state.sendspin_manager
-        app.state.audio_manager.bluetooth_manager = app.state.bluetooth_manager
-
-        # Start Sendspin listener (after all cross-refs are wired)
-        await app.state.sendspin_manager.initialize()
+        await s.spotify_manager.initialize()
+        await s.sendspin_manager.initialize()
 
         # Sendspin ARTWORK display client — receives Music Assistant album art
         # as binary frames over the LAN and feeds it to the now-playing view.
-        app.state.sendspin_artwork_client = None
+        s.sendspin_artwork_client = None
         if SendspinArtworkClient is not None:
             logging.info("Starting Sendspin artwork display client...")
-            app.state.sendspin_artwork_client = SendspinArtworkClient(
-                client_id=f"{CANVAS_HOST}-canvas-art",
+            s.sendspin_artwork_client = SendspinArtworkClient(
+                state_dir=SENDSPIN_ART_STATE_DIR,
                 # Friendly name MA shows for this display — labelled after the
                 # speaker it accompanies so it's clearly the art companion, not
                 # a second player to cast to (e.g. "Kenwood Speakers - art").
@@ -276,109 +257,59 @@ async def lifespan(app: FastAPI):
                 product_name=DEVICE_NAME,
                 manufacturer=DEVICE_MANUFACTURER,
                 software_version=APP_VERSION,
-                on_artwork=app.state.sendspin_manager.on_artwork_updated,
+                on_artwork=s.sendspin_manager.on_artwork_updated,
             )
-            app.state.sendspin_manager.artwork_client = app.state.sendspin_artwork_client
-            await app.state.sendspin_artwork_client.start()
+            s.sendspin_manager.artwork_client = s.sendspin_artwork_client
+            await s.sendspin_artwork_client.start()
 
-        # Start Bluetooth polling (after all cross-refs are wired)
-        await app.state.bluetooth_manager.initialize()
+        await s.bluetooth_manager.initialize()
 
-        app.state.image_manager = ImageManager(
-            app.state.display_detector, app.state.display_stack
+        s.image_manager = ImageManager(s.display_stack)
+        s.cec_manager = HDMICECManager()
+        s.chromecast_manager = ChromecastManager(s.audio_manager, s.playback_manager)
+        s.output_target_manager = OutputTargetManager(
+            s.audio_manager, s.playback_manager, s.chromecast_manager
         )
+        s.chromecast_discovery_task = asyncio.create_task(_discover_chromecasts(s.output_target_manager))
 
-        # Initialize CEC manager
-        logging.info("Initializing HDMI-CEC manager...")
-        app.state.cec_manager = HDMICECManager()
-
-        # Initialize webcast manager
-        logging.info("Initializing webcast manager...")
-        app.state.webcast_manager = WebcastManager()
-
-        # Initialize chromecast manager
-        logging.info("Initializing Chromecast manager...")
-        app.state.chromecast_manager = ChromecastManager(
-            app.state.audio_manager, app.state.playback_manager, app.state.background_manager
+        s.ha_manager = HomeAssistantManager(
+            spotify_manager=s.spotify_manager,
+            audio_manager=s.audio_manager,
+            playback_manager=s.playback_manager,
+            chromecast_manager=s.chromecast_manager,
+            background_manager=s.background_manager,
+            cec_manager=s.cec_manager,
+            image_manager=s.image_manager,
+            chromium_manager=s.chromium_manager,
+            display_stack=s.display_stack,
         )
+        await s.ha_manager.initialize()
+        # Instant state updates for HA
+        s.spotify_manager.ha_manager = s.ha_manager
 
-        # Initialize output target manager (unified target management)
-        logging.info("Initializing Output Target manager...")
-        app.state.output_target_manager = OutputTargetManager(
-            app.state.audio_manager, app.state.playback_manager, app.state.chromecast_manager
-        )
-
-        # Chromecast discovery now uses subprocess isolation - ZERO file descriptor leaks
-        logging.info("Discovering Chromecast devices...")
-        await app.state.output_target_manager.discover_chromecast_targets()
-
-        # Initialize Home Assistant manager
-        logging.info("Initializing Home Assistant manager...")
-        app.state.ha_manager = HomeAssistantManager(
-            spotify_manager=app.state.spotify_manager,
-            audio_manager=app.state.audio_manager,
-            playback_manager=app.state.playback_manager,
-            chromecast_manager=app.state.chromecast_manager,
-            background_manager=app.state.background_manager,
-            cec_manager=app.state.cec_manager,
-            image_manager=app.state.image_manager,
-            webcast_manager=app.state.webcast_manager,
-            chromium_manager=app.state.chromium_manager,
-            display_stack=app.state.display_stack,
-        )
-        await app.state.ha_manager.initialize()
-
-        # Wire HA manager into SpotifyManager for instant state updates
-        app.state.spotify_manager.ha_manager = app.state.ha_manager
-
-        # Setup routers with managers
         logging.info("Setting up API routes...")
-        app.include_router(setup_audio_routes(app.state.audio_manager, app.state.spotify_manager))
-        app.include_router(setup_playback_routes(app.state.playback_manager))
-        app.include_router(setup_display_routes(app.state.image_manager, app.state.background_manager))
-        app.include_router(setup_background_routes(app.state.background_manager))
-        app.include_router(setup_cec_routes(app.state.cec_manager))
-        app.include_router(setup_system_routes(display_detector=app.state.display_detector))
-        app.include_router(setup_webcast_routes(app.state.webcast_manager))
-        app.include_router(setup_chromecast_routes(app.state.chromecast_manager))
-        app.include_router(setup_output_target_routes(app.state.output_target_manager))
-
-        # Setup Home Assistant routes
-        app.include_router(setup_homeassistant_routes(app.state.ha_manager))
-
-        # Setup Sendspin routes
-        app.include_router(setup_sendspin_routes(app.state.sendspin_manager))
-
-        # Setup Bluetooth routes
-        app.include_router(setup_bluetooth_routes(app.state.bluetooth_manager))
-
-        # Setup WebSocket routes (display + audio + spotify + sendspin + bluetooth)
-        app.include_router(setup_websocket_routes(
-            app.state.websocket_manager,
-            app.state.spotify_manager,
-            app.state.display_ws_manager,
-            app.state.display_stack,
-            app.state.audio_ws_manager,
-            app.state.audio_manager,
-            app.state.sendspin_manager,
-            app.state.bluetooth_manager,
-        ))
-
-        # Setup display stack API routes
-        app.include_router(setup_display_stack_routes(app.state.display_stack, app.state.chromium_manager))
-
-        # Kiosk routes (small server-rendered snapshot + SSE event stream)
-        # MUST be registered before the /canvas StaticFiles mount below so
-        # /canvas/kiosk and /canvas/events match the explicit handlers
-        # rather than being captured by the static mount.
-        from routes import setup_kiosk_routes
-        app.include_router(setup_kiosk_routes(
-            app.state.websocket_manager,
-            app.state.spotify_manager,
-            app.state.sendspin_manager,
-            app.state.bluetooth_manager,
-            app.state.display_stack,
-        ))
+        for router in (
+            setup_audio_routes(s.audio_manager, s.spotify_manager),
+            setup_playback_routes(s.playback_manager),
+            setup_display_routes(s.display_stack, s.image_manager, s.background_manager, s.chromium_manager),
+            setup_cec_routes(s.cec_manager),
+            setup_system_routes(display_detector=s.display_detector),
+            setup_chromecast_routes(s.chromecast_manager),
+            setup_output_target_routes(s.output_target_manager),
+            setup_homeassistant_routes(s.ha_manager),
+            setup_sendspin_routes(s.sendspin_manager),
+            setup_bluetooth_routes(s.bluetooth_manager),
+            setup_websocket_routes(
+                s.websocket_manager, s.now_playing, s.spotify_manager,
+                s.display_ws_manager, s.display_stack,
+                s.audio_ws_manager, s.audio_manager,
+            ),
+            # Kiosk routes MUST be registered before the /canvas StaticFiles
+            # mount below so /canvas/kiosk and /canvas/events match the
+            # explicit handlers rather than being captured by the static mount.
+            setup_kiosk_routes(s.websocket_manager, s.now_playing),
+        ):
+            app.include_router(router)
 
         # The Firefox kiosk loads `/canvas` WITHOUT a trailing slash. The
         # StaticFiles mount answers that with a 307 to `/canvas/`, which the
@@ -401,173 +332,66 @@ async def lifespan(app: FastAPI):
         if os.path.exists("frontend/dist"):
             app.mount("/canvas", SPAStaticFiles(directory="frontend/dist", html=True), name="canvas")
 
-        # Start periodic health check for Chromium and Raspotify
-        async def health_check_loop():
-            await asyncio.sleep(30)  # Initial delay
-            no_ws_count = 0
-            while True:
-                try:
-                    # ── Chromium health ──
-                    if app.state.chromium_manager and app.state.chromium_manager.is_running():
-                        await app.state.chromium_manager.check_health()
+        # Launch Chromium in the background. During lifespan startup uvicorn
+        # is not yet bound, so Angie's upstream is down and Chromium would land
+        # on a 502 page. start_kiosk_when_ready polls /canvas/ until it returns
+        # 2xx; the await yields, lifespan finishes, uvicorn binds, and the task
+        # proceeds against a healthy upstream.
+        #
+        # Use the canvas mDNS domain rather than 127.0.0.1 so the YouTube
+        # IFrame embed's `origin` parameter is a non-loopback hostname —
+        # YouTube rejects loopback origins with Error 153 ("Video
+        # unavailable"). CANVAS_DOMAIN is configurable per instance.
+        # audio=1 marks this as THE audio-output display: only the Pi's own
+        # kiosk plays sound and reports playback status. Other screens loading
+        # /canvas are silent display-only mirrors.
+        kiosk_url = f"http://{CANVAS_DOMAIN}/canvas/?keepalive=1&audio=1"
+        s.kiosk_launch_task = asyncio.create_task(s.chromium_manager.start_kiosk_when_ready(kiosk_url))
 
-                        # Fast path: if the kiosk landed on an error page
-                        # (e.g. 502 from Angie during a restart race), the
-                        # title won't contain "HSG Canvas". Reload immediately
-                        # instead of waiting for the 60s no-WS heuristic.
-                        title = await app.state.chromium_manager.get_page_title()
-                        on_error_page = title is not None and "HSG Canvas" not in title
-                        if on_error_page:
-                            logging.warning(
-                                f"Kiosk on unexpected page (title={title!r}) — reloading"
-                            )
-                            await app.state.chromium_manager.reload_page()
-                            no_ws_count = 0
-                        else:
-                            # Auto-reload if no display WebSocket connections for 2+ checks (60s)
-                            display_ws = app.state.display_ws_manager
-                            if display_ws and len(display_ws.active_connections) == 0:
-                                no_ws_count += 1
-                                if no_ws_count >= 2:
-                                    logging.warning("No display WebSocket connections for 60s — reloading Chromium page")
-                                    await app.state.chromium_manager.reload_page()
-                                    no_ws_count = 0
-                            else:
-                                no_ws_count = 0
-
-                    # ── Raspotify health ──
-                    await _check_raspotify_health()
-
-                except Exception as e:
-                    logging.error(f"Health check error: {e}")
-                await asyncio.sleep(30)
-
-        async def _restart_raspotify(reason: str):
-            logging.warning(f"Restarting raspotify: {reason}")
-            restart = await asyncio.create_subprocess_exec(
-                "sudo", "systemctl", "restart", "raspotify",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(restart.communicate(), timeout=10)
-            logging.info("Raspotify restarted")
-
-        async def _check_raspotify_health():
-            """Restart raspotify if it's stuck on fatal errors or has gone silent
-            while the Spotify session is supposed to be active."""
-            try:
-                # ── 1. Fatal errors in the last 60 seconds ──
-                proc = await asyncio.create_subprocess_exec(
-                    "journalctl", "-u", "raspotify", "--since", "60 sec ago",
-                    "--no-pager", "-q",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-                recent_logs = stdout.decode()
-
-                error_count = (
-                    recent_logs.count("429 Too Many Requests")
-                    + recent_logs.count("StatusCode(403)")
-                    + recent_logs.count("FailedPrecondition")
-                )
-                if error_count >= 3:
-                    await _restart_raspotify(f"{error_count} fatal errors in 60s")
-                    return
-
-                # ── 2. Liveness: silent logs while Spotify thinks it's playing ──
-                # If our SpotifyManager believes a session is connected but raspotify
-                # has produced no log output in the last 10 minutes, it's a zombie.
-                spotify_mgr = getattr(app.state, 'spotify_manager', None)
-                if spotify_mgr and (spotify_mgr.is_playing or spotify_mgr.is_session_connected):
-                    silent_proc = await asyncio.create_subprocess_exec(
-                        "journalctl", "-u", "raspotify", "--since", "10 min ago",
-                        "--no-pager", "-q",
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    silent_stdout, _ = await asyncio.wait_for(silent_proc.communicate(), timeout=5)
-                    if not silent_stdout.strip():
-                        await _restart_raspotify("silent for 10 min while session active")
-            except Exception as e:
-                logging.debug(f"Raspotify health check error: {e}")
-
-        app.state._health_check_task = asyncio.create_task(health_check_loop())
+        # Keeps the kiosk and Raspotify alive
+        s.health_check_task = asyncio.create_task(health_check_loop(app))
 
         logging.info("HSG Canvas application started successfully!")
 
-    except Exception as e:
-        logging.error(f"Failed to start HSG Canvas: {e}")
-        import traceback
-        logging.error(f"Traceback: {traceback.format_exc()}")
+    except Exception:
+        logging.exception("Failed to start HSG Canvas")
         raise
 
     yield  # Application is running
 
-    # SHUTDOWN
+    # SHUTDOWN: every step runs, even when an earlier one fails. The display
+    # stack is not cleared, so remote screens keep their view over a restart.
     logging.info("Shutting down HSG Canvas application...")
 
-    try:
-        # Cancel health check task
-        if hasattr(app.state, '_health_check_task'):
-            app.state._health_check_task.cancel()
+    async def cancel(task):
+        task.cancel()
+        try:
+            await task
+        except (asyncio.CancelledError, Exception):
+            pass
 
-        # Cancel pending kiosk launch (if shutdown hits before it finishes)
-        if hasattr(app.state, '_kiosk_launch_task'):
-            app.state._kiosk_launch_task.cancel()
+    steps = [
+        ("health check", lambda: cancel(s.health_check_task)),
+        ("kiosk launch", lambda: cancel(s.kiosk_launch_task)),
+        ("chromecast discovery", lambda: cancel(s.chromecast_discovery_task)),
+        ("bluetooth", s.bluetooth_manager.cleanup),
+        ("sendspin", s.sendspin_manager.cleanup),
+        ("audio unmute", s.audio_conflict.unmute_all),
+        ("home assistant", s.ha_manager.cleanup),
+        ("chromium", s.chromium_manager.stop),
+        ("chromecast", s.chromecast_manager.cleanup),
+        ("output targets", s.output_target_manager.cleanup),
+        ("audio", s.audio_manager.cleanup),
+    ]
+    if s.sendspin_artwork_client:
+        steps.insert(3, ("sendspin artwork", s.sendspin_artwork_client.stop))
+    for name, step in steps:
+        try:
+            await step()
+        except Exception as e:
+            logging.error(f"Shutdown step '{name}' failed: {e}")
 
-        # Stop Bluetooth manager
-        if hasattr(app.state, 'bluetooth_manager') and app.state.bluetooth_manager:
-            await app.state.bluetooth_manager.cleanup()
-
-        # Stop Sendspin artwork display client
-        if hasattr(app.state, 'sendspin_artwork_client') and app.state.sendspin_artwork_client:
-            await app.state.sendspin_artwork_client.stop()
-
-        # Stop Sendspin manager
-        if hasattr(app.state, 'sendspin_manager') and app.state.sendspin_manager:
-            await app.state.sendspin_manager.cleanup()
-
-        # Restore any muted audio sources
-        if hasattr(app.state, 'audio_conflict') and app.state.audio_conflict:
-            await app.state.audio_conflict.unmute_all()
-
-        # Stop Home Assistant manager
-        if hasattr(app.state, 'ha_manager') and app.state.ha_manager:
-            await app.state.ha_manager.cleanup()
-
-        # Stop Chromium manager
-        if hasattr(app.state, 'chromium_manager') and app.state.chromium_manager:
-            await app.state.chromium_manager.stop()
-
-        # Stop background manager
-        if hasattr(app.state, 'background_manager') and app.state.background_manager:
-            await app.state.background_manager.stop()
-
-        # Stop webcast
-        if hasattr(app.state, 'webcast_manager') and app.state.webcast_manager:
-            await app.state.webcast_manager.stop_webcast()
-
-        # Stop Chromecast
-        if hasattr(app.state, 'chromecast_manager') and app.state.chromecast_manager:
-            await app.state.chromecast_manager.cleanup()
-
-        # Stop Output Target Manager
-        if hasattr(app.state, 'output_target_manager') and app.state.output_target_manager:
-            await app.state.output_target_manager.cleanup()
-
-        # Cleanup audio manager
-        if hasattr(app.state, 'audio_manager') and app.state.audio_manager:
-            await app.state.audio_manager.stop_audio_stream()
-
-        # Cleanup playback manager
-        if hasattr(app.state, 'playback_manager') and app.state.playback_manager:
-            await app.state.playback_manager.stop_playback()
-
-        logging.info("HSG Canvas application shut down successfully!")
-
-    except Exception as e:
-        logging.error(f"Error during shutdown: {e}")
+    logging.info("HSG Canvas application shut down")
 
 
 # Create FastAPI app with lifespan

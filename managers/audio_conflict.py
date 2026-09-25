@@ -1,17 +1,24 @@
 """
 Audio Conflict Manager
 
-Handles muting/unmuting PipeWire sink-inputs to enforce "last-in wins"
-audio exclusivity between Raspotify and Sendspin.
+The single owner of audio exclusivity ("last-in wins").
 
-Both Raspotify (librespot) and the Sendspin daemon output audio via PipeWire.
-When one starts playing, the other is muted. When the winner stops, the
-previously muted source is restored.
+Sources:
+  stream    - browser <audio> radio/clip (AudioManager)
+  video     - unmuted YouTube/Twitch in the kiosk (PlaybackManager)
+  spotify   - Raspotify/librespot, silenced by muting its PipeWire sink-inputs
+  sendspin  - Sendspin daemon, silenced by muting its PipeWire sink-inputs
+  bluetooth - A2DP sink, silenced by an AVRCP pause
+
+A source that starts calls claim(); every other source is stopped, paused or
+muted. When it stops it calls release(), which unmutes only the sinks that
+this source muted. A sink muted by a later claimant stays muted.
 """
-import asyncio
 import logging
 import re
 from typing import Dict, List, Optional
+
+from utils.proc import run
 
 
 # Map friendly names to PipeWire process binary names
@@ -20,63 +27,115 @@ SOURCE_BINARIES = {
     "sendspin": "sendspin",
 }
 
+# Claimant name -> the PipeWire sink it owns
+OWNER_SINKS = {
+    "spotify": "raspotify",
+    "sendspin": "sendspin",
+}
+
+SOURCES = ("stream", "video", "spotify", "sendspin", "bluetooth")
+
 
 class AudioConflictManager:
-    """Manages PipeWire sink-input muting for audio source exclusivity."""
+    """Enforces one audible source at a time across all audio managers."""
 
     def __init__(self):
+        # sink name -> muted sink-input indices
         self._muted_sources: Dict[str, List[int]] = {}
+        # sink name -> claimant that muted it
+        self._mute_owner: Dict[str, str] = {}
+        # Wired in main.py after construction
+        self.audio_manager = None
+        self.playback_manager = None
+        self.spotify_manager = None
+        self.sendspin_manager = None
+        self.bluetooth_manager = None
 
-    async def mute_source(self, source_name: str) -> None:
-        """Mute all PipeWire sink-inputs belonging to a source."""
-        binary = SOURCE_BINARIES.get(source_name)
+    def is_muted(self, sink: str) -> bool:
+        return sink in self._mute_owner
+
+    async def claim(self, owner: str) -> None:
+        """Make `owner` the only audible source."""
+        if owner not in SOURCES:
+            raise ValueError(f"unknown audio source '{owner}'")
+        logging.info(f"AudioConflict: {owner} claims audio")
+
+        # Take over the sinks that are already muted first. The stops below
+        # call release() of the old owner, which must not unmute them.
+        own_sink = OWNER_SINKS.get(owner)
+        for sink in self._mute_owner:
+            if sink != own_sink:
+                self._mute_owner[sink] = owner
+
+        if owner != "stream" and self.audio_manager:
+            await self.audio_manager.stop_audio_stream()
+        if owner != "video" and self.playback_manager:
+            await self.playback_manager.stop_playback()
+        if owner != "bluetooth" and self.bluetooth_manager:
+            await self.bluetooth_manager.pause_playback()
+        if owner != "spotify" and self.spotify_manager:
+            self.spotify_manager.on_preempted()
+        if owner != "sendspin" and self.sendspin_manager:
+            self.sendspin_manager.on_preempted()
+
+        for claimant, sink in OWNER_SINKS.items():
+            if claimant == owner:
+                await self._unmute(sink)
+            else:
+                await self.mute_source(sink, owner)
+
+    async def release(self, owner: str) -> None:
+        """`owner` stopped: unmute the sinks it muted."""
+        for sink, sink_owner in list(self._mute_owner.items()):
+            if sink_owner == owner:
+                await self._unmute(sink)
+                if sink == "raspotify" and self.spotify_manager:
+                    await self.spotify_manager.on_unmuted()
+                if sink == "sendspin" and self.sendspin_manager:
+                    self.sendspin_manager.on_unmuted()
+
+    async def reassert(self, owner: str) -> None:
+        """Mute new sink-inputs of the sinks that `owner` holds muted."""
+        for sink, sink_owner in list(self._mute_owner.items()):
+            if sink_owner == owner:
+                await self.mute_source(sink, owner)
+
+    async def mute_source(self, sink: str, owner: str) -> None:
+        """Mute all PipeWire sink-inputs of `sink` on behalf of `owner`.
+
+        Safe to call again: sink-inputs that appeared since the last call are
+        muted too (librespot opens a new one per track).
+        """
+        binary = SOURCE_BINARIES.get(sink)
         if not binary:
-            logging.warning(f"AudioConflict: unknown source '{source_name}'")
+            logging.warning(f"AudioConflict: unknown sink '{sink}'")
             return
 
+        self._mute_owner[sink] = owner
         indices = await self._find_sink_inputs(binary)
-        if not indices:
-            logging.debug(f"AudioConflict: no sink-inputs found for {source_name} ({binary})")
-            return
-
-        muted = []
+        known = self._muted_sources.setdefault(sink, [])
         for idx in indices:
-            success = await self._set_mute(idx, mute=True)
-            if success:
-                muted.append(idx)
+            if idx not in known and await self._set_mute(idx, mute=True):
+                known.append(idx)
+                logging.info(f"AudioConflict: muted {sink} sink-input {idx} for {owner}")
 
-        if muted:
-            self._muted_sources[source_name] = muted
-            logging.info(f"AudioConflict: muted {source_name} (sink-inputs: {muted})")
-
-    async def unmute_source(self, source_name: str) -> None:
-        """Unmute previously muted sink-inputs for a source."""
-        indices = self._muted_sources.pop(source_name, [])
-        if not indices:
-            return
-
+    async def _unmute(self, sink: str) -> None:
+        self._mute_owner.pop(sink, None)
+        indices = self._muted_sources.pop(sink, [])
         for idx in indices:
             await self._set_mute(idx, mute=False)
-
-        logging.info(f"AudioConflict: unmuted {source_name} (sink-inputs: {indices})")
+        if indices:
+            logging.info(f"AudioConflict: unmuted {sink} (sink-inputs: {indices})")
 
     async def unmute_all(self) -> None:
         """Unmute everything (cleanup on shutdown)."""
-        for source_name in list(self._muted_sources.keys()):
-            await self.unmute_source(source_name)
+        for sink in list(self._mute_owner):
+            await self._unmute(sink)
 
     async def _find_sink_inputs(self, binary_name: str) -> List[int]:
         """Find PipeWire sink-input indices by application binary name."""
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pactl", "list", "sink-inputs",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-            output = stdout.decode()
-        except Exception as e:
-            logging.warning(f"AudioConflict: failed to list sink-inputs: {e}")
+        rc, output = await run("pactl", "list", "sink-inputs")
+        if rc != 0:
             return []
 
         # Parse pactl output: blocks start with "Sink Input #<index>"
@@ -95,15 +154,5 @@ class AudioConflictManager:
 
     async def _set_mute(self, sink_input_index: int, mute: bool) -> bool:
         """Mute or unmute a specific sink-input."""
-        mute_val = "1" if mute else "0"
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                "pactl", "set-sink-input-mute", str(sink_input_index), mute_val,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            await asyncio.wait_for(proc.communicate(), timeout=5)
-            return proc.returncode == 0
-        except Exception as e:
-            logging.warning(f"AudioConflict: failed to set mute on sink-input {sink_input_index}: {e}")
-            return False
+        rc, _ = await run("pactl", "set-sink-input-mute", str(sink_input_index), "1" if mute else "0")
+        return rc == 0

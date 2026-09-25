@@ -52,13 +52,9 @@ class DisplayStack:
     EXCLUSIVE_TYPES = {"spotify", "sendspin", "bluetooth", "radio"}
 
     def __init__(self, on_change: Optional[Callable[['DisplayItem'], Coroutine]] = None):
-        # Overlay flags default on; qr_url is filled in by BackgroundManager at
-        # startup (it needs the LAN hostname). No qr_url → no QR drawn yet.
-        self._base = DisplayItem("static", {
-            "background_url": "/static/canvas_background_2.png",
-            "show_logo": True,
-            "show_qr": True,
-        }, item_id="base")
+        # BackgroundManager owns the base content and applies it at startup,
+        # before the server accepts clients.
+        self._base = DisplayItem("static", {}, item_id="base")
         self._stack: List[DisplayItem] = []
         self._on_change = on_change
 
@@ -66,6 +62,10 @@ class DisplayStack:
     def current(self) -> DisplayItem:
         """Return the topmost item (or base if stack is empty)"""
         return self._stack[-1] if self._stack else self._base
+
+    def get(self, item_id: str) -> Optional[DisplayItem]:
+        """Return the item with this ID, or None"""
+        return next((i for i in self._stack if i.id == item_id), None)
 
     def get_stack(self) -> List[Dict[str, Any]]:
         """Return the full stack state for API inspection"""
@@ -84,17 +84,18 @@ class DisplayStack:
             duration: Optional auto-expire duration in seconds
             item_id: Optional fixed ID (for idempotent pushes like "spotify")
         """
-        # If item_id is given and already exists, update it instead of duplicating
-        if item_id:
-            for existing in self._stack:
-                if existing.id == item_id:
-                    existing.content = content
-                    existing.type = item_type
-                    existing.pushed_at = time.time()
-                    # If it's the top item, notify
-                    if existing is self.current:
-                        await self._notify_change()
-                    return existing
+        # If item_id is given and already exists, update it instead of duplicating.
+        # Always notify: the kiosk also renders items below the top (a video
+        # under an overlay), so a change anywhere in the stack must reach it.
+        existing = self.get(item_id) if item_id else None
+        if existing:
+            existing.content = content
+            existing.type = item_type
+            existing.duration = duration
+            existing.pushed_at = time.time()
+            self._start_expiry(existing)
+            await self._notify_change()
+            return existing
 
         # Evict mutually exclusive types (e.g. pushing spotify removes bluetooth/sendspin)
         if item_type in self.EXCLUSIVE_TYPES:
@@ -107,10 +108,7 @@ class DisplayStack:
 
         item = DisplayItem(item_type, content, duration, item_id)
         self._stack.append(item)
-
-        # Start expiry timer if duration is set
-        if duration and duration > 0:
-            item._expiry_task = asyncio.create_task(self._expire_item(item))
+        self._start_expiry(item)
 
         await self._notify_change()
         logging.info(f"DisplayStack: pushed {item_type} (id={item.id}, duration={duration})")
@@ -118,20 +116,17 @@ class DisplayStack:
 
     async def remove(self, item_id: str) -> bool:
         """Remove a specific item by ID"""
-        for i, item in enumerate(self._stack):
-            if item.id == item_id:
-                was_top = (i == len(self._stack) - 1)
-                self._cancel_expiry(item)
-                self._stack.pop(i)
-                if was_top:
-                    await self._notify_change()
-                logging.info(f"DisplayStack: removed {item.type} (id={item_id})")
-                return True
-        return False
+        item = self.get(item_id)
+        if not item:
+            return False
+        self._cancel_expiry(item)
+        self._stack.remove(item)
+        await self._notify_change()
+        logging.info(f"DisplayStack: removed {item.type} (id={item_id})")
+        return True
 
     async def remove_by_type(self, item_type: str) -> int:
         """Remove all items of a given type. Returns count removed."""
-        was_top_type = self.current.type if self._stack else None
         to_remove = [item for item in self._stack if item.type == item_type]
         for item in to_remove:
             self._cancel_expiry(item)
@@ -139,10 +134,7 @@ class DisplayStack:
 
         if to_remove:
             logging.info(f"DisplayStack: removed {len(to_remove)} items of type {item_type}")
-            # Only notify if the top changed
-            new_top_type = self.current.type if self._stack else None
-            if was_top_type == item_type or new_top_type != was_top_type:
-                await self._notify_change()
+            await self._notify_change()
 
         return len(to_remove)
 
@@ -176,10 +168,19 @@ class DisplayStack:
         """Wait for duration then remove the item"""
         try:
             await asyncio.sleep(item.duration)
+            # Detach first: remove() cancels the expiry task, and this task must
+            # not cancel itself before the change broadcast completes.
+            item._expiry_task = None
             await self.remove(item.id)
             logging.info(f"DisplayStack: item {item.id} ({item.type}) expired after {item.duration}s")
         except asyncio.CancelledError:
             pass
+
+    def _start_expiry(self, item: DisplayItem):
+        """(Re)start the item's expiry timer from its current duration"""
+        self._cancel_expiry(item)
+        if item.duration and item.duration > 0:
+            item._expiry_task = asyncio.create_task(self._expire_item(item))
 
     def _cancel_expiry(self, item: DisplayItem):
         """Cancel an item's expiry timer if active"""

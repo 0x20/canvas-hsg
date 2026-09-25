@@ -1,26 +1,25 @@
 import { useEffect, useRef } from 'react';
+import { IS_AUDIO_OUTPUT } from './audioOutput';
 import useWebSocket from './useWebSocket';
-
-// Only the audio-output display (the Pi kiosk, launched with ?audio=1) plays
-// the stream and reports playback status. Every other screen loading /canvas is
-// a silent display-only mirror — if they all played, they'd double the audio
-// and their (often autoplay-blocked) status reports would flip playback off.
-const AUDIO_ENABLED = new URLSearchParams(window.location.search).get('audio') === '1';
 
 /**
  * AudioPlayer - Invisible component for browser-based audio streaming
  *
  * Replaces the MPV AudioPool. Listens to /ws/audio for commands from the backend.
  * The backend (output target + volume slider) decides what plays and how loud —
- * this component just executes those commands. Supports HLS via hls.js.
+ * this component just executes those commands. Supports HLS via hls.js
+ * (bundled, loaded on first use).
  * Inert unless this screen is the designated audio output (?audio=1).
  */
 export default function AudioPlayer() {
   const audioRef = useRef(null);
   const hlsRef = useRef(null);
+  // Bumped on every play/stop command. A slow hls.js load checks it, so it
+  // cannot start a stream that a later command already replaced.
+  const commandRef = useRef(0);
 
   const wsRef = useWebSocket('/ws/audio', {
-    enabled: AUDIO_ENABLED,
+    enabled: IS_AUDIO_OUTPUT,
     onOpen: () => sendStatus(),
     onMessage: (msg) => handleCommand(msg),
   });
@@ -59,24 +58,17 @@ export default function AudioPlayer() {
     cleanupHls();
     const audio = audioRef.current;
     if (!audio) return;
+    const command = commandRef.current;
 
-    // Dynamic import of hls.js from CDN
-    if (!window.Hls) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest/dist/hls.min.js';
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    }
+    const { default: Hls } = await import('hls.js/light');
+    if (command !== commandRef.current) return;  // replaced while loading
 
-    if (window.Hls && window.Hls.isSupported()) {
-      const hls = new window.Hls();
+    if (Hls.isSupported()) {
+      const hls = new Hls();
       hlsRef.current = hls;
       hls.loadSource(url);
       hls.attachMedia(audio);
-      hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
         audio.play().catch(e => console.warn('AudioPlayer: autoplay blocked:', e));
       });
     } else {
@@ -90,6 +82,10 @@ export default function AudioPlayer() {
     const audio = audioRef.current;
     if (!audio) return;
 
+    if (msg.type === 'audio_play' || msg.type === 'audio_stop') {
+      commandRef.current += 1;
+    }
+
     switch (msg.type) {
       case 'audio_play': {
         cleanupHls();
@@ -98,7 +94,7 @@ export default function AudioPlayer() {
         audio.volume = Math.max(0, Math.min(1, volume));
 
         if (url.includes('.m3u8')) {
-          loadHls(url);
+          loadHls(url).catch(e => console.warn('AudioPlayer: HLS load failed:', e));
         } else {
           audio.src = url;
           audio.play().catch(e => console.warn('AudioPlayer: autoplay blocked:', e));
@@ -132,7 +128,7 @@ export default function AudioPlayer() {
   }
 
   useEffect(() => {
-    if (!AUDIO_ENABLED) return;  // display-only mirror: never play/report
+    if (!IS_AUDIO_OUTPUT) return;  // display-only mirror: never play/report
 
     // Report when a finite clip finishes so the backend can drop its overlay.
     const audioEl = audioRef.current;

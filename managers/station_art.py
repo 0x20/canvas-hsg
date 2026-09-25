@@ -186,7 +186,7 @@ class StationArtCache:
 
                 if best:
                     img, source, url = best
-                    meta = self._store(img, key, url)
+                    meta = await asyncio.to_thread(self._store, img, key, url)
                     if meta:
                         meta.update({
                             "stream_url": stream_url,
@@ -472,10 +472,9 @@ class StationArtCache:
         if not raw:
             return None
 
-        try:
-            img = Image.open(io.BytesIO(raw))
-            img.load()
-        except Exception:
+        # Decoding a large image takes long on a Pi: keep it off the event loop.
+        img = await asyncio.to_thread(self._decode, raw)
+        if img is None:
             # SVG, HTML error page, or anything else Pillow can't decode.
             logging.debug(f"Station art candidate is not a decodable image: {url}")
             return None
@@ -484,6 +483,15 @@ class StationArtCache:
             logging.debug(f"Station art candidate too small ({img.size}): {url}")
             return None
         return img
+
+    @staticmethod
+    def _decode(raw: bytes):
+        try:
+            img = Image.open(io.BytesIO(raw))
+            img.load()
+            return img
+        except Exception:
+            return None
 
     def _store(self, img, key: str, url: str) -> Optional[Dict[str, Any]]:
         """Normalise a chosen image and write it into the cache as PNG."""

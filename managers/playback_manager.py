@@ -5,34 +5,38 @@ Handles video playback (YouTube, Twitch, streams) via the display stack.
 YouTube videos are played in the browser via the YouTube IFrame API;
 Twitch channels/VODs/clips via the Twitch embedded player iframe.
 """
-import asyncio
 import logging
 import re
 from typing import Optional
 from urllib.parse import urlparse
 
-from utils.drm import get_optimal_connector_and_device as _get_optimal_connector_and_device
+
+# Display stack item IDs of the video players
+VIDEO_ITEM_IDS = ("youtube", "twitch")
 
 
 class PlaybackManager:
-    """Manages video playback via the display stack"""
+    """Manages video playback via the display stack.
 
-    def __init__(self, display_stack, display_detector, background_manager=None, audio_manager=None):
+    The display stack is the only record of what plays: a video item is on
+    the stack while it plays, and the kiosk removes it when the video ends.
+    """
+
+    def __init__(self, display_stack, audio_conflict=None):
         self.display_stack = display_stack
-        self.display_detector = display_detector
-        self.background_manager = background_manager
-        self.audio_manager = audio_manager
+        self.audio_conflict = audio_conflict
 
-        # Current playback state (for status reporting)
-        self.current_stream: Optional[str] = None
-        self.current_protocol: Optional[str] = None
-        self.current_player: Optional[str] = None
+    def _video_item(self):
+        """The video item on the display stack, or None"""
+        for item_id in VIDEO_ITEM_IDS:
+            item = self.display_stack.get(item_id)
+            if item:
+                return item
+        return None
 
-        # Keep for backward compat with routes that check this
-        self.video_controller = None
-
-    def get_optimal_connector_and_device(self) -> tuple[str, str]:
-        return _get_optimal_connector_and_device(self.display_detector)
+    @property
+    def is_playing(self) -> bool:
+        return self._video_item() is not None
 
     @staticmethod
     def _extract_youtube_video_id(url: str) -> Optional[str]:
@@ -88,98 +92,65 @@ class PlaybackManager:
 
     async def play_youtube(self, youtube_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play YouTube video via the display stack (rendered by React YouTubePlayer)"""
-        try:
-            # Stop any existing playback
-            if self.current_stream:
-                await self.stop_playback()
-
-            # Stop audio stream if YouTube is playing with audio
-            if not mute and self.audio_manager:
-                await self.audio_manager.stop_audio_stream()
-
-            # Extract video ID from URL
-            video_id = self._extract_youtube_video_id(youtube_url)
-            if not video_id:
-                logging.error(f"Could not extract YouTube video ID from: {youtube_url}")
-                return False
-
-            logging.info(f"Playing YouTube video via display stack: {youtube_url} (video_id={video_id})")
-
-            await self.display_stack.push(
-                "youtube",
-                {"video_id": video_id, "url": youtube_url, "mute": mute},
-                duration=duration,
-                item_id="youtube",
-            )
-
-            self.current_stream = f"youtube:{youtube_url}"
-            self.current_protocol = "youtube"
-            self.current_player = "browser"
-
-            logging.info(f"YouTube video pushed to display stack: {youtube_url}")
-            return True
-
-        except Exception as e:
-            logging.error(f"YouTube playback failed: {e}")
+        video_id = self._extract_youtube_video_id(youtube_url)
+        if not video_id:
+            logging.error(f"Could not extract YouTube video ID from: {youtube_url}")
             return False
+        return await self._play("youtube", {"video_id": video_id, "url": youtube_url, "mute": mute},
+                                duration, mute)
 
     async def play_twitch(self, twitch_url: str, duration: Optional[int] = None, mute: bool = False) -> bool:
         """Play a Twitch channel/VOD/clip via the display stack (rendered by React TwitchPlayer)"""
+        info = self._parse_twitch_url(twitch_url)
+        if not info:
+            logging.error(f"Could not parse Twitch URL: {twitch_url}")
+            return False
+        return await self._play("twitch", {"kind": info["kind"], "twitch_id": info["id"],
+                                           "url": twitch_url, "mute": mute},
+                                duration, mute)
+
+    async def _play(self, kind: str, content: dict, duration: Optional[int], mute: bool) -> bool:
         try:
-            # Stop any existing playback
-            if self.current_stream:
-                await self.stop_playback()
+            # A video with sound is an audio source: silence the others
+            if self.audio_conflict:
+                if mute:
+                    await self.audio_conflict.release("video")
+                else:
+                    await self.audio_conflict.claim("video")
 
-            # Stop audio stream if Twitch is playing with audio
-            if not mute and self.audio_manager:
-                await self.audio_manager.stop_audio_stream()
-
-            info = self._parse_twitch_url(twitch_url)
-            if not info:
-                logging.error(f"Could not parse Twitch URL: {twitch_url}")
-                return False
-
-            logging.info(f"Playing Twitch {info['kind']} via display stack: {twitch_url} (id={info['id']})")
-
-            await self.display_stack.push(
-                "twitch",
-                {"kind": info["kind"], "twitch_id": info["id"], "url": twitch_url, "mute": mute},
-                duration=duration,
-                item_id="twitch",
-            )
-
-            self.current_stream = f"twitch:{twitch_url}"
-            self.current_protocol = "twitch"
-            self.current_player = "browser"
-
-            logging.info(f"Twitch stream pushed to display stack: {twitch_url}")
+            # Push first, then drop the other player. The stack always holds
+            # a video in between, so the audio claim is not released.
+            await self.display_stack.push(kind, content, duration=duration, item_id=kind)
+            for item_id in VIDEO_ITEM_IDS:
+                if item_id != kind:
+                    await self.display_stack.remove(item_id)
+            logging.info(f"{kind} pushed to display stack: {content['url']}")
             return True
-
         except Exception as e:
-            logging.error(f"Twitch playback failed: {e}")
+            logging.error(f"{kind} playback failed: {e}")
             return False
 
     async def stop_playback(self) -> bool:
         """Stop current playback by removing from display stack"""
         try:
-            if self.current_protocol in ("youtube", "twitch"):
-                await self.display_stack.remove(self.current_protocol)
-
-            self.current_stream = None
-            self.current_protocol = None
-            self.current_player = None
-
-            logging.info("Playback stopped")
+            for item_id in VIDEO_ITEM_IDS:
+                await self.display_stack.remove(item_id)
+            await self.on_stack_change()
             return True
         except Exception as e:
             logging.error(f"Failed to stop playback: {e}")
             return False
 
+    async def on_stack_change(self) -> None:
+        """Release the audio when no video is left (it ended or was removed)."""
+        if self.audio_conflict and not self.is_playing:
+            await self.audio_conflict.release("video")
+
     def get_playback_status(self) -> dict:
-        is_playing = self.current_stream is not None
+        item = self._video_item()
         return {
-            "is_playing": is_playing,
-            "current_stream": self.current_stream if is_playing else None,
-            "protocol": self.current_protocol if is_playing else None,
-            "player": self.current_player if is_playing else None,
+            "is_playing": item is not None,
+            "current_stream": f"{item.type}:{item.content.get('url')}" if item else None,
+            "protocol": item.type if item else None,
+            "player": "browser" if item else None,
         }

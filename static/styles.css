@@ -538,24 +538,6 @@ input[type="range"] {
     border-color: #1DB954;
 }
 
-/* Webcast grid */
-.webcast-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 8px;
-    margin: 12px 0;
-}
-
-.webcast-grid label {
-    font-size: 0.85rem;
-    margin-bottom: 2px;
-    display: block;
-}
-
-.webcast-grid input {
-    width: 100%;
-}
-
 /* CEC status */
 .cec-status div {
     margin-bottom: 4px;

@@ -7,17 +7,6 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 
 
-class StreamStartRequest(BaseModel):
-    source_url: str = Field(description="URL of the stream source")
-    protocol: str = Field("rtmp", description="Streaming protocol (rtmp, http_flv, hls)")
-
-
-class PlaybackStartRequest(BaseModel):
-    player: str = Field("mpv", description="Media player to use")
-    mode: str = Field("optimized", description="Playback mode")
-    protocol: str = Field("rtmp", description="Streaming protocol")
-
-
 class ImageDisplayRequest(BaseModel):
     image_data: str = Field(description="Base64 encoded image data")
     duration: int = Field(10, gt=0, le=3600, description="Seconds to display (1-3600)")
@@ -61,12 +50,6 @@ class ChromecastVolumeRequest(BaseModel):
     volume: float = Field(ge=0.0, le=1.0, description="Chromecast volume 0.0-1.0")
 
 
-class CastReceiveRequest(BaseModel):
-    media_url: str = Field(description="URL of the media to receive")
-    content_type: Optional[str] = Field(None, description="MIME type of content")
-    title: Optional[str] = Field(None, description="Display title")
-
-
 class SpotifyEventRequest(BaseModel):
     event: str = Field(description="Event type: session_connected, playing, paused, stopped, volume_set, etc.")
     track_id: Optional[str] = Field(None, description="Spotify track ID")
@@ -102,36 +85,6 @@ class SpotifyVolumeRequest(BaseModel):
     volume: int = Field(70, ge=0, le=100, description="Spotify volume 0-100")
 
 
-class WebcastStartRequest(BaseModel):
-    url: str = Field(description="URL of the website to webcast")
-    viewport_width: int = Field(1920, gt=0, description="Viewport width in pixels")
-    viewport_height: int = Field(1080, gt=0, description="Viewport height in pixels")
-    scroll_delay: float = Field(5.0, gt=0, description="Delay between scrolls in seconds")
-    scroll_percentage: float = Field(30.0, gt=0, le=100, description="Percentage of page to scroll each step")
-    overlap_percentage: float = Field(5.0, ge=0, le=50, description="Overlap percentage between scroll steps")
-    loop_count: int = Field(3, ge=0, description="Number of scroll loops (0 = infinite)")
-    zoom_level: float = Field(1.0, gt=0, le=5.0, description="Page zoom level")
-    wait_for_load: float = Field(3.0, ge=0, description="Seconds to wait for page load")
-    screenshot_path: str = Field("/tmp/webcast_screenshot.png", description="Path for webcast screenshots")
-
-
-class WebcastConfigRequest(BaseModel):
-    scroll_delay: Optional[float] = Field(None, gt=0, description="Delay between scrolls")
-    scroll_percentage: Optional[float] = Field(None, gt=0, le=100, description="Scroll percentage")
-    overlap_percentage: Optional[float] = Field(None, ge=0, le=50, description="Overlap percentage")
-    loop_count: Optional[int] = Field(None, ge=0, description="Number of loops")
-    zoom_level: Optional[float] = Field(None, gt=0, le=5.0, description="Zoom level")
-
-
-class WebcastScrollRequest(BaseModel):
-    direction: str = Field("down", description="Scroll direction ('up' or 'down')")
-    amount: Optional[float] = Field(None, gt=0, description="Scroll amount in pixels")
-
-
-class WebcastJumpRequest(BaseModel):
-    position_percent: float = Field(0, ge=0, le=100, description="Position to jump to as percentage")
-
-
 class HAConfigUpdateRequest(BaseModel):
     ha_url: Optional[str] = Field(None, description="Home Assistant URL (e.g., http://192.168.1.100:8123)")
     ha_token: Optional[str] = Field(None, description="Long-Lived Access Token")
@@ -149,8 +102,6 @@ class HAAutomationRule(BaseModel):
 
 class HAAutomationAddRequest(BaseModel):
     rules: List[HAAutomationRule] = Field(description="List of automation rules to add")
-
-
 
 
 # Display Stack models

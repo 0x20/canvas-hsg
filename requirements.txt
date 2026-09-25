@@ -5,26 +5,22 @@ python-multipart>=0.0.6
 pydantic>=2.5.0
 
 # HTTP requests
-requests>=2.31.0
 aiohttp>=3.9.1
 
-# Image processing for background generation
+# Image processing (station logos, QR codes)
 Pillow>=10.1.0
 
 # QR code generation
 qrcode[pil]>=7.4.2
-
-# Web automation for webcast feature
-playwright>=1.40.0
 
 # Chromecast support
 PyChromecast>=13.1.0
 
 # Sendspin protocol client — used as an ARTWORK/METADATA display client to
 # receive Music Assistant album art over the LAN (binary frames, no internet).
-# Pinned to the version the sendspin player/MA speak; client deps only (the
-# heavy av/numpy/pillow are server-only extras we don't install).
-aiosendspin==6.0.5
+# Not pinned: it must keep up with Music Assistant. 9.x is the first version
+# with encryption and PIN pairing, which the client code now uses.
+aiosendspin>=9.1.1
 
 # Configuration
 PyYAML>=6.0.1

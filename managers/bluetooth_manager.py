@@ -19,13 +19,9 @@ from typing import Any, Dict, List, Optional
 class BluetoothManager:
     """Manages Bluetooth A2DP display integration via BlueZ D-Bus polling."""
 
-    def __init__(self, audio_manager=None, websocket_manager=None, audio_conflict=None):
-        self.audio_manager = audio_manager
+    def __init__(self, websocket_manager=None, audio_conflict=None):
         self.websocket_manager = websocket_manager
         self.audio_conflict = audio_conflict
-        self.playback_manager = None
-        self.spotify_manager = None
-        self.sendspin_manager = None
         self.display_stack = None
 
         # Current state
@@ -187,8 +183,7 @@ class BluetoothManager:
             else:
                 # Re-enforce muting each poll — sink-inputs can appear after initial mute
                 if self.audio_conflict:
-                    await self.audio_conflict.mute_source("raspotify")
-                    await self.audio_conflict.mute_source("sendspin")
+                    await self.audio_conflict.reassert("bluetooth")
 
             # Read track metadata
             player_props = managed_objects[player_path].get("org.bluez.MediaPlayer1", {})
@@ -227,8 +222,7 @@ class BluetoothManager:
 
         # Release the audio lock so a paused stream doesn't stay muted.
         if self.audio_conflict:
-            await self.audio_conflict.unmute_source("raspotify")
-            await self.audio_conflict.unmute_source("sendspin")
+            await self.audio_conflict.release("bluetooth")
 
         # Keep the card on the display stack (idempotent).
         if self.display_stack:
@@ -247,22 +241,9 @@ class BluetoothManager:
         self.device_name = device_name
         self.device_address = device_address
 
-        # Mute competing audio sources via PipeWire
+        # Stop, pause or mute every other audio source
         if self.audio_conflict:
-            await self.audio_conflict.mute_source("raspotify")
-            await self.audio_conflict.mute_source("sendspin")
-
-        # Tell Spotify/Sendspin to clean up their is_playing state
-        if self.spotify_manager and self.spotify_manager.is_playing:
-            self.spotify_manager.is_playing = False
-        if self.sendspin_manager and self.sendspin_manager.is_playing:
-            self.sendspin_manager.is_playing = False
-
-        # Stop local audio/video
-        if self.audio_manager:
-            await self.audio_manager.stop_audio_stream()
-        if self.playback_manager:
-            await self.playback_manager.stop_playback()
+            await self.audio_conflict.claim("bluetooth")
 
         # Push to display stack (auto-evicts spotify/sendspin via EXCLUSIVE_TYPES)
         if self.display_stack:
@@ -289,11 +270,8 @@ class BluetoothManager:
         self.device_address = None
         self.track_info = {}
 
-        if was_playing:
-            # Unmute competing sources
-            if self.audio_conflict:
-                await self.audio_conflict.unmute_source("raspotify")
-                await self.audio_conflict.unmute_source("sendspin")
+        if was_playing and self.audio_conflict:
+            await self.audio_conflict.release("bluetooth")
 
         # Remove from display stack
         if self.display_stack:

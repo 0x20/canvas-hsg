@@ -11,19 +11,21 @@ import os
 import re
 import time
 import aiohttp
-import yaml
 from datetime import datetime
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse
 
 from config import METADATA_UPDATE_INTERVAL
+from utils.media_sources import load_media_sources
 
 
 class AudioManager:
     """Manages audio streaming via browser WebSocket"""
 
-    def __init__(self, audio_ws_manager):
+    def __init__(self, audio_ws_manager, audio_conflict=None):
         self.audio_ws_manager = audio_ws_manager
+        self.audio_conflict = audio_conflict
+        # Read only, for the combined status report
         self.playback_manager = None
         self.spotify_manager = None
         self.sendspin_manager = None
@@ -52,8 +54,13 @@ class AudioManager:
         # main.py). Without it we fall back to remote seed URLs.
         self.station_art = None
 
+        # Shared HTTP session for playlist, metadata and logo requests
+        self._session: Optional[aiohttp.ClientSession] = None
+
         # Current audio state
         self.current_audio_stream: Optional[str] = None
+        # The URL the browser actually plays (playlists resolved)
+        self.current_resolved_url: Optional[str] = None
         self.audio_volume: int = 80
         self._is_playing: bool = False
 
@@ -63,50 +70,54 @@ class AudioManager:
         # Metadata
         self.current_metadata: Dict[str, Any] = {}
         self.metadata_task: Optional[asyncio.Task] = None
+        self._art_task: Optional[asyncio.Task] = None
+
+    def _http(self) -> aiohttp.ClientSession:
+        """Shared HTTP session, created on first use (needs the running loop)."""
+        if self._session is None or self._session.closed:
+            self._session = aiohttp.ClientSession(headers={"User-Agent": "HSGCanvas/4.0"})
+        return self._session
+
+    async def cleanup(self):
+        """Stop the stream and close the HTTP session."""
+        await self.stop_audio_stream()
+        if self._session and not self._session.closed:
+            await self._session.close()
 
     async def _resolve_audio_url(self, stream_url: str) -> str:
         """Resolve PLS/M3U playlist URLs to direct stream URLs"""
-        try:
-            if stream_url.endswith('.pls'):
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                        if response.status == 200:
-                            content = await response.text()
-                            for line in content.split('\n'):
-                                if line.startswith('File1='):
-                                    direct_url = line.split('=', 1)[1].strip()
-                                    logging.info(f"Resolved PLS URL {stream_url} to {direct_url}")
-                                    return direct_url
-            elif stream_url.endswith('.m3u') and not stream_url.endswith('.m3u8'):
-                # M3U playlist (not HLS) - resolve to first stream URL
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
-                        if response.status == 200:
-                            content = await response.text()
-                            for line in content.split('\n'):
-                                line = line.strip()
-                                if line and not line.startswith('#'):
-                                    logging.info(f"Resolved M3U URL {stream_url} to {line}")
-                                    return line
-
-            # Return original URL for direct streams and .m3u8 (HLS handled by browser)
+        is_pls = stream_url.endswith('.pls')
+        is_m3u = stream_url.endswith('.m3u')  # not .m3u8: HLS is handled by the browser
+        if not (is_pls or is_m3u):
             return stream_url
-
+        try:
+            async with self._http().get(stream_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                if response.status != 200:
+                    return stream_url
+                content = await response.text()
+            for line in content.split('\n'):
+                line = line.strip()
+                if is_pls and line.startswith('File1='):
+                    direct_url = line.split('=', 1)[1].strip()
+                elif is_m3u and line and not line.startswith('#'):
+                    direct_url = line
+                else:
+                    continue
+                logging.info(f"Resolved playlist {stream_url} to {direct_url}")
+                return direct_url
         except Exception as e:
             logging.warning(f"Failed to resolve playlist URL {stream_url}: {e}")
-            return stream_url
+        return stream_url
 
     async def start_audio_stream(self, stream_url: str, volume: Optional[int] = None) -> bool:
         """Start audio streaming via browser WebSocket"""
         try:
-            # Stop video playback to enforce audio exclusivity
-            if self.playback_manager and self.playback_manager.current_stream:
-                logging.info("Stopping video playback before starting audio stream")
-                await self.playback_manager.stop_playback()
+            # Stop, pause or mute every other audio source
+            if self.audio_conflict:
+                await self.audio_conflict.claim("stream")
 
-            # Stop any existing audio stream
-            if self.current_audio_stream:
-                await self.stop_audio_stream()
+            # Replace the current stream. No release: this source keeps the audio.
+            await self._teardown()
 
             # Use provided volume or current setting
             if volume is not None:
@@ -117,74 +128,80 @@ class AudioManager:
 
             logging.info(f"Starting audio stream via browser: {resolved_url} (original: {stream_url}) at volume {self.audio_volume}")
 
-            # Send play command to browser via WebSocket
-            await self.audio_ws_manager.broadcast_raw({
-                "type": "audio_play",
-                "url": resolved_url,
-                "volume": self.audio_volume,
-            })
-
             self.current_audio_stream = stream_url
+            self.current_resolved_url = resolved_url
             self._is_playing = True
-
-            logging.info(f"Audio stream command sent: {stream_url}")
-
-            # Reset now-playing bookkeeping for the new stream.
-            self._radio_card_active = False
-            self._last_published_key = None
+            await self.audio_ws_manager.broadcast_raw(self.play_command())
 
             # Show the now-playing card right away, seeded with the station
-            # name. A real logo (curated / SomaFM), when we have one, doubles
-            # as the card art; otherwise the React view shows a generic radio
-            # backdrop with the station name — never a bare favicon globe.
-            # The metadata loop fills in the live track title/artist once it
-            # polls. Local sound-effect clips (Pi-served *.mp3) get no card —
+            # name. The metadata loop fills in the live track title/artist once
+            # it polls. Local sound-effect clips (Pi-served *.mp3) get no card —
             # they accompany an image the automation pushes separately.
-            #
-            # Seed BEFORE starting the metadata loop: the loop's first poll may
-            # publish the now-playing card, so the card must already exist.
-            self._current_art_url = await self._resolve_station_art(stream_url)
-            await self._publish_station_card(stream_url)
-
-            # Start metadata updates (may publish the now-playing card on first poll).
+            await self._publish_card()
             self.start_metadata_updates()
 
+            # A station logo (curated / SomaFM / looked up) doubles as the card
+            # art. A first lookup can take many seconds, so it runs after the
+            # reply; without one the React view shows a generic radio backdrop.
+            self._art_task = asyncio.create_task(self._load_station_art(stream_url))
             return True
 
         except Exception as e:
             logging.error(f"Failed to start audio stream {stream_url}: {e}")
             return False
 
+    async def _load_station_art(self, stream_url: str):
+        art = await self._resolve_station_art(stream_url)
+        if art and self.current_audio_stream == stream_url:
+            self._current_art_url = art
+            await self._publish_card()
+
+    def play_command(self) -> Optional[Dict[str, Any]]:
+        """The audio_play command for the current stream, or None.
+
+        Also sent to a browser that (re)connects, so it gets the resolved URL:
+        a browser cannot play a .pls or .m3u playlist.
+        """
+        if not self.current_audio_stream:
+            return None
+        return {
+            "type": "audio_play",
+            "url": self.current_resolved_url or self.current_audio_stream,
+            "volume": self.audio_volume,
+        }
+
     async def stop_audio_stream(self) -> bool:
         """Stop the current audio stream via WebSocket"""
         try:
             if self.current_audio_stream or self._is_playing:
                 logging.info("Stopping audio stream")
-
-                await self.audio_ws_manager.broadcast_raw({
-                    "type": "audio_stop",
-                })
-
-                self.current_audio_stream = None
-                self._is_playing = False
-
-                self.stop_metadata_updates()
-                # Remove the station-art overlay and the now-playing card
-                if self.display_stack:
-                    await self.display_stack.remove("audio-art")
-                    await self.display_stack.remove("radio")
-                self._radio_card_active = False
-                self._last_published_key = None
-                self._current_art_url = None
+                await self.audio_ws_manager.broadcast_raw({"type": "audio_stop"})
+                await self._teardown()
                 logging.info("Audio stream stopped")
-
+            if self.audio_conflict:
+                await self.audio_conflict.release("stream")
             return True
-
         except Exception as e:
             logging.error(f"Failed to stop audio stream: {e}")
             self.current_audio_stream = None
             self._is_playing = False
             return False
+
+    async def _teardown(self):
+        """Clear the stream state, the metadata loop and the canvas card."""
+        self.current_audio_stream = None
+        self.current_resolved_url = None
+        self._is_playing = False
+        self.stop_metadata_updates()
+        if self._art_task:
+            self._art_task.cancel()
+            self._art_task = None
+        if self.display_stack:
+            await self.display_stack.remove("audio-art")
+            await self.display_stack.remove("radio")
+        self._radio_card_active = False
+        self._last_published_key = None
+        self._current_art_url = None
 
     async def set_volume(self, volume: int) -> bool:
         """Set audio volume (0-100)"""
@@ -225,16 +242,16 @@ class AudioManager:
         following stop) would otherwise leave the fullscreen station-art
         overlay stuck forever. Clear playback state and drop the overlay.
         """
+        # A late report for a clip that was already replaced must not stop the
+        # new stream. The browser reports an absolute URL.
+        current = self.current_resolved_url
+        if not current or (src and src != current and not src.endswith(current)):
+            logging.info(f"Ignoring ended report for a stale clip: {src}")
+            return
         logging.info(f"Audio clip ended in browser: {src or '(unknown src)'}")
-        self.current_audio_stream = None
-        self._is_playing = False
-        self.stop_metadata_updates()
-        if self.display_stack:
-            await self.display_stack.remove("audio-art")
-            await self.display_stack.remove("radio")
-        self._radio_card_active = False
-        self._last_published_key = None
-        self._current_art_url = None
+        await self._teardown()
+        if self.audio_conflict:
+            await self.audio_conflict.release("stream")
 
     def get_audio_status(self) -> Dict[str, Any]:
         """Get current audio streaming status across all sources"""
@@ -244,13 +261,12 @@ class AudioManager:
             ("spotify", lambda: self.spotify_manager and self.spotify_manager.is_playing),
             ("sendspin", lambda: self.sendspin_manager and self.sendspin_manager.is_playing),
             ("bluetooth", lambda: self.bluetooth_manager and self.bluetooth_manager.is_playing),
-            ("youtube", lambda: self.playback_manager and self.playback_manager.current_stream),
+            ("youtube", lambda: self.playback_manager and self.playback_manager.is_playing),
         ]
         active_sources = [name for name, check in sources if check()]
-        source_playing = len(active_sources) > 0
 
         status = {
-            "is_playing": source_playing,
+            "is_playing": bool(active_sources),
             "sources": active_sources,
             "volume": self.audio_volume,
         }
@@ -310,30 +326,29 @@ class AudioManager:
         """
         try:
             timeout = aiohttp.ClientTimeout(total=15)
-            headers = {"Icy-MetaData": "1", "User-Agent": "HSGCanvas/4.0"}
-            async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-                async with session.get(stream_url) as resp:
-                    if resp.status not in (200, 206):
-                        return None
+            headers = {"Icy-MetaData": "1"}
+            async with self._http().get(stream_url, timeout=timeout, headers=headers) as resp:
+                if resp.status not in (200, 206):
+                    return None
 
-                    icy_name = (resp.headers.get("icy-name") or "").strip()
-                    if icy_name:
-                        self._icy_names[stream_url] = icy_name
+                icy_name = (resp.headers.get("icy-name") or "").strip()
+                if icy_name:
+                    self._icy_names[stream_url] = icy_name
 
-                    try:
-                        interval = int(resp.headers.get("icy-metaint", 0))
-                    except ValueError:
-                        interval = 0
-                    if interval <= 0:
-                        return None
+                try:
+                    interval = int(resp.headers.get("icy-metaint", 0))
+                except ValueError:
+                    interval = 0
+                if interval <= 0:
+                    return None
 
-                    # Skip one audio block, then read the length-prefixed
-                    # metadata block that follows it.
-                    await resp.content.readexactly(interval)
-                    length = (await resp.content.readexactly(1))[0] * 16
-                    if length <= 0:
-                        return None
-                    block = await resp.content.readexactly(length)
+                # Skip one audio block, then read the length-prefixed
+                # metadata block that follows it.
+                await resp.content.readexactly(interval)
+                length = (await resp.content.readexactly(1))[0] * 16
+                if length <= 0:
+                    return None
+                block = await resp.content.readexactly(length)
         except Exception as e:
             logging.debug(f"ICY metadata read failed for {stream_url}: {e}")
             return None
@@ -369,23 +384,14 @@ class AudioManager:
         if self._stream_images is None:
             images: Dict[str, str] = {}
             names: Dict[str, str] = {}
-            try:
-                cfg = os.path.join(
-                    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "media_sources.yaml",
-                )
-                with open(cfg) as f:
-                    sources = yaml.safe_load(f) or {}
-                for group in (sources.get("music_streams") or {}).values():
-                    for entry in group or []:
-                        if not entry.get("url"):
-                            continue
-                        if entry.get("image"):
-                            images[entry["url"]] = entry["image"]
-                        if entry.get("name"):
-                            names[entry["url"]] = entry["name"]
-            except Exception as e:
-                logging.debug(f"media_sources preset load failed: {e}")
+            for group in (load_media_sources().get("music_streams") or {}).values():
+                for entry in group or []:
+                    if not entry.get("url"):
+                        continue
+                    if entry.get("image"):
+                        images[entry["url"]] = entry["image"]
+                    if entry.get("name"):
+                        names[entry["url"]] = entry["name"]
             self._stream_images = images
             self._stream_names = names
         return self._stream_images, self._stream_names
@@ -410,18 +416,17 @@ class AudioManager:
         stripped = seg.rstrip("0123456789") or seg
         if not self._somafm_logos or (time.time() - self._somafm_logos_ts) > 86400:
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
-                        "https://api.somafm.com/channels.json",
-                        timeout=aiohttp.ClientTimeout(total=8),
-                    ) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            self._somafm_logos = {
-                                c["id"]: (c.get("xlimage") or c.get("largeimage") or c.get("image"))
-                                for c in data.get("channels", []) if c.get("id")
-                            }
-                            self._somafm_logos_ts = time.time()
+                async with self._http().get(
+                    "https://api.somafm.com/channels.json",
+                    timeout=aiohttp.ClientTimeout(total=8),
+                ) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        self._somafm_logos = {
+                            c["id"]: (c.get("xlimage") or c.get("largeimage") or c.get("image"))
+                            for c in data.get("channels", []) if c.get("id")
+                        }
+                        self._somafm_logos_ts = time.time()
             except Exception as e:
                 logging.debug(f"SomaFM channels.json fetch failed: {e}")
         return (
@@ -524,86 +529,92 @@ class AudioManager:
 
         return None
 
+    async def _get_json(self, url: str) -> Optional[Any]:
+        """GET a JSON document; None on any failure."""
+        try:
+            async with self._http().get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    return await resp.json(content_type=None)
+        except Exception as e:
+            logging.warning(f"Failed to fetch metadata from {url}: {e}")
+        return None
+
     async def _fetch_metadata(self, stream_info: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Fetch metadata from appropriate API"""
-        try:
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
-                if stream_info['type'] == 'somafm':
-                    url = f"https://somafm.com/songs/{stream_info['station']}.json"
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            if data.get('songs') and len(data['songs']) > 0:
-                                current = data['songs'][0]
-                                return {
-                                    'title': current.get('title', 'Unknown Track'),
-                                    'artist': current.get('artist', ''),
-                                    'album': current.get('album', ''),
-                                    'station': f"SomaFM {stream_info['station'].title()}",
-                                    'source': 'somafm'
-                                }
+        if stream_info['type'] == 'somafm':
+            data = await self._get_json(f"https://somafm.com/songs/{stream_info['station']}.json")
+            if data and data.get('songs'):
+                current = data['songs'][0]
+                return {
+                    'title': current.get('title', 'Unknown Track'),
+                    'artist': current.get('artist', ''),
+                    'album': current.get('album', ''),
+                    'station': f"SomaFM {stream_info['station'].title()}",
+                    'source': 'somafm'
+                }
 
-                elif stream_info['type'] == 'radioparadise':
-                    url = f"https://api.radioparadise.com/api/now_playing?chan={stream_info['channel']}"
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            channel_names = ['Main Mix', 'Mellow Mix', 'Rock Mix', 'Global Mix']
-                            return {
-                                'title': data.get('title', 'Unknown Track'),
-                                'artist': data.get('artist', ''),
-                                'album': data.get('album', '') + (f" ({data.get('year')})" if data.get('year') else ''),
-                                'station': f"Radio Paradise {channel_names[stream_info['channel']]}",
-                                'source': 'radioparadise'
-                            }
+        elif stream_info['type'] == 'radioparadise':
+            data = await self._get_json(
+                f"https://api.radioparadise.com/api/now_playing?chan={stream_info['channel']}")
+            if data:
+                channel_names = ['Main Mix', 'Mellow Mix', 'Rock Mix', 'Global Mix']
+                return {
+                    'title': data.get('title', 'Unknown Track'),
+                    'artist': data.get('artist', ''),
+                    'album': data.get('album', '') + (f" ({data.get('year')})" if data.get('year') else ''),
+                    'station': f"Radio Paradise {channel_names[stream_info['channel']]}",
+                    'source': 'radioparadise'
+                }
 
-                elif stream_info['type'] == 'icecast':
-                    url = f"{stream_info['server']}/status-json.xsl"
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            for source in data.get('icestats', {}).get('source', []):
-                                if source.get('title') and source.get('server_description'):
-                                    return {
-                                        'title': source.get('title', 'Unknown Track'),
-                                        'artist': '',
-                                        'album': '',
-                                        'station': f"{source.get('server_description')} ({source.get('bitrate')}kbps)",
-                                        'source': 'icecast'
-                                    }
-
-        except Exception as e:
-            logging.warning(f"Failed to fetch metadata: {e}")
+        elif stream_info['type'] == 'icecast':
+            data = await self._get_json(f"{stream_info['server']}/status-json.xsl")
+            sources = (data or {}).get('icestats', {}).get('source', [])
+            # Icecast sends a single mount as an object, not a list
+            if isinstance(sources, dict):
+                sources = [sources]
+            for source in sources:
+                if source.get('title') and source.get('server_description'):
+                    return {
+                        'title': source.get('title', 'Unknown Track'),
+                        'artist': '',
+                        'album': '',
+                        'station': f"{source.get('server_description')} ({source.get('bitrate')}kbps)",
+                        'source': 'icecast'
+                    }
 
         return None
 
     async def _update_metadata_loop(self):
-        """Background task to periodically update metadata"""
-        while self._is_playing:
+        """Background task to periodically update metadata.
+
+        Runs while a stream is set, also while the browser has it paused, so
+        track info continues after a resume.
+        """
+        while self.current_audio_stream:
             try:
-                if self.current_audio_stream:
-                    stream_info = self._detect_stream_type(self.current_audio_stream)
-                    metadata = None
-                    if stream_info:
-                        metadata = await self._fetch_metadata(stream_info)
-                    # No station-specific API (or it gave us nothing): fall back
-                    # to the stream's own ICY metadata, which most Icecast and
-                    # Shoutcast stations broadcast.
-                    if not metadata:
-                        metadata = await self._fetch_icy_metadata(self.current_audio_stream)
+                stream_url = self.current_audio_stream
+                stream_info = self._detect_stream_type(stream_url)
+                metadata = None
+                if stream_info:
+                    metadata = await self._fetch_metadata(stream_info)
+                # No station-specific API (or it gave us nothing): fall back
+                # to the stream's own ICY metadata, which most Icecast and
+                # Shoutcast stations broadcast.
+                if not metadata:
+                    metadata = await self._fetch_icy_metadata(self.current_resolved_url or stream_url)
 
-                    if metadata:
-                        metadata['last_updated'] = datetime.now().isoformat()
-                        self.current_metadata = metadata
-                        logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
+                if metadata and self.current_audio_stream == stream_url:
+                    metadata['last_updated'] = datetime.now().isoformat()
+                    self.current_metadata = metadata
+                    logging.debug(f"Updated metadata: {metadata['title']} by {metadata['artist']}")
 
-                        # Drive the canvas now-playing card, but only when the
-                        # track actually changed (avoid restarting the marquee
-                        # / re-rendering every 15s poll).
-                        key = (metadata.get('title'), metadata.get('artist'))
-                        if metadata.get('title') and key != self._last_published_key:
-                            self._last_published_key = key
-                            await self._publish_now_playing(metadata)
+                    # Drive the canvas now-playing card, but only when the
+                    # track actually changed (avoid restarting the marquee
+                    # / re-rendering every 15s poll).
+                    key = (metadata.get('title'), metadata.get('artist'))
+                    if metadata.get('title') and key != self._last_published_key:
+                        self._last_published_key = key
+                        await self._publish_card()
 
                 await asyncio.sleep(METADATA_UPDATE_INTERVAL)
 
@@ -622,7 +633,7 @@ class AudioManager:
         and when nothing is playing. Used both to drive the card and to replay
         state to a freshly-connected client so it's never blank.
         """
-        if not self._is_playing or not self.current_audio_stream:
+        if not self.current_audio_stream:
             return None
         host = (urlparse(self.current_audio_stream).hostname or "").lower()
         if not host or self._is_local_host(host):
@@ -641,48 +652,26 @@ class AudioManager:
             "spotify_url": None,
         }
 
-    async def _publish_station_card(self, stream_url: str):
-        """Show the now-playing card seeded with the station name.
+    async def _publish_card(self):
+        """Show the current stream on the canvas now-playing card.
 
-        Called when a stream starts (and is the only card a stream with no
-        track metadata, e.g. an HLS feed, ever gets). Does nothing for local
-        sound-effect clips.
+        Reuses the same `track_changed` event + `radio` display type that the
+        NowPlaying React view already renders for Spotify/Sendspin/Bluetooth.
+        The station logo doubles as the album art (blurred backdrop + cover);
+        radio has no track duration, so the progress bar/QR stay hidden.
+        Does nothing for local sound-effect clips.
         """
         payload = self.now_playing_payload()
         if not payload:
             return
         if self.now_playing_ws:
             await self.now_playing_ws.broadcast("track_changed", payload)
+        # First card for this stream: swap the static logo overlay for the card.
         if self.display_stack and not self._radio_card_active:
             await self.display_stack.push("radio", {}, item_id="radio")
             await self.display_stack.remove("audio-art")
             self._radio_card_active = True
-            logging.info(f"Audio station card shown: {payload['name']}")
-
-    async def _publish_now_playing(self, metadata: Dict[str, Any]):
-        """Show the audio stream's current track on the canvas now-playing card.
-
-        Reuses the same `track_changed` event + `radio` display type that the
-        NowPlaying React view already renders for Spotify/Sendspin/Bluetooth.
-        The station logo doubles as the album art (blurred backdrop + cover);
-        radio has no track duration, so the progress bar/QR stay hidden.
-        """
-        if not self.now_playing_ws:
-            return
-        await self.now_playing_ws.broadcast("track_changed", {
-            "name": metadata.get("title") or "Unknown Track",
-            "artists": metadata.get("artist") or "",
-            "album": metadata.get("station") or "",
-            "album_art_url": self._current_art_url,
-            "duration_ms": 0,
-            "spotify_url": None,
-        })
-        # First track for this stream: swap the static logo overlay for the card.
-        if self.display_stack and not self._radio_card_active:
-            await self.display_stack.push("radio", {}, item_id="radio")
-            await self.display_stack.remove("audio-art")
-            self._radio_card_active = True
-            logging.info("Audio now-playing card shown on canvas")
+            logging.info(f"Audio now-playing card shown: {payload['name']}")
 
     def start_metadata_updates(self):
         """Start the metadata update background task"""

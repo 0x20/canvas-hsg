@@ -11,7 +11,6 @@ import os
 import aiohttp
 import json
 import yaml
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -24,7 +23,7 @@ class HomeAssistantManager:
 
     def __init__(self, spotify_manager=None, audio_manager=None, playback_manager=None,
                  chromecast_manager=None, background_manager=None, cec_manager=None,
-                 image_manager=None, webcast_manager=None, chromium_manager=None,
+                 image_manager=None, chromium_manager=None,
                  display_stack=None):
         self.spotify_manager = spotify_manager
         self.audio_manager = audio_manager
@@ -33,7 +32,6 @@ class HomeAssistantManager:
         self.background_manager = background_manager
         self.cec_manager = cec_manager
         self.image_manager = image_manager
-        self.webcast_manager = webcast_manager
         self.chromium_manager = chromium_manager
         self.display_stack = display_stack
 
@@ -95,6 +93,22 @@ class HomeAssistantManager:
         except Exception as e:
             logging.error(f"Failed to save HA config: {e}")
 
+    def add_automations(self, rules: List[Dict[str, Any]]) -> None:
+        self.automations.extend(rules)
+        self._save_config()
+
+    def remove_automation(self, index: int) -> Optional[Dict[str, Any]]:
+        """Remove the rule at `index`; None when there is no such rule."""
+        if not 0 <= index < len(self.automations):
+            return None
+        removed = self.automations.pop(index)
+        self._save_config()
+        return removed
+
+    @property
+    def last_pushed_state(self) -> Optional[Dict[str, Any]]:
+        return self._last_pushed_state
+
     def _start_background_tasks(self):
         """Start the state push loop and WS listener"""
         if self._push_task is None or self._push_task.done():
@@ -151,7 +165,7 @@ class HomeAssistantManager:
             attrs["source"] = "audio_stream"
 
         # Check video playback
-        elif self.playback_manager and getattr(self.playback_manager, "current_stream", None):
+        elif self.playback_manager and self.playback_manager.is_playing:
             state = "playing"
             source = "youtube"
             attrs["source"] = "youtube"
@@ -396,7 +410,7 @@ class HomeAssistantManager:
                     await self.playback_manager.stop_playback()
             elif action == "background.show":
                 if self.background_manager:
-                    await self.background_manager.start_static_mode_with_audio_status(show_audio_icon=False)
+                    await self.background_manager.show()
             elif action == "display.url":
                 if self.display_stack:
                     await self.display_stack.push("website", {"url": args.get("url", "")})
@@ -405,14 +419,12 @@ class HomeAssistantManager:
                     await self.image_manager.display_qr_code(
                         args.get("content", ""),
                         args.get("duration"),
-                        self.background_manager
                     )
             elif action == "display.image":
                 if self.image_manager:
                     await self.image_manager.save_and_display_image(
                         args.get("image_url", ""),
                         args.get("duration", 10),
-                        self.background_manager
                     )
             elif action == "display.push":
                 if self.display_stack:
@@ -430,13 +442,12 @@ class HomeAssistantManager:
                     else:
                         await self.display_stack.clear()
             elif action == "webcast.start":
-                if self.webcast_manager:
-                    from managers.webcast_manager import WebcastConfig
-                    config = WebcastConfig(url=args.get("url", ""))
-                    await self.webcast_manager.start_webcast(config)
+                # Old rule name: the website view replaced the webcast screenshots
+                if self.display_stack:
+                    await self.display_stack.push("website", {"url": args.get("url", "")}, item_id="webcast")
             elif action == "webcast.stop":
-                if self.webcast_manager:
-                    await self.webcast_manager.stop_webcast()
+                if self.display_stack:
+                    await self.display_stack.remove("webcast")
             elif action == "ha.call_service":
                 await self._call_ha_service(
                     args.get("domain", ""),

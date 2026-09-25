@@ -18,11 +18,11 @@ Architecture:
 import asyncio
 import logging
 import os
-import subprocess
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from config import SENDSPIN_LISTENER_PORT
+from utils.proc import run
 
 # DBus constants for MPRIS. Derive the runtime dir from the running user so the
 # session bus resolves on any uid (falls back to XDG_RUNTIME_DIR if set).
@@ -39,13 +39,9 @@ _MPRIS_DEST_PREFIX = "org.mpris.MediaPlayer2.Sendspin"
 class SendspinManager:
     """Manages Sendspin display integration via daemon hooks and MPRIS."""
 
-    def __init__(self, audio_manager=None, websocket_manager=None, audio_conflict=None):
-        self.audio_manager = audio_manager
+    def __init__(self, websocket_manager=None, audio_conflict=None):
         self.websocket_manager = websocket_manager
         self.audio_conflict = audio_conflict
-        self.playback_manager = None
-        self.spotify_manager = None
-        self.bluetooth_manager = None
         self.display_stack = None
         # Sendspin ARTWORK-role display client (provides album art over the LAN).
         self.artwork_client = None
@@ -59,6 +55,9 @@ class SendspinManager:
         # with a pause overlay instead of reverting to the background.
         self.is_paused = False
         self._local_audio = False
+        # Another source holds the audio. The watcher must not take it back;
+        # only a new hook-start or the end of that source clears this.
+        self._preempted = False
         self.is_connected = False
         self.track_info: Dict[str, Any] = {}
         self.last_event_time: Optional[datetime] = None
@@ -75,18 +74,12 @@ class SendspinManager:
 
     async def initialize(self) -> None:
         """Check if sendspin daemon is running."""
-        try:
-            result = subprocess.run(
-                ["systemctl", "is-active", "sendspin"],
-                capture_output=True, text=True, timeout=5,
-            )
-            if result.stdout.strip() == "active":
-                self.is_connected = True
-                logging.info("Sendspin daemon is active, waiting for hook events")
-            else:
-                logging.info("Sendspin daemon not active, will respond to hook events when started")
-        except Exception as e:
-            logging.warning(f"Could not check sendspin daemon status: {e}")
+        _, out = await run("systemctl", "is-active", "sendspin")
+        if out.strip() == "active":
+            self.is_connected = True
+            logging.info("Sendspin daemon is active, waiting for hook events")
+        else:
+            logging.info("Sendspin daemon not active, will respond to hook events when started")
 
         # Start the self-healing playback watcher so the now-playing view
         # reflects actual playback even when a hook is missed.
@@ -102,7 +95,7 @@ class SendspinManager:
                 self._playback_watch_task.cancel()
             # Restore any muted sources
             if self.audio_conflict:
-                await self.audio_conflict.unmute_source("raspotify")
+                await self.audio_conflict.release("sendspin")
             logging.info("Sendspin manager cleaned up")
         except Exception as e:
             logging.error(f"Error during Sendspin cleanup: {e}")
@@ -116,6 +109,9 @@ class SendspinManager:
         rendering here, so there's nothing to stop or mute).
         """
         logging.info("Sendspin: stream started (%s)", "local" if local else "remote group")
+        # Only the daemon hook calls this while pre-empted: a new stream start
+        # is a user action and takes the audio back.
+        self._preempted = False
         self.is_connected = True
         was_showing = self.is_playing or self.is_paused
         was_paused = self.is_paused
@@ -125,23 +121,9 @@ class SendspinManager:
         if local and not self._local_audio:
             self._local_audio = True
 
-            # Mute Raspotify (last-in wins)
+            # Stop, pause or mute every other audio source (last-in wins)
             if self.audio_conflict:
-                await self.audio_conflict.mute_source("raspotify")
-
-            # Pause Bluetooth AVRCP
-            if hasattr(self, 'bluetooth_manager') and self.bluetooth_manager:
-                await self.bluetooth_manager.pause_playback()
-
-            # Tell Spotify to clean up its is_playing state
-            if hasattr(self, 'spotify_manager') and self.spotify_manager and self.spotify_manager.is_playing:
-                self.spotify_manager.is_playing = False
-
-            # Stop any local audio/video playback
-            if self.audio_manager:
-                await self.audio_manager.stop_audio_stream()
-            if self.playback_manager:
-                await self.playback_manager.stop_playback()
+                await self.audio_conflict.claim("sendspin")
 
         if not was_showing:
             # Push to display stack
@@ -177,6 +159,16 @@ class SendspinManager:
         ac = self.artwork_client
         return bool(ac and ac.group_paused and ac.track_title)
 
+    def on_preempted(self) -> None:
+        """Another source took the audio: the Sendspin sink is muted."""
+        self._preempted = True
+        self._local_audio = False
+        self.is_playing = False
+
+    def on_unmuted(self) -> None:
+        """The source that muted us stopped; the watcher may show us again."""
+        self._preempted = False
+
     async def handle_hook_stop(self) -> None:
         """Called when sendspin daemon stops audio playback (hook-stop)."""
         logging.info("Sendspin hook: stream stopped")
@@ -184,7 +176,7 @@ class SendspinManager:
             self._local_audio = False
             # Unmute Raspotify
             if self.audio_conflict:
-                await self.audio_conflict.unmute_source("raspotify")
+                await self.audio_conflict.release("sendspin")
 
         # If the group keeps playing on another speaker, keep displaying it.
         if self._remote_group_playing():
@@ -219,7 +211,7 @@ class SendspinManager:
         if self._local_audio:
             self._local_audio = False
             if self.audio_conflict:
-                await self.audio_conflict.unmute_source("raspotify")
+                await self.audio_conflict.release("sendspin")
 
         # Nothing changes while paused; the watcher keeps running and re-shows on
         # resume. Keep the card on the display stack (idempotent) so the view
@@ -502,7 +494,10 @@ class SendspinManager:
                 remote = self._remote_group_playing()
                 remote_paused = self._remote_group_paused()
 
-                if local or remote:
+                if self._preempted:
+                    # Another source holds the audio and the display.
+                    pass
+                elif local or remote:
                     # Music is playing somewhere (this Pi or another speaker) —
                     # show it, clearing any paused overlay.
                     if not self.is_playing:

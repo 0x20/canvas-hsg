@@ -5,11 +5,10 @@ Manages Chromium browser in kiosk mode for web-based display rendering.
 Uses cage (Wayland kiosk compositor) for direct DRM/KMS output to HDMI.
 """
 import asyncio
-import json
 import logging
 import os
 import signal
-import subprocess
+import time
 from typing import Optional
 
 import aiohttp
@@ -21,18 +20,25 @@ class ChromiumManager:
     """Manages Chromium browser lifecycle in kiosk mode with cage/Wayland"""
 
     CDP_PORT = 9222
+    # Wait between restart attempts: doubles after each failure, up to the max
+    RESTART_DELAY_MIN = 10.0
+    RESTART_DELAY_MAX = 300.0
 
     def __init__(self, display_capabilities):
         self.display = display_capabilities
         self.compositor_process: Optional[asyncio.subprocess.Process] = None
         self.current_url: Optional[str] = None
+        # The URL the kiosk must show. It stays set after a crash, so the
+        # health loop can start the kiosk again. Only stop() clears it.
+        self.kiosk_url: Optional[str] = None
+        self._restart_delay = self.RESTART_DELAY_MIN
+        self._next_restart_at = 0.0
 
     async def _wait_for_url_healthy(self, url: str, timeout: float) -> bool:
         """Poll `url` until it returns 2xx (or timeout). Used to gate Chromium
         launch on the upstream actually being reachable — otherwise the kiosk
         loads Angie's 502 page during hsg-canvas startup and gets stuck there.
         """
-        import time
         deadline = time.monotonic() + timeout
         attempt = 0
         while time.monotonic() < deadline:
@@ -73,10 +79,11 @@ class ChromiumManager:
         Returns:
             True if successfully started, False otherwise
         """
+        self.kiosk_url = url
         try:
             # Stop any existing instance first
             if self.is_running():
-                await self.stop()
+                await self._cleanup_processes()
 
             # Get display resolution
             display_config = self.display.get_optimal_framebuffer_config()
@@ -264,6 +271,7 @@ class ChromiumManager:
 
     async def stop(self):
         """Stop compositor and Chromium processes"""
+        self.kiosk_url = None
         if not self.is_running():
             return
 
@@ -304,7 +312,7 @@ class ChromiumManager:
             return False
 
         if self.compositor_process.returncode is not None:
-            logging.debug("Compositor process has terminated")
+            logging.warning(f"Kiosk compositor exited with code {self.compositor_process.returncode}")
             self.compositor_process = None
             self.current_url = None
             return False
@@ -312,53 +320,57 @@ class ChromiumManager:
         return True
 
     def _has_zombie_children(self) -> bool:
-        """Check if the Chromium process tree has zombie (defunct) children.
+        """Check if the Chromium process tree has zombie (defunct) processes.
 
         A zombie GPU process means Chromium can't render and needs a restart.
+        Reads /proc once instead of running ps for each child.
         """
         if not self.compositor_process or not self.compositor_process.pid:
             return False
 
-        try:
-            result = subprocess.run(
-                ["ps", "--ppid", str(self.compositor_process.pid), "-o", "pid="],
-                capture_output=True, text=True, timeout=5
-            )
-            # Get all descendant PIDs (cage -> chromium -> children)
-            pids = result.stdout.split()
-            for pid in pids:
-                pid = pid.strip()
-                if not pid:
-                    continue
-                # Check children of each direct child too
-                result2 = subprocess.run(
-                    ["ps", "--ppid", pid, "-o", "pid=,stat="],
-                    capture_output=True, text=True, timeout=5
-                )
-                for line in result2.stdout.strip().split('\n'):
-                    parts = line.split()
-                    if len(parts) >= 2 and 'Z' in parts[1]:
-                        logging.warning(f"Zombie child process detected: PID {parts[0]} (stat={parts[1]})")
-                        return True
-        except Exception as e:
-            logging.warning(f"Error checking for zombie children: {e}")
+        children: dict = {}
+        states: dict = {}
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            try:
+                with open(f"/proc/{entry}/stat") as f:
+                    # The name field can hold spaces: parse after its ')'
+                    fields = f.read().rsplit(")", 1)[1].split()
+            except OSError:
+                continue
+            pid, state, ppid = int(entry), fields[0], int(fields[1])
+            states[pid] = state
+            children.setdefault(ppid, []).append(pid)
 
+        pending = list(children.get(self.compositor_process.pid, []))
+        while pending:
+            pid = pending.pop()
+            if states.get(pid) == "Z":
+                logging.warning(f"Zombie child process detected: PID {pid}")
+                return True
+            pending.extend(children.get(pid, []))
         return False
 
     async def check_health(self) -> bool:
-        """Check if Chromium is healthy. Returns True if healthy, False if restart needed."""
-        if not self.is_running():
-            return False
+        """Keep the kiosk running. Returns True if it is healthy.
 
-        if self._has_zombie_children():
+        Restarts the kiosk when its GPU process is a zombie, and starts it
+        again after a crash, with a growing wait between failed attempts.
+        """
+        if self.is_running():
+            if not self._has_zombie_children():
+                self._restart_delay = self.RESTART_DELAY_MIN
+                return True
             logging.error("Chromium has zombie child processes (GPU crash) — restarting")
-            url = self.current_url
-            await self.stop()
-            if url:
-                await self.start_kiosk(url)
+
+        if not self.kiosk_url or time.monotonic() < self._next_restart_at:
             return False
 
-        return True
+        logging.warning(f"Starting kiosk again (next wait {self._restart_delay:.0f}s)")
+        self._next_restart_at = time.monotonic() + self._restart_delay
+        self._restart_delay = min(self._restart_delay * 2, self.RESTART_DELAY_MAX)
+        return await self.start_kiosk(self.kiosk_url)
 
     def get_status(self) -> dict:
         """Get current Chromium status"""

@@ -5,7 +5,7 @@ Comprehensive display capability detection for optimal resolution utilization.
 """
 import os
 import logging
-from typing import Tuple, List, Dict, Any
+from typing import Dict, Any
 
 
 class DisplayCapabilityDetector:
@@ -151,16 +151,3 @@ class DisplayCapabilityDetector:
             'refresh_rate': self.optimal_refresh_rate,
             'connector': self.optimal_connector
         }
-
-    def get_resolution_for_content_type(self, content_type: str) -> Tuple[int, int, float]:
-        """Get optimal resolution for specific content type"""
-        if content_type == "youtube":
-            # Prefer common YouTube resolutions
-            youtube_resolutions = [(3840, 2160), (1920, 1080), (1280, 720), (854, 480)]
-            for yt_res in youtube_resolutions:
-                for width, height, refresh in self.available_resolutions:
-                    if (width, height) == yt_res:
-                        return width, height, refresh
-
-        # Default to optimal resolution
-        return self.optimal_resolution[0], self.optimal_resolution[1], self.optimal_refresh_rate

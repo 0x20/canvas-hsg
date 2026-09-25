@@ -35,41 +35,40 @@ pytest tests/
 `main.py` uses FastAPI's lifespan context manager to initialize everything in order:
 
 1. **DisplayCapabilityDetector** - detects connected display resolution via DRM
-2. **WebSocket managers** (3 instances) - for Spotify events, display state, and audio commands
-3. **DisplayStack** - core display abstraction (base layer + stack of items)
-4. **ChromiumManager** - starts Chromium once at boot, never stops
-5. **BackgroundManager** - thin wrapper around DisplayStack
-6. **AudioManager** - controls browser `<audio>` via WebSocket (no MPV)
-7. **PlaybackManager** - pushes YouTube to DisplayStack (browser renders via IFrame API)
+2. **WebSocket managers** (3 instances) - for now-playing events, display state, and audio commands
+3. **DisplayStack** - core display abstraction (base layer + stack of items). Every change broadcasts the full stack.
+4. **AudioConflictManager + PlaybackManager** - the audio coordinator and the video player
+5. **ChromiumManager** - starts the kiosk in the background; the health loop starts it again after a crash
+6. **BackgroundManager** - owns the idle screen (the stack's base layer)
+7. **AudioManager, Spotify, Sendspin, Bluetooth** - the audio sources
 8. **All other managers** - each receives its dependencies via constructor injection
 9. **API routes** - each `setup_*_routes()` function creates an `APIRouter` with manager references
 
-Shutdown reverses this order. All managers are global module-level variables set during lifespan.
+All managers live on `app.state`. Shutdown runs each cleanup step on its own, so one failure does not skip the others. Shutdown does not clear the display stack.
 
 ### Key Directories
 
 - **`managers/`** - All business logic (there is no separate `core/` directory)
 - **`models/`** - Pydantic request models (`request_models.py`)
-- **`routes.py`** - Single file with 12 `setup_*_routes()` functions, each returning an `APIRouter`
+- **`routes/`** - One module per router; `routes/__init__.py` exports every `setup_*_routes()` function
 - **`config.py`** - Constants: paths, network/discovery, server ports
 - **`config/`** - Deployment config files (Angie, systemd service, raspotify drop-in)
-- **`background_engine/`** - Advanced background image generation (layout, components, generators)
+- **`utils/`** - Small shared helpers: `proc.run()` (non-blocking subprocess), build hash, media sources loader
 - **`tests/`** - pytest tests with pytest-asyncio for async testing
 - **`static/`** - CSS/JS for the web interface
 - **`index.html`** - Synthwave-themed web control panel (served at `/`)
 
 ### Manager Interactions
 
-Managers reference each other for coordinated behavior:
-- **PlaybackManager** depends on: DisplayStack, DisplayCapabilityDetector, BackgroundManager, AudioManager
+- **AudioConflictManager** is the only place that enforces audio exclusivity. A source that starts calls `claim(source)`: every other source is stopped (stream, video), paused (Bluetooth AVRCP) or muted (Raspotify and Sendspin PipeWire sink-inputs). A source that stops calls `release(source)`, which unmutes only what that source muted. Do not stop or mute another source directly from a manager.
+- **DisplayStack** is the only record of what shows. PlaybackManager reads its status from the stack; it keeps no copy.
+- **NowPlaying** (`managers/now_playing.py`) decides which source owns the now-playing card. The WebSocket hydration and the small kiosk view both use it.
 - **ChromecastManager** depends on: AudioManager, PlaybackManager (stops local playback when casting)
 - **OutputTargetManager** depends on: AudioManager, PlaybackManager, ChromecastManager (unified target interface)
-- **SpotifyManager** depends on: AudioManager (stops audio streams when Spotify plays)
-- **BackgroundManager** depends on: DisplayStack, DisplayCapabilityDetector
 
 ### Route Pattern
 
-Each route group in `routes.py` follows the same pattern:
+Each module in `routes/` follows the same pattern:
 ```python
 def setup_X_routes(manager, ...) -> APIRouter:
     router = APIRouter(prefix="/X", tags=["X"])
@@ -98,7 +97,9 @@ This runs on a Raspberry Pi with:
 ## Important Patterns
 
 - **Subprocess isolation**: Chromecast discovery runs in a subprocess to prevent zeroconf file descriptor leaks
-- **Audio exclusivity**: Only one audio source at a time (audio stream, Spotify, or video with audio)
+- **Audio exclusivity**: Only one audio source at a time, enforced by `AudioConflictManager` (see Manager Interactions)
+- **Mirrors are silent**: only the kiosk loaded with `?audio=1` plays sound and reports playback (`frontend/src/audioOutput.js`). Other screens start muted with a tap-to-unmute overlay.
+- **No blocking calls in async code**: use `utils.proc.run()` for subprocesses and `asyncio.to_thread()` for slow CPU or file work.
 - **YouTube via IFrame API**: Video ID extracted by regex, rendered in browser (no yt-dlp)
 
 ## Critical Gotchas

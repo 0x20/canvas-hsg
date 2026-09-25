@@ -1,8 +1,7 @@
 """
 Spotify Manager
 
-Handles Spotify Connect state tracking and integration with audio playback.
-Downloads album art and triggers "Now Playing" display on the physical screen.
+Handles Spotify Connect state tracking and drives the now-playing view.
 
 Librespot 0.8 onevent flow:
   1. track_changed  — has NAME, ARTISTS, ALBUM, COVERS, DURATION_MS
@@ -11,24 +10,22 @@ Librespot 0.8 onevent flow:
 """
 import asyncio
 import logging
-import aiohttp
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Set
+
+from managers.now_playing import track_payload
+from utils.proc import run
 
 
 class SpotifyManager:
     """Manages Spotify Connect state and integration"""
 
-    COVER_ART_PATH = "/tmp/stream_images/spotify_cover.jpg"
     STATE_FILE = "/tmp/spotify_state.json"
 
-    def __init__(self, audio_manager=None, background_manager=None, websocket_manager=None):
-        self.audio_manager = audio_manager
-        self.background_manager = background_manager
+    def __init__(self, websocket_manager=None):
         self.websocket_manager = websocket_manager
-        self.playback_manager = None
         self.ha_manager = None
         self.audio_conflict = None  # Set after creation in main.py
         self.display_stack = None  # Set after creation in main.py
@@ -45,9 +42,9 @@ class SpotifyManager:
         self.track_info: Dict[str, Any] = {}
         self.last_event: Optional[str] = None
         self.last_event_time: Optional[datetime] = None
-
-        # Ensure temp dir exists
-        Path("/tmp/stream_images").mkdir(exist_ok=True)
+        # What librespot itself does, even while another source mutes it.
+        self._librespot_playing = False
+        self._tasks: Set[asyncio.Task] = set()
 
     async def initialize(self):
         """Initialize and restore state from disk if available"""
@@ -80,6 +77,7 @@ class SpotifyManager:
                           covers: Optional[str] = None) -> bool:
         """Handle Spotify event from librespot onevent hook"""
         try:
+            previous_event = self.last_event
             self.last_event = event
             self.last_event_time = datetime.now()
 
@@ -91,8 +89,8 @@ class SpotifyManager:
 
             elif event == "track_changed":
                 # track_changed carries all metadata: NAME, ARTISTS, ALBUM, COVERS, DURATION_MS
+                self._librespot_playing = True
                 self.current_track_id = track_id
-
                 self.track_info = {
                     "track_id": track_id,
                     "duration_ms": duration_ms,
@@ -106,7 +104,6 @@ class SpotifyManager:
                     self.track_info["album"] = album
                 if covers:
                     self.track_info["album_art_url"] = covers
-
                 self._store_spotify_url(track_id)
 
                 # If another source pre-empted us, just store metadata silently
@@ -115,116 +112,34 @@ class SpotifyManager:
                     await self._save_state()
                     return True
 
-                # Broadcast track change via WebSocket (this updates the page)
-                if name and self.websocket_manager:
-                    cover_url = covers if covers else None
-                    # Format artists: replace newlines with comma-space
-                    formatted_artists = artists.replace('\n', ', ') if artists else "Unknown Artist"
-                    # Build Spotify URL
-                    spotify_url = None
-                    if track_id:
-                        # Handle both spotify:track:ID and bare ID formats
-                        if track_id.startswith("spotify:track:"):
-                            spotify_id = track_id.split(":")[-1]
-                        else:
-                            spotify_id = track_id
-                        spotify_url = f"https://open.spotify.com/track/{spotify_id}"
-
-                    logging.info(f"Broadcasting track_changed: {name} by {formatted_artists}, album_art_url={cover_url}, spotify_url={spotify_url}")
-                    await self.websocket_manager.broadcast("track_changed", {
-                        "name": name,
-                        "artists": formatted_artists,
-                        "album": album or "",
-                        "album_art_url": cover_url,
-                        "duration_ms": duration_ms,
-                        "spotify_url": spotify_url
-                    })
-                    logging.info("Broadcast complete")
-
-                # Also mark as playing and push to display stack
-                # (the "playing" event sometimes arrives late or not at all)
-                if not self.is_playing:
-                    self.is_playing = True
-                    if self.audio_manager:
-                        await self.audio_manager.stop_audio_stream()
-                    if self.playback_manager:
-                        await self.playback_manager.stop_playback()
-
-                    # Mute Sendspin (last-in wins)
-                    if self.audio_conflict:
-                        await self.audio_conflict.mute_source("sendspin")
-
-                    # Pause Bluetooth AVRCP
-                    if self.bluetooth_manager:
-                        await self.bluetooth_manager.pause_playback()
-
-                    # Reset system volume to 100% — Spotify has its own volume via Raspotify
-                    import subprocess
-                    subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%"],
-                                   capture_output=True, timeout=5)
-
-                # Push spotify onto display stack (auto-evicts BT/sendspin via EXCLUSIVE_TYPES)
-                if self.display_stack:
-                    await self.display_stack.push("spotify", {}, item_id="spotify")
-
-                if self.websocket_manager:
-                    await self.websocket_manager.broadcast("spotify_state", {
-                        "is_playing": True
-                    })
-
-                await self._clear_paused()
-
+                await self._broadcast_track()
+                # The "playing" event sometimes arrives late or not at all
+                await self._show_playing()
                 logging.info(f"Spotify track changed: {name} - {artists}")
 
             elif event == "playing":
-                # If another source pre-empted us, ignore — librespot keeps firing events
-                if self._is_preempted():
-                    logging.info(f"Spotify playing event ignored (pre-empted by another source)")
+                self._librespot_playing = True
+                # librespot keeps firing events while another source holds the
+                # audio. Only a resume after a pause or stop is a user action
+                # that takes the audio back.
+                user_resumed = previous_event in ("paused", "stopped")
+                if self._is_preempted() and not user_resumed:
+                    logging.info("Spotify playing event ignored (pre-empted by another source)")
                     return True
-
-                was_playing = self.is_playing
-                self.is_playing = True
 
                 # Don't update track_id from playing event - it can be stale/wrong
                 # track_changed is the authoritative source for track changes
                 if track_id and position_ms is not None:
                     self.track_info["position_ms"] = position_ms
 
-                # Stop audio and video playback when Spotify starts playing (only first time)
-                if not was_playing:
-                    if self.audio_manager:
-                        logging.info("Spotify started playing - stopping audio streams")
-                        await self.audio_manager.stop_audio_stream()
-                    if self.playback_manager:
-                        logging.info("Spotify started playing - stopping video playback")
-                        await self.playback_manager.stop_playback()
-
-                    # Mute Sendspin (last-in wins)
-                    if self.audio_conflict:
-                        await self.audio_conflict.mute_source("sendspin")
-
-                    # Pause Bluetooth AVRCP
-                    if self.bluetooth_manager:
-                        await self.bluetooth_manager.pause_playback()
-
-                    # Push spotify onto display stack
-                    if self.display_stack:
-                        await self.display_stack.push("spotify", {}, item_id="spotify")
-
-                # Broadcast state change via WebSocket
-                if self.websocket_manager:
-                    await self.websocket_manager.broadcast("spotify_state", {
-                        "is_playing": True
-                    })
-
-                await self._clear_paused()
-
+                await self._show_playing()
                 logging.info(f"Spotify now playing: {self.track_info.get('name', track_id)}")
 
             elif event == "paused":
                 # Hold the now-playing view but mark it paused — keep the card,
                 # album art and queue on screen with a pause overlay rather than
                 # reverting to the background. A real stop still tears it down.
+                self._librespot_playing = False
                 self.is_playing = False
                 self.is_paused = True
                 logging.info("Spotify playback paused")
@@ -232,7 +147,7 @@ class SpotifyManager:
                 # Release the audio lock so a paused stream doesn't leave
                 # Sendspin muted.
                 if self.audio_conflict:
-                    await self.audio_conflict.unmute_source("sendspin")
+                    await self.audio_conflict.release("spotify")
 
                 # Keep spotify on the display stack (idempotent) so the view holds.
                 if self.display_stack:
@@ -240,14 +155,11 @@ class SpotifyManager:
 
                 # Overlay for the display; is_playing for the control panel.
                 if self.websocket_manager:
-                    await self.websocket_manager.broadcast("playback_state", {
-                        "paused": True
-                    })
-                    await self.websocket_manager.broadcast("spotify_state", {
-                        "is_playing": False
-                    })
+                    await self.websocket_manager.broadcast("playback_state", {"paused": True})
+                    await self.websocket_manager.broadcast("spotify_state", {"is_playing": False})
 
             elif event in ("stopped", "session_disconnected"):
+                self._librespot_playing = False
                 self.is_playing = False
                 self.is_paused = False
                 if event == "session_disconnected":
@@ -256,9 +168,8 @@ class SpotifyManager:
                 self.track_info = {}
                 logging.info(f"Spotify {event}")
 
-                # Unmute Sendspin
                 if self.audio_conflict:
-                    await self.audio_conflict.unmute_source("sendspin")
+                    await self.audio_conflict.release("spotify")
 
                 # Remove spotify from display stack
                 if self.display_stack:
@@ -266,9 +177,7 @@ class SpotifyManager:
 
                 # Broadcast state change via WebSocket (React will switch views)
                 if self.websocket_manager:
-                    await self.websocket_manager.broadcast("spotify_state", {
-                        "is_playing": False
-                    })
+                    await self.websocket_manager.broadcast("spotify_state", {"is_playing": False})
 
             elif event == "volume_changed":
                 logging.info("Spotify volume changed")
@@ -281,7 +190,7 @@ class SpotifyManager:
 
             # Notify Home Assistant of state change
             if self.ha_manager:
-                asyncio.create_task(self.ha_manager.notify_state_change())
+                self._spawn(self.ha_manager.notify_state_change())
 
             return True
 
@@ -289,72 +198,43 @@ class SpotifyManager:
             logging.error(f"Failed to handle Spotify event {event}: {e}")
             return False
 
-    async def _update_now_playing_display(self, name: str, artists: Optional[str],
-                                          album: Optional[str], covers: Optional[str],
-                                          skip_delete: bool = False) -> None:
-        """Trigger the web-based now-playing display via Chromium kiosk mode"""
-        try:
-            # Switch to now-playing view (starts Chromium if needed, or navigates if already running)
-            # WebSocket will handle real-time updates of track info to the page
-            success = await self.background_manager.switch_to_now_playing()
+    async def _show_playing(self) -> None:
+        """Take the audio (first time only) and show the now-playing view."""
+        if not self.is_playing:
+            self.is_playing = True
+            if self.audio_conflict:
+                await self.audio_conflict.claim("spotify")
+            # Reset system volume to 100% — Spotify has its own volume via Raspotify
+            await run("pactl", "set-sink-volume", "@DEFAULT_SINK@", "100%")
 
-            if not success:
-                logging.error("Failed to switch to now-playing view")
+        # Push spotify onto display stack (auto-evicts BT/sendspin via EXCLUSIVE_TYPES)
+        if self.display_stack:
+            await self.display_stack.push("spotify", {}, item_id="spotify")
+        if self.websocket_manager:
+            await self.websocket_manager.broadcast("spotify_state", {"is_playing": True})
+        await self._clear_paused()
 
-        except Exception as e:
-            logging.error(f"Failed to update now-playing display: {e}")
+    async def _broadcast_track(self) -> None:
+        """Send the current track to the now-playing view."""
+        if self.track_info.get("name") and self.websocket_manager:
+            await self.websocket_manager.broadcast("track_changed", track_payload(self.track_info))
 
-    async def _download_cover_art(self, url: Optional[str]) -> Optional[str]:
-        """Download album cover art from URL to local file"""
-        if not url:
-            return None
+    def on_preempted(self) -> None:
+        """Another source took the audio: Raspotify is muted, not stopped."""
+        self.is_playing = False
 
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                    if resp.status == 200:
-                        data = await resp.read()
-                        with open(self.COVER_ART_PATH, "wb") as f:
-                            f.write(data)
-                        logging.info(f"Downloaded album art ({len(data)} bytes)")
-                        return self.COVER_ART_PATH
-                    else:
-                        logging.warning(f"Failed to download album art: HTTP {resp.status}")
-        except Exception as e:
-            logging.warning(f"Failed to download album art from {url}: {e}")
-        return None
+    async def on_unmuted(self) -> None:
+        """The source that muted us stopped. If librespot still plays, show it."""
+        if self._librespot_playing and self.track_info.get("name") and not self._is_preempted():
+            logging.info("Spotify audible again - showing now-playing")
+            await self._broadcast_track()
+            await self._show_playing()
 
-    async def _fetch_cover_art_from_track_id(self, track_id: str) -> Optional[str]:
-        """Fetch album art using Spotify track ID via Open Graph scraping"""
-        if not track_id or not track_id.startswith("spotify:track:"):
-            return None
-
-        spotify_id = track_id.split(":")[-1]
-
-        # Try to get album art from Spotify's Open Graph meta tags
-        # This doesn't require API auth
-        try:
-            import aiohttp
-            url = f"https://open.spotify.com/track/{spotify_id}"
-
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status == 200:
-                        html = await resp.text()
-
-                        # Parse og:image meta tag
-                        import re
-                        match = re.search(r'<meta property="og:image" content="([^"]+)"', html)
-                        if match:
-                            image_url = match.group(1)
-                            logging.info(f"Found album art URL from Open Graph: {image_url}")
-                            return await self._download_cover_art(image_url)
-                        else:
-                            logging.warning("No og:image found in Spotify page")
-        except Exception as e:
-            logging.warning(f"Failed to fetch album art from track ID {spotify_id}: {e}")
-
-        return None
+    def _spawn(self, coro) -> None:
+        """Run a fire-and-forget task and keep a reference until it ends."""
+        task = asyncio.create_task(coro)
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
 
     async def _clear_paused(self) -> None:
         """Clear a paused overlay when playback resumes."""
@@ -365,11 +245,13 @@ class SpotifyManager:
             await self.websocket_manager.broadcast("playback_state", {"paused": False})
 
     def _is_preempted(self) -> bool:
-        """Check if another audio source (Bluetooth, Sendspin) is currently active.
+        """Check if another audio source currently holds the audio or the display.
 
         When pre-empted, librespot still fires events but we should not
         push to the display stack or mute competitors.
         """
+        if self.audio_conflict and self.audio_conflict.is_muted("raspotify"):
+            return True
         if self.bluetooth_manager and self.bluetooth_manager.is_playing:
             return True
         if self.sendspin_manager and self.sendspin_manager.is_playing:
@@ -415,6 +297,7 @@ class SpotifyManager:
                 state = json.load(f)
 
             self.is_playing = state.get("is_playing", False)
+            self._librespot_playing = self.is_playing
             self.is_session_connected = state.get("is_session_connected", False)
             self.current_track_id = state.get("current_track_id")
             self.track_info = state.get("track_info", {})
@@ -439,7 +322,3 @@ class SpotifyManager:
             "last_event_time": self.last_event_time.isoformat() if self.last_event_time else None,
             "device_name": "HSG Canvas"
         }
-
-    def is_active(self) -> bool:
-        """Check if Spotify is currently active (playing or connected)"""
-        return self.is_playing or self.is_session_connected

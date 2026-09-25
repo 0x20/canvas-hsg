@@ -1,33 +1,12 @@
 """
 Shared route helper utilities.
 
-Reduces boilerplate in routes.py for controller validation and manager operations.
+Reduces boilerplate in the route modules for manager operations.
 """
 import logging
-from typing import Any, Coroutine
+from typing import Coroutine
 
 from fastapi import HTTPException
-
-
-def require_video_controller(playback_manager):
-    """
-    Validate that a video controller is available and connected.
-
-    Args:
-        playback_manager: PlaybackManager instance
-
-    Returns:
-        The connected video controller
-
-    Raises:
-        HTTPException: If no controller available or not connected
-    """
-    if not playback_manager.video_controller:
-        raise HTTPException(status_code=404, detail="No active playback")
-    controller = playback_manager.video_controller
-    if not controller.connected:
-        raise HTTPException(status_code=500, detail="Playback controller not available")
-    return controller
 
 
 async def manager_operation(

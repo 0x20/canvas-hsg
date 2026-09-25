@@ -73,54 +73,45 @@ class WebSocketManager:
         self.active_connections.discard(websocket)
         logging.info(f"WebSocket disconnected. Total connections: {len(self.active_connections)}")
 
+    # A client that cannot take a message in this time is dropped, so one slow
+    # remote screen does not hold up every display change.
+    SEND_TIMEOUT = 2.0
+
     async def broadcast(self, event_type: str, data: Dict[str, Any]):
         """Broadcast an event to all connected WebSocket clients + SSE subscribers"""
         # Fan out to SSE consumers regardless of WS clients
         self._push_to_sse(event_type, data)
-
-        if not self.active_connections:
-            logging.debug(f"No active WebSocket connections to broadcast {event_type}")
-            return
-
-        message = json.dumps({
-            "event": event_type,
-            "data": data
-        })
-
-        # Send to all connections, remove dead ones
-        dead_connections = set()
-        for websocket in self.active_connections:
-            try:
-                await websocket.send_text(message)
-            except Exception as e:
-                logging.warning(f"Failed to send to WebSocket client: {e}")
-                dead_connections.add(websocket)
-
-        # Clean up dead connections
-        for websocket in dead_connections:
-            self.active_connections.discard(websocket)
-
-        if dead_connections:
-            logging.info(f"Removed {len(dead_connections)} dead WebSocket connections")
-
-        logging.debug(f"Broadcasted {event_type} to {len(self.active_connections)} clients")
+        await self._send_all(json.dumps({"event": event_type, "data": data}))
 
     async def broadcast_raw(self, data: Dict[str, Any]):
         """Broadcast a raw message (no event/data wrapping) to all connected clients"""
-        if not self.active_connections:
+        await self._send_all(json.dumps(data))
+
+    async def _send_all(self, message: str):
+        """Send to every client in parallel; drop clients that fail or time out."""
+        # Snapshot: clients may connect or disconnect while the sends wait.
+        clients = list(self.active_connections)
+        if not clients:
             return
 
-        message = json.dumps(data)
-        dead_connections = set()
-        for websocket in self.active_connections:
+        async def send(websocket: WebSocket) -> bool:
             try:
-                await websocket.send_text(message)
+                await asyncio.wait_for(websocket.send_text(message), self.SEND_TIMEOUT)
+                return True
             except Exception as e:
                 logging.warning(f"Failed to send to WebSocket client: {e}")
-                dead_connections.add(websocket)
+                return False
 
-        for websocket in dead_connections:
+        results = await asyncio.gather(*(send(ws) for ws in clients))
+        dead = [ws for ws, ok in zip(clients, results) if not ok]
+        for websocket in dead:
             self.active_connections.discard(websocket)
+            try:
+                await websocket.close()
+            except Exception:
+                pass
+        if dead:
+            logging.info(f"Removed {len(dead)} dead WebSocket connections")
 
     def get_connection_count(self) -> int:
         """Get the number of active WebSocket connections"""

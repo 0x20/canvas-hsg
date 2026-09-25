@@ -9,12 +9,13 @@ import os
 # Base directory (for resolving relative paths)
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Paths
-DEFAULT_BACKGROUND_PATH = os.path.join(_BASE_DIR, "canvas_background.png")
-
 # Downloaded radio-station logos, served at /station-art. Regenerable cache —
 # safe to delete, it just refills on the next stream start.
 STATION_ART_CACHE_DIR = os.path.join(_BASE_DIR, "cache", "station_art")
+
+# Key pair and pairing records of the Sendspin artwork client. Keep this
+# directory: a new key pair makes Music Assistant see a new device.
+SENDSPIN_ART_STATE_DIR = os.path.join(_BASE_DIR, "state", "sendspin")
 
 # Canvas instance hostname / mDNS domain.
 # Resolution order: CANVAS_HOST env var, then `CANVAS_HOST=` in canvas.conf

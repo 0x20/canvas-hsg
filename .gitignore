@@ -55,3 +55,9 @@ overlay_settings.json
 
 # Downloaded station logos — regenerable cache, refills on next stream start
 cache/
+
+# Uploaded images, QR codes and backgrounds (runtime-written, pruned)
+static/uploads/
+
+# Sendspin artwork client key pair and pairing records (per device)
+state/

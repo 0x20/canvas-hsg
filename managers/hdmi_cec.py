@@ -3,10 +3,11 @@ HDMI-CEC Manager
 
 Manages HDMI-CEC functionality for TV/monitor power control.
 """
+import asyncio
 import os
 import logging
 import subprocess
-from typing import Tuple, List, Dict
+from typing import Tuple, Dict
 
 
 class HDMICECManager:
@@ -123,7 +124,7 @@ class HDMICECManager:
 
     async def power_on_tv(self) -> Dict:
         """Turn on the TV via HDMI-CEC"""
-        success, output = self._execute_cec_command(f"on {self.tv_address}")
+        success, output = await asyncio.to_thread(self._execute_cec_command, f"on {self.tv_address}")
 
         return {
             "success": success,
@@ -134,7 +135,7 @@ class HDMICECManager:
 
     async def power_off_tv(self) -> Dict:
         """Put TV in standby via HDMI-CEC"""
-        success, output = self._execute_cec_command(f"standby {self.tv_address}")
+        success, output = await asyncio.to_thread(self._execute_cec_command, f"standby {self.tv_address}")
 
         return {
             "success": success,
@@ -145,7 +146,7 @@ class HDMICECManager:
 
     async def get_tv_power_status(self) -> Dict:
         """Check TV power status via HDMI-CEC"""
-        success, output = self._execute_cec_command(f"pow {self.tv_address}")
+        success, output = await asyncio.to_thread(self._execute_cec_command, f"pow {self.tv_address}")
 
         # Parse power status from output
         power_status = "unknown"
@@ -164,7 +165,7 @@ class HDMICECManager:
 
     async def scan_devices(self) -> Dict:
         """Scan for CEC devices and return results"""
-        self._scan_cec_devices()
+        await asyncio.to_thread(self._scan_cec_devices)
 
         return {
             "success": self.is_available,

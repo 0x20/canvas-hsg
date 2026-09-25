@@ -70,16 +70,10 @@ function cacheDOMElements() {
     DOM.tvPowerOnBtn = document.getElementById('tvPowerOnBtn');
     DOM.tvPowerOffBtn = document.getElementById('tvPowerOffBtn');
 
-    // Webcast
-    DOM.webcastUrl = document.getElementById('webcastUrl');
-    DOM.viewportSize = document.getElementById('viewportSize');
-    DOM.scrollDelay = document.getElementById('scrollDelay');
-    DOM.scrollPercentage = document.getElementById('scrollPercentage');
-    DOM.overlapPercentage = document.getElementById('overlapPercentage');
-    DOM.loopCount = document.getElementById('loopCount');
-    DOM.webcastStartBtn = document.getElementById('webcastStartBtn');
-    DOM.webcastStopBtn = document.getElementById('webcastStopBtn');
-    DOM.webcastState = document.getElementById('webcastState');
+    // Website
+    DOM.websiteUrl = document.getElementById('websiteUrl');
+    DOM.websiteShowBtn = document.getElementById('websiteShowBtn');
+    DOM.websiteHideBtn = document.getElementById('websiteHideBtn');
 
     // Spotify
     DOM.spotifyServiceStatus = document.getElementById('spotifyServiceStatus');
@@ -974,87 +968,44 @@ async function refreshCECStatus() {
     }
 }
 
-// Webcast Functions
-async function startWebcast() {
-    try {
-        setButtonLoading(DOM.webcastStartBtn, true);
+// Website Functions
+let websiteItemId = null;
 
-        const url = DOM.webcastUrl.value;
+async function showWebsite() {
+    try {
+        setButtonLoading(DOM.websiteShowBtn, true);
+        const url = DOM.websiteUrl.value;
         if (!url) {
             throw new Error('Please enter a website URL');
         }
-
-        const viewportSize = DOM.viewportSize.value;
-        const [width, height] = viewportSize.split('x').map(Number);
-
-        const config = {
-            url: url,
-            viewport_width: width,
-            viewport_height: height,
-            scroll_delay: parseFloat(DOM.scrollDelay.value),
-            scroll_percentage: parseFloat(DOM.scrollPercentage.value),
-            overlap_percentage: parseFloat(DOM.overlapPercentage.value),
-            loop_count: parseInt(DOM.loopCount.value),
-            zoom_level: 1.0
-        };
-
-        showStatus('Starting webcast...', 'success');
-
-        const response = await fetch('/webcast/start', {
+        const response = await fetch('/display/website', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config)
+            body: JSON.stringify({ url })
         });
-
         const result = await response.json();
-
         if (!response.ok) {
-            throw new Error(result.detail || 'Failed to start webcast');
+            throw new Error(result.detail || 'Failed to show website');
         }
-
-        showStatus('Webcast started successfully', 'success');
-        updateWebcastUI(result);
-
+        websiteItemId = result.item.id;
+        showStatus('Website shown', 'success');
     } catch (error) {
-        showStatus(`Failed to start webcast: ${error.message}`, 'error');
+        showStatus(`Failed to show website: ${error.message}`, 'error');
     } finally {
-        setButtonLoading(DOM.webcastStartBtn, false);
+        setButtonLoading(DOM.websiteShowBtn, false);
     }
 }
 
-async function stopWebcast() {
+async function hideWebsite() {
+    if (!websiteItemId) {
+        return;
+    }
     try {
-        setButtonLoading(DOM.webcastStopBtn, true);
-        showStatus('Stopping webcast...', 'success');
-
-        const response = await fetch('/webcast/stop', { method: 'POST' });
-        const result = await response.json();
-
-        if (!response.ok) {
-            throw new Error(result.detail || 'Failed to stop webcast');
-        }
-
-        showStatus('Webcast stopped', 'success');
-        updateWebcastUI(result);
-
+        await fetch(`/display/${websiteItemId}`, { method: 'DELETE' });
+        websiteItemId = null;
+        showStatus('Website hidden', 'success');
     } catch (error) {
-        showStatus(`Failed to stop webcast: ${error.message}`, 'error');
-    } finally {
-        setButtonLoading(DOM.webcastStopBtn, false);
-    }
-}
-
-function updateWebcastUI(status) {
-    if (status.status === 'running') {
-        DOM.webcastState.textContent = '🟢 Running';
-        DOM.webcastState.style.color = 'var(--neon-cyan)';
-        DOM.webcastStartBtn.disabled = true;
-        DOM.webcastStopBtn.disabled = false;
-    } else {
-        DOM.webcastState.textContent = '🔴 Stopped';
-        DOM.webcastState.style.color = '#dc3545';
-        DOM.webcastStartBtn.disabled = false;
-        DOM.webcastStopBtn.disabled = true;
+        showStatus(`Failed to hide website: ${error.message}`, 'error');
     }
 }
 
@@ -1236,8 +1187,8 @@ document.addEventListener('DOMContentLoaded', function() {
     DOM.staticModeBtn.addEventListener('click', () => setBackgroundMode('static'));
     DOM.tvPowerOnBtn.addEventListener('click', powerOnTV);
     DOM.tvPowerOffBtn.addEventListener('click', powerOffTV);
-    DOM.webcastStartBtn.addEventListener('click', startWebcast);
-    DOM.webcastStopBtn.addEventListener('click', stopWebcast);
+    DOM.websiteShowBtn.addEventListener('click', showWebsite);
+    DOM.websiteHideBtn.addEventListener('click', hideWebsite);
     DOM.openSpaceBtn.addEventListener('click', () => triggerScript('open_space', DOM.openSpaceBtn));
     DOM.closeSpaceBtn.addEventListener('click', () => triggerScript('close_space', DOM.closeSpaceBtn));
 

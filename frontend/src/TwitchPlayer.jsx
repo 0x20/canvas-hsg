@@ -1,3 +1,4 @@
+import { IS_AUDIO_OUTPUT } from './audioOutput';
 import './TwitchPlayer.css';
 
 /**
@@ -5,8 +6,9 @@ import './TwitchPlayer.css';
  *
  * Twitch's iframe requires a `parent` query param naming the host that embeds
  * it; we use the current hostname so it works whether the kiosk loads via
- * 127.0.0.1, localhost, or the Pi's LAN name. Plays with sound unless the
- * backend marks the item muted.
+ * 127.0.0.1, localhost, or the Pi's LAN name. Plays with sound on the
+ * audio-output kiosk unless the backend marks the item muted. Mirrors play
+ * muted.
  */
 export default function TwitchPlayer({ item }) {
   const kind = item?.content?.kind || 'channel';
@@ -17,7 +19,7 @@ export default function TwitchPlayer({ item }) {
 
   // `parent` must be the bare hostname (no scheme, no port).
   const parent = window.location.hostname;
-  const muted = mute ? 'true' : 'false';
+  const muted = mute || !IS_AUDIO_OUTPUT ? 'true' : 'false';
 
   let src;
   if (kind === 'clip') {

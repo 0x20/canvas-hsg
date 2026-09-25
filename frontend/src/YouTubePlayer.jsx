@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { IS_AUDIO_OUTPUT } from './audioOutput';
 import './YouTubePlayer.css';
 
 /**
@@ -22,8 +23,10 @@ function autoplayBlocked() {
 
 /**
  * YouTubePlayer - Fullscreen YouTube video via IFrame API
- * Plays with sound unless the backend marks the item muted. On browsers
- * that block unmuted autoplay, starts muted with a tap-to-unmute overlay.
+ * Plays with sound on the audio-output kiosk unless the backend marks the
+ * item muted. Mirrors, and browsers that block unmuted autoplay, start muted
+ * with a tap-to-unmute overlay. Only the kiosk tells the backend that the
+ * video ended or failed, so a mirror cannot stop playback for everyone.
  */
 export default function YouTubePlayer({ item }) {
   const playerRef = useRef(null);
@@ -73,9 +76,9 @@ export default function YouTubePlayer({ item }) {
         try { playerRef.current.destroy(); } catch {}
       }
 
-      // If unmuted autoplay would be blocked, don't even try: start muted
-      // (always allowed) and show the unmute overlay right away.
-      const startMuted = mute || autoplayBlocked();
+      // A mirror, or a browser that would block unmuted autoplay, starts
+      // muted (always allowed) and shows the unmute overlay right away.
+      const startMuted = mute || !IS_AUDIO_OUTPUT || autoplayBlocked();
       if (startMuted && !mute) setNeedsUnmute(true);
 
       playerRef.current = new window.YT.Player(containerRef.current, {
@@ -130,7 +133,7 @@ export default function YouTubePlayer({ item }) {
             // so the backup autoplay-check won't mute a working video.
             if (e.data === 1) playedRef.current = true;
             // YT.PlayerState.ENDED === 0
-            if (e.data === 0) {
+            if (e.data === 0 && IS_AUDIO_OUTPUT) {
               // Video ended — tell backend to pop from stack
               fetch(`/display/${item.id}`, { method: 'DELETE' }).catch(() => {});
             }
@@ -171,6 +174,8 @@ export default function YouTubePlayer({ item }) {
   useEffect(() => {
     const p = playerRef.current;
     if (!p || typeof p.mute !== 'function') return;
+    // A mirror only plays sound after a tap on the unmute overlay
+    if (!mute && !IS_AUDIO_OUTPUT) return;
     try { mute ? p.mute() : p.unMute(); } catch {}
     if (mute) setNeedsUnmute(false);
   }, [mute]);
@@ -183,7 +188,7 @@ export default function YouTubePlayer({ item }) {
   // Once an error is shown, leave the message up briefly, then pop the
   // item off the stack so the display returns to the background.
   useEffect(() => {
-    if (!errored) return;
+    if (!errored || !IS_AUDIO_OUTPUT) return;
     const timer = setTimeout(() => {
       fetch(`/display/${item.id}`, { method: 'DELETE' }).catch(() => {});
     }, ERROR_DISPLAY_MS);

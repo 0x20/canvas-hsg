@@ -34,12 +34,15 @@ cd "$SCRIPT_DIR/frontend"
 NEED_BUILD=0
 if [ ! -f dist/index.html ]; then
     NEED_BUILD=1
-elif [ -n "$(find src public package.json vite.config.js -newer dist/index.html 2>/dev/null | head -1)" ]; then
+elif [ -n "$(find src public package.json package-lock.json vite.config.js -newer dist/index.html 2>/dev/null | head -1)" ]; then
     NEED_BUILD=1
 fi
 if [ "$NEED_BUILD" = "1" ]; then
     echo "Building React canvas..."
-    [ -d node_modules ] || npm ci
+    # Install dependencies when they are missing or package-lock.json changed
+    if [ ! -f node_modules/.package-lock.json ] || [ package-lock.json -nt node_modules/.package-lock.json ]; then
+        npm ci
+    fi
     npm run build
     echo "Canvas built."
 
