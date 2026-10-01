@@ -43,6 +43,10 @@ class SpotifyManager:
         self.last_event_time: Optional[datetime] = None
         # What librespot itself does, even while another source mutes it.
         self._librespot_playing = False
+        # Set by a "loading" event: the user started a track on Spotify (new
+        # play or skip), so it takes the audio even while another source
+        # holds it. A preloaded auto-advance sends no "loading" event.
+        self._user_load = False
         self._tasks: Set[asyncio.Task] = set()
 
     async def initialize(self):
@@ -86,6 +90,9 @@ class SpotifyManager:
                 self.is_session_connected = True
                 logging.info("Spotify session connected")
 
+            elif event == "loading":
+                self._user_load = True
+
             elif event == "track_changed":
                 # track_changed carries all metadata: NAME, ARTISTS, ALBUM, COVERS, DURATION_MS
                 self._librespot_playing = True
@@ -106,7 +113,7 @@ class SpotifyManager:
                 self._store_spotify_url(track_id)
 
                 # If another source pre-empted us, just store metadata silently
-                if self._is_preempted():
+                if self._is_preempted() and not self._user_load:
                     logging.info(f"Spotify track_changed (pre-empted, metadata only): {name}")
                     await self._save_state()
                     return True
@@ -122,7 +129,7 @@ class SpotifyManager:
                 # audio. Only a resume after a pause or stop is a user action
                 # that takes the audio back.
                 user_resumed = previous_event in ("paused", "stopped")
-                if self._is_preempted() and not user_resumed:
+                if self._is_preempted() and not (user_resumed or self._user_load):
                     logging.info("Spotify playing event ignored (pre-empted by another source)")
                     return True
 
@@ -159,6 +166,7 @@ class SpotifyManager:
 
             elif event in ("stopped", "session_disconnected"):
                 self._librespot_playing = False
+                self._user_load = False
                 self.is_playing = False
                 self.is_paused = False
                 if event == "session_disconnected":
@@ -199,6 +207,7 @@ class SpotifyManager:
 
     async def _show_playing(self) -> None:
         """Take the audio (first time only) and show the now-playing view."""
+        self._user_load = False
         if not self.is_playing:
             self.is_playing = True
             if self.audio_conflict:
