@@ -67,9 +67,11 @@ from routes import (
 from config import DEFAULT_PORT, PRODUCTION_PORT, CANVAS_DOMAIN, DEVICE_NAME, DEVICE_MANUFACTURER, APP_VERSION, SENDSPIN_NAME, SENDSPIN_ART_STATE_DIR, STATION_ART_CACHE_DIR
 
 # Logging setup
+# force: an import-time warning above already installed a WARNING-level handler
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    force=True,
 )
 
 HEALTH_CHECK_INTERVAL = 30
