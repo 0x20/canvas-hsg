@@ -122,6 +122,12 @@ class AudioConflictManager:
     async def _unmute(self, sink: str) -> None:
         self._mute_owner.pop(sink, None)
         indices = self._muted_sources.pop(sink, [])
+        # Also unmute the sink-inputs opened since the mute: librespot closes
+        # its stream on pause, and PipeWire's stream-restore (keyed by media
+        # role) starts the new one muted.
+        binary = SOURCE_BINARIES.get(sink)
+        if binary:
+            indices += [i for i in await self._find_sink_inputs(binary) if i not in indices]
         for idx in indices:
             await self._set_mute(idx, mute=False)
         if indices:
