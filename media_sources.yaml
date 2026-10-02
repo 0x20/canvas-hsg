@@ -220,6 +220,10 @@ youtube_channels:
       url: "https://www.youtube.com/watch?v=36YnV9STBqc"
       description: "Chill and relaxing music for the good life"
 
+    - name: "🤖 Claude FM - 24/7 Live"
+      url: "https://www.youtube.com/watch?v=tRsQsTMvPNg"
+      description: "Music for thinking and building, by Anthropic"
+
   # Synthwave & Retro
   synthwave_retro:
     - name: "🎮 Nostalgic Gamers: 24/7 Chillwave & Retro Games"
