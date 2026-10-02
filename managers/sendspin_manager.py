@@ -68,6 +68,7 @@ class SendspinManager:
         # Self-healing playback-state watcher (MPRIS PlaybackStatus) — covers
         # hooks missed across a restart or track changes within a stream.
         self._playback_watch_task: Optional[asyncio.Task] = None
+        self._art_join_task: Optional[asyncio.Task] = None
         # Cached MPRIS bus name; re-discovered only when a read fails (daemon
         # restart), so polling doesn't spawn a ListNames subprocess each tick.
         self._mpris_dest: Optional[str] = None
@@ -93,6 +94,8 @@ class SendspinManager:
                 self._poll_task.cancel()
             if self._playback_watch_task and not self._playback_watch_task.done():
                 self._playback_watch_task.cancel()
+            if self._art_join_task and not self._art_join_task.done():
+                self._art_join_task.cancel()
             # Restore any muted sources
             if self.audio_conflict:
                 await self.audio_conflict.release("sendspin")
@@ -117,6 +120,10 @@ class SendspinManager:
         was_paused = self.is_paused
         self.is_paused = False
         self.is_playing = True
+
+        if local:
+            # Put the art client in the speaker's group so MA sends the covers
+            self._start_art_join()
 
         if local and not self._local_audio:
             self._local_audio = True
@@ -145,6 +152,12 @@ class SendspinManager:
 
         # Start polling for metadata changes
         self._start_metadata_polling()
+
+    def _start_art_join(self) -> None:
+        """Run the art client's group join in the background, one at a time."""
+        if not self.artwork_client or (self._art_join_task and not self._art_join_task.done()):
+            return
+        self._art_join_task = asyncio.create_task(self.artwork_client.sync_to_playing_group())
 
     def _remote_group_playing(self) -> bool:
         """True when MA reports our group playing with a known track —
@@ -482,14 +495,13 @@ class SendspinManager:
             try:
                 await asyncio.sleep(4)
 
-                # Keep the artwork display in the playing group so MA pushes
-                # it per-track metadata + covers. No-op once joined; rate-
-                # limited internally when nothing is playing.
-                if self.artwork_client:
-                    await self.artwork_client.sync_to_playing_group()
-
                 status = await self._read_mpris_playback_status()
                 local = status == "Playing"
+
+                # The hook start already began the join. This retries it while
+                # the local daemon plays and the art client is not in its group.
+                if local and self.artwork_client:
+                    self._start_art_join()
                 stopped_local = status == "Stopped"
                 remote = self._remote_group_playing()
                 remote_paused = self._remote_group_paused()

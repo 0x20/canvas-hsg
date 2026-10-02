@@ -14,11 +14,10 @@ display showed a Body Count cover while the speaker played Boards of Canada). Th
 CONTROLLER role fixes this: it lets the client issue `switch` commands to cycle
 through the server's groups until it lands in the one that's actually PLAYING —
 i.e. the speaker's group — after which MA streams it that group's cover + metadata
-on every track change. The switch cycle is driven by SendspinManager's playback
-watcher (see sync_to_playing_group), whether or not the Pi itself is the speaker:
-the protocol only notifies a client about its *own* group, so a playing group
-elsewhere can only be discovered by actively cycling — hence the periodic,
-time-gated retry instead of a one-shot attempt.
+on every track change. Only the local speakers matter: SendspinManager starts
+the switch cycle when the local daemon starts a stream, and keeps calling it
+while the daemon plays and we are not yet in a playing group. When the
+speakers are idle, nothing switches.
 
 This is the protocol's intended way to drive wall displays: the artwork arrives
 as raw encoded images pushed by the server, so it works fully offline on the LAN
@@ -35,7 +34,6 @@ import json
 import logging
 import os
 import stat
-import time
 from pathlib import Path
 from typing import Awaitable, Callable, Optional
 
@@ -66,17 +64,11 @@ ARTWORK_LISTEN_PORT = 8930
 # the canvas; ~800px is sharp on 1080p without sending oversized frames.
 ARTWORK_SIZE = 800
 
-# Auto-join (CONTROLLER role) tuning. A `switch` cycles us to the next group; we
-# keep switching until we land on a PLAYING group or have visited every group.
-# Cap the attempts as a backstop so a server that never reports PLAYING can't
-# spin us forever, and wait briefly after each switch for the group/update.
+# Auto-join (CONTROLLER role) tuning. A `switch` moves us to the next PLAYING
+# group. While the speaker's group is not playing yet, the server ignores the
+# command and sends no group/update, so we wait and send it again.
 MAX_SWITCH_ATTEMPTS = 8
-SWITCH_SETTLE_TIMEOUT = 2.5
-# After an unsuccessful full cycle, wait this long before cycling again. MA only
-# sends group/update for our own group, so playback starting in another group is
-# invisible until we go looking for it — but cycling on every poll tick would
-# spam switch commands.
-RESYNC_INTERVAL = 30.0
+SWITCH_SETTLE_TIMEOUT = 2.0
 
 _FORMAT_MIME = {
     PictureFormat.JPEG: "image/jpeg",
@@ -156,12 +148,6 @@ class SendspinArtworkClient:
         # doesn't, auto-join is impossible and we say so once.
         self._switch_supported: bool = False
         self._logged_no_switch: bool = False
-        # Monotonic time before which periodic callers shouldn't re-cycle after
-        # a full unsuccessful switch cycle; cleared when group state changes or
-        # on a fresh connection (i.e. when there's new reason to believe it'd
-        # work). Playback starting in *another* group sends us no event, so the
-        # cycle must still retry on a timer rather than latch off entirely.
-        self._sync_backoff_until: float = 0.0
         # Signalled on every group/update so a switch can await the new state.
         self._group_changed: asyncio.Event = asyncio.Event()
         # Serialises switch cycles so concurrent poll ticks don't interleave.
@@ -309,8 +295,6 @@ class SendspinArtworkClient:
         playing = state == PlaybackStateType.PLAYING
         paused = state == PlaybackStateType.PAUSED
 
-        if group_id != self._group_id or playing != self._group_playing:
-            self._sync_backoff_until = 0.0  # new info → worth (re)trying a switch
         self._group_id = group_id
         self._group_name = getattr(payload, "group_name", None)
         self._group_playing = playing
@@ -323,17 +307,13 @@ class SendspinArtworkClient:
         self._group_changed.set()
 
     async def sync_to_playing_group(self) -> None:
-        """Switch into the group that's actually playing (the speaker's group).
+        """Switch into the group that is playing (the local speaker's group).
 
-        Called periodically by SendspinManager's playback watcher. No-op while
-        we're already in a playing group, when the server doesn't support
-        `switch`, or within the backoff window after a full unsuccessful cycle
-        (cleared early when group state changes). Cycles `switch` until a
-        group/update reports PLAYING.
+        SendspinManager calls this when the local daemon starts a stream. It
+        does nothing when we are already in a playing group, when the server
+        does not support `switch`, or when a cycle already runs.
         """
-        if self._client is None:
-            return
-        if self._group_playing or time.monotonic() < self._sync_backoff_until:
+        if self._client is None or self._group_playing or self._sync_lock.locked():
             return
         if not self._switch_supported:
             if not self._logged_no_switch:
@@ -345,21 +325,9 @@ class SendspinArtworkClient:
             return
 
         async with self._sync_lock:
-            # Re-check under the lock — a group/update may have arrived meanwhile.
-            if self._client is None or self._group_playing or \
-                    time.monotonic() < self._sync_backoff_until:
-                return
-
-            tried_groups: set = set()
             for attempt in range(MAX_SWITCH_ATTEMPTS):
-                if self._group_playing:
+                if self._client is None or self._group_playing:
                     break
-                current = self._group_id
-                if current is not None and current in tried_groups:
-                    break  # cycled back to a group we already visited
-                if current is not None:
-                    tried_groups.add(current)
-
                 self._group_changed.clear()
                 try:
                     await self._client.send_group_command(MediaCommand.SWITCH)
@@ -375,11 +343,7 @@ class SendspinArtworkClient:
             if self._group_playing:
                 logger.info("Sendspin: joined playing group '%s'", self._group_name)
             else:
-                self._sync_backoff_until = time.monotonic() + RESYNC_INTERVAL
-                logger.debug(
-                    "Sendspin: no playing group found after switching; retrying in %.0fs",
-                    RESYNC_INTERVAL,
-                )
+                logger.info("Sendspin: no playing group found after switching")
 
     def _notify(self) -> None:
         """Schedule the now-playing re-broadcast when art (URL or bytes) changes."""
@@ -425,7 +389,6 @@ class SendspinArtworkClient:
             self._group_name = None
             self._group_playing = False
             self._switch_supported = False
-            self._sync_backoff_until = 0.0
             if self.pairing_pin is not None:
                 await self._show_pairing_pin(None)
             logger.info("Music Assistant disconnected from artwork display client")
