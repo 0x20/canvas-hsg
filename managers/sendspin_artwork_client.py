@@ -69,6 +69,10 @@ ARTWORK_SIZE = 800
 # command and sends no group/update, so we wait and send it again.
 MAX_SWITCH_ATTEMPTS = 8
 SWITCH_SETTLE_TIMEOUT = 2.0
+# Time to wait for the metadata of a group before we decide that its title is
+# not the title of the local speaker. The local daemon and the art client get
+# the same metadata message from MA, so a match comes fast.
+TITLE_SETTLE_TIMEOUT = 3.0
 
 _FORMAT_MIME = {
     PictureFormat.JPEG: "image/jpeg",
@@ -150,6 +154,8 @@ class SendspinArtworkClient:
         self._logged_no_switch: bool = False
         # Signalled on every group/update so a switch can await the new state.
         self._group_changed: asyncio.Event = asyncio.Event()
+        # Signalled on every metadata update so a title check can await it.
+        self._metadata_changed: asyncio.Event = asyncio.Event()
         # Serialises switch cycles so concurrent poll ticks don't interleave.
         self._sync_lock: asyncio.Lock = asyncio.Lock()
 
@@ -240,6 +246,7 @@ class SendspinArtworkClient:
         new_track = title is not None and title != self.track_title
         if new_track:
             self.track_title = title
+            self._metadata_changed.set()
 
         artist = _str_field("artist")
         if artist is not None:
@@ -306,14 +313,21 @@ class SendspinArtworkClient:
         )
         self._group_changed.set()
 
-    async def sync_to_playing_group(self) -> None:
-        """Switch into the group that is playing (the local speaker's group).
+    async def sync_to_playing_group(
+        self, local_title: Optional[Callable[[], Awaitable[Optional[str]]]] = None,
+    ) -> None:
+        """Switch into the group of the local speaker.
 
-        SendspinManager calls this when the local daemon starts a stream. It
-        does nothing when we are already in a playing group, when the server
-        does not support `switch`, or when a cycle already runs.
+        SendspinManager calls this when the local daemon starts a stream.
+        `local_title` returns the title that the local daemon plays. A `switch`
+        can only go to the next playing group, so when more than one group
+        plays, we compare the titles and send `switch` again on a mismatch.
+        This does nothing when a cycle already runs or when the server does
+        not support `switch`.
         """
-        if self._client is None or self._group_playing or self._sync_lock.locked():
+        if self._client is None or self._sync_lock.locked():
+            return
+        if await self._in_speaker_group(local_title):
             return
         if not self._switch_supported:
             if not self._logged_no_switch:
@@ -325,8 +339,12 @@ class SendspinArtworkClient:
             return
 
         async with self._sync_lock:
+            joined = False
             for attempt in range(MAX_SWITCH_ATTEMPTS):
-                if self._client is None or self._group_playing:
+                if self._client is None:
+                    break
+                if await self._in_speaker_group(local_title):
+                    joined = True
                     break
                 self._group_changed.clear()
                 try:
@@ -334,16 +352,45 @@ class SendspinArtworkClient:
                 except Exception as e:
                     logger.warning("Sendspin switch command failed: %s", e)
                     break
-                logger.info("Sendspin: sent switch (attempt %d) to find playing group", attempt + 1)
+                logger.info("Sendspin: sent switch (attempt %d) to find the speaker's group", attempt + 1)
                 try:
                     await asyncio.wait_for(self._group_changed.wait(), timeout=SWITCH_SETTLE_TIMEOUT)
                 except asyncio.TimeoutError:
                     pass
-
-            if self._group_playing:
-                logger.info("Sendspin: joined playing group '%s'", self._group_name)
             else:
-                logger.info("Sendspin: no playing group found after switching")
+                joined = await self._in_speaker_group(local_title)
+
+            if joined:
+                logger.info("Sendspin: joined the speaker's group (%s)", self._group_id)
+            else:
+                logger.info("Sendspin: did not find the speaker's group after switching")
+
+    async def _in_speaker_group(
+        self, local_title: Optional[Callable[[], Awaitable[Optional[str]]]],
+    ) -> bool:
+        """True when our group plays the same title as the local speaker.
+
+        Without a local title there is nothing to compare, so any playing
+        group counts. On a mismatch we wait a short time for the metadata of
+        the group, because it can come just after the group/update.
+        """
+        if not self._group_playing:
+            return False
+        want = _norm(await local_title()) if local_title else None
+        if not want:
+            return True
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + TITLE_SETTLE_TIMEOUT
+        while _norm(self.track_title) != want:
+            remaining = deadline - loop.time()
+            if remaining <= 0 or not self._group_playing:
+                return False
+            self._metadata_changed.clear()
+            try:
+                await asyncio.wait_for(self._metadata_changed.wait(), timeout=remaining)
+            except asyncio.TimeoutError:
+                return False
+        return True
 
     def _notify(self) -> None:
         """Schedule the now-playing re-broadcast when art (URL or bytes) changes."""
@@ -457,3 +504,7 @@ class SendspinArtworkClient:
             except Exception:
                 pass
             self._listener = None
+
+
+def _norm(title: Optional[str]) -> str:
+    return (title or "").strip().casefold()

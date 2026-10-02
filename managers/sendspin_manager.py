@@ -157,7 +157,13 @@ class SendspinManager:
         """Run the art client's group join in the background, one at a time."""
         if not self.artwork_client or (self._art_join_task and not self._art_join_task.done()):
             return
-        self._art_join_task = asyncio.create_task(self.artwork_client.sync_to_playing_group())
+        self._art_join_task = asyncio.create_task(
+            self.artwork_client.sync_to_playing_group(local_title=self._mpris_title))
+
+    async def _mpris_title(self) -> Optional[str]:
+        """The title that the local daemon plays, from MPRIS."""
+        info = await self._track_from_mpris()
+        return info.get("name") if info else None
 
     def _remote_group_playing(self) -> bool:
         """True when MA reports our group playing with a known track —
