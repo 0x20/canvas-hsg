@@ -98,7 +98,7 @@ class OutputTargetManager:
             name="HDMI Display (Local)",
             capabilities=["video", "audio"],
             metadata={
-                "device": "/dev/dri/card1",
+                "device": "/dev/dri/by-path/platform-gpu-card",
                 "connector": "HDMI-A-1",
                 "resolution": "1920x1200",
                 "is_default": True
